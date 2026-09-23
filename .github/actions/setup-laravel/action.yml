@@ -1,0 +1,167 @@
+name: Setup Laravel
+description: Prepares a Laravel app with PHP, Node, dependencies, a migrated SQLite database, built frontend assets and the Laravel Boost MCP config
+
+inputs:
+  php-version:
+    description: PHP version (empty reads .php-version, composer.lock or composer.json config.platform.php, otherwise latest)
+    default: ""
+  node-version:
+    description: Node version (empty reads .nvmrc or .node-version, otherwise the current LTS)
+    default: ""
+
+outputs:
+  mcp-config:
+    description: Path to the Laravel Boost --mcp-config file (empty if the project does not use Boost)
+    value: ${{ steps.boost.outputs.config }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Detect PHP extensions
+      id: extensions
+      if: hashFiles('composer.json') != ''
+      shell: bash
+      run: |
+        # Base extensions plus every ext-* required by the project or its locked dependencies
+        required=$(
+          {
+            jq -r '(.require // {}) + (.["require-dev"] // {}) | keys[]' composer.json
+            if [ -f composer.lock ]; then
+              jq -r '[.packages[]?, .["packages-dev"][]?] | .[] | (.require // {}) | keys[]' composer.lock
+            fi
+          } | sed -n 's/^ext-//p'
+        )
+        # shellcheck disable=SC2086
+        list=$(printf '%s\n' dom curl libxml mbstring zip pcntl pdo sqlite pdo_sqlite gd $required | sort -u | paste -sd, -)
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+
+    - name: Setup PHP
+      if: hashFiles('composer.json') != ''
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ inputs.php-version }}
+        extensions: ${{ steps.extensions.outputs.list }}
+        coverage: none
+
+    - name: Get Composer cache directory
+      id: composer-cache
+      if: hashFiles('composer.json') != ''
+      shell: bash
+      run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Composer dependencies
+      if: hashFiles('composer.json') != ''
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.composer-cache.outputs.dir }}
+        key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+        restore-keys: composer-${{ runner.os }}-
+
+    - name: Install Composer dependencies
+      if: hashFiles('composer.json') != ''
+      shell: bash
+      run: composer install --no-interaction --prefer-dist
+
+    - name: Setup Node
+      if: hashFiles('package.json') != ''
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version || (hashFiles('.nvmrc', '.node-version') == '' && 'lts/*' || '') }}
+        node-version-file: ${{ hashFiles('.nvmrc') != '' && '.nvmrc' || (hashFiles('.node-version') != '' && '.node-version' || '') }}
+
+    - name: Cache Node dependencies
+      if: hashFiles('package.json') != ''
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.npm
+          ~/.local/share/pnpm/store
+          ~/.cache/yarn
+          ~/.yarn/berry/cache
+        key: node-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'package.json') }}
+        restore-keys: node-${{ runner.os }}-
+
+    - name: Install Node dependencies
+      if: hashFiles('package.json') != ''
+      shell: bash
+      run: |
+        # Corepack ships with Node only up to 24
+        enable_corepack() {
+          command -v corepack >/dev/null || npm install -g corepack
+          corepack enable
+        }
+
+        if [ -f pnpm-lock.yaml ]; then
+          enable_corepack
+          PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 pnpm install --frozen-lockfile
+        elif [ -f yarn.lock ]; then
+          enable_corepack
+          YARN_NPM_MINIMAL_AGE_GATE=0 yarn install --frozen-lockfile
+        elif [ -f package-lock.json ]; then
+          npm ci --min-release-age=0
+        else
+          npm install --min-release-age=0
+        fi
+
+    - name: Prepare Laravel environment
+      if: hashFiles('artisan') != ''
+      shell: bash
+      run: |
+        set_env() {
+          if grep -q "^$1=" .env; then
+            sed -i "s|^$1=.*|$1=$2|" .env
+          else
+            echo "$1=$2" >> .env
+          fi
+        }
+
+        [ -f .env ] || cp .env.example .env 2>/dev/null || touch .env
+
+        mkdir -p database
+        touch database/database.sqlite
+        set_env DB_CONNECTION sqlite
+        set_env DB_DATABASE "$PWD/database/database.sqlite"
+
+        if ! grep -q '^APP_KEY=.\+' .env; then
+          set_env APP_KEY ''
+          php artisan key:generate --force --no-interaction
+        fi
+
+        if ! php artisan migrate --force --no-interaction; then
+          echo "::warning::Migrations failed on SQLite; database tools and commands that read data may not work"
+        fi
+
+    - name: Build frontend assets
+      if: hashFiles('package.json') != ''
+      shell: bash
+      run: |
+        # Views using @vite fail in tests without a build manifest
+        if ! jq -e '.scripts.build' package.json >/dev/null; then
+          echo "No build script in package.json, skipping"
+          exit 0
+        fi
+
+        if [ -f pnpm-lock.yaml ]; then
+          build="pnpm run build"
+        elif [ -f yarn.lock ]; then
+          build="yarn build"
+        else
+          build="npm run build"
+        fi
+
+        if ! $build; then
+          echo "::warning::Frontend build failed; tests that render views with @vite may fail"
+        fi
+
+    - name: Configure Laravel Boost
+      id: boost
+      if: hashFiles('artisan') != '' && hashFiles('composer.lock') != ''
+      shell: bash
+      run: |
+        if jq -e '[.packages[]?, .["packages-dev"][]?] | any(.name == "laravel/boost")' composer.lock >/dev/null; then
+          config="$RUNNER_TEMP/mcp-laravel-boost.json"
+          jq -n --arg artisan "$GITHUB_WORKSPACE/artisan" \
+            '{mcpServers: {"laravel-boost": {command: "php", args: [$artisan, "boost:mcp"]}}}' > "$config"
+          echo "config=$config" >> "$GITHUB_OUTPUT"
+        fi

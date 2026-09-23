@@ -1,0 +1,17 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: datalogix/workflows/.github/workflows/laravel-tests.yml@v1
+    secrets: inherit
+    # with:
+    #   laravel: '["^12.0", "^13.0"]'
+    #   test-command: vendor/bin/pest

@@ -1,0 +1,24 @@
+name: claude-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+    paths-ignore:
+      - "**.md"
+      - composer.lock
+      - package-lock.json
+      - pnpm-lock.yaml
+      - yarn.lock
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  id-token: write
+
+jobs:
+  review:
+    uses: datalogix/workflows/.github/workflows/claude-review.yml@v1
+    secrets: inherit
+    # with:
+    #   model: sonnet

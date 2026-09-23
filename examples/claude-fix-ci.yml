@@ -1,0 +1,22 @@
+name: claude-fix-ci
+
+on:
+  workflow_run:
+    # Name of this repository's tests workflow
+    workflows: [tests]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
+
+jobs:
+  fix:
+    uses: datalogix/workflows/.github/workflows/claude-fix-ci.yml@v1
+    secrets: inherit
+    # with:
+    #   model: opus
+    #   max-attempts: 2

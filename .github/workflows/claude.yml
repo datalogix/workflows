@@ -1,0 +1,184 @@
+name: claude
+
+on:
+  workflow_call:
+    inputs:
+      php-version:
+        type: string
+        default: ""
+        description: Empty reads .php-version, composer.lock or composer.json config.platform.php, otherwise latest
+      node-version:
+        type: string
+        default: ""
+        description: Empty reads .nvmrc or .node-version, otherwise the current LTS
+      model:
+        type: string
+        default: opus
+        description: Claude model (e.g. fable, opus, sonnet); empty uses the account default
+      plan-model:
+        type: string
+        default: best
+        description: Claude model used for planning (plan label); best uses Fable where available, otherwise Opus
+      plan-max-turns:
+        type: number
+        default: 40
+      plan-timeout-minutes:
+        type: number
+        default: 30
+      max-turns:
+        type: number
+        default: 80
+      timeout-minutes:
+        type: number
+        default: 90
+      trigger-phrase:
+        type: string
+        default: "@claude"
+      label:
+        type: string
+        default: claude
+        description: Label that makes Claude implement the issue
+      plan-label:
+        type: string
+        default: claude-plan
+        description: Label that makes Claude only post an implementation plan on the issue
+      assignee:
+        type: string
+        default: ""
+        description: User that triggers Claude when assigned to an issue (empty disables)
+      branch-name-template:
+        type: string
+        default: "{{prefix}}{{entityNumber}}-{{description}}-{{timestamp}}"
+      commit-signing:
+        type: boolean
+        default: false
+        description: Sign commits through the GitHub API (does not support rebase or other complex git operations)
+      allowed-tools:
+        type: string
+        default: Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*
+      disallowed-tools:
+        type: string
+        default: Bash(git push --force:*),Bash(git push -f:*),Bash(git push --delete:*),Bash(gh pr merge:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
+      plugin-marketplaces:
+        type: string
+        default: https://github.com/datalogix/workflows.git
+      plugins:
+        type: string
+        default: laravel@datalogix
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this repository (no double quotes)
+      show-full-output:
+        type: boolean
+        default: false
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == inputs.label) ||
+      (github.event_name == 'issues' && github.event.action == 'assigned' && inputs.assignee != '' && github.event.assignee.login == inputs.assignee) ||
+      (
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association) &&
+        (
+          (github.event_name == 'issue_comment' && contains(github.event.comment.body, inputs.trigger-phrase)) ||
+          (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, inputs.trigger-phrase)) ||
+          (github.event_name == 'pull_request_review' && contains(github.event.review.body, inputs.trigger-phrase)) ||
+          (github.event_name == 'issues' && github.event.action == 'opened' && (contains(github.event.issue.body, inputs.trigger-phrase) || contains(github.event.issue.title, inputs.trigger-phrase)))
+        )
+      )
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: claude-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Laravel
+        id: setup
+        uses: datalogix/workflows/.github/actions/setup-laravel@v1
+        with:
+          php-version: ${{ inputs.php-version }}
+          node-version: ${{ inputs.node-version }}
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        env:
+          APP_ENV: testing
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          trigger_phrase: ${{ inputs.trigger-phrase }}
+          label_trigger: ${{ inputs.label }}
+          assignee_trigger: ${{ inputs.assignee }}
+          branch_name_template: ${{ inputs.branch-name-template }}
+          use_commit_signing: ${{ inputs.commit-signing }}
+
+          plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
+          plugins: ${{ inputs.plugins }}
+
+          additional_permissions: |
+            actions: read
+
+          show_full_output: ${{ inputs.show-full-output }}
+
+          claude_args: |
+            --max-turns ${{ inputs.max-turns }}
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            ${{ steps.setup.outputs.mcp-config != '' && format('--mcp-config {0}', steps.setup.outputs.mcp-config) || '' }}
+            --allowed-tools "${{ inputs.allowed-tools }}"
+            --disallowed-tools "${{ inputs.disallowed-tools }}"
+            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Explore the code yourself, synchronously, and only end your turn when the task is complete. Before starting, load the laravel:conventions skill and follow all of its rules. ${{ inputs.extra-instructions }}"
+
+  plan:
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == inputs.plan-label
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: ${{ inputs.plan-timeout-minutes }}
+
+    concurrency:
+      group: claude-plan-${{ github.repository }}-${{ github.event.issue.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Plan with Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
+          plugins: ${{ inputs.plugins }}
+
+          prompt: /laravel:plan ${{ github.event.issue.number }}
+
+          claude_args: |
+            --max-turns ${{ inputs.plan-max-turns }}
+            ${{ inputs.plan-model != '' && format('--model {0}', inputs.plan-model) || '' }}
+            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(ls:*)"
+            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only finish once the plan has been posted on the issue. Load the laravel:conventions skill before starting. ${{ inputs.extra-instructions }}"
+
+      - name: Remove plan label
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          LABEL: ${{ inputs.plan-label }}
+        run: gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL"

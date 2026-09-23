@@ -1,0 +1,103 @@
+name: laravel-tests
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        default: '["ubuntu-latest"]'
+      php:
+        type: string
+        default: '["8.2", "8.3", "8.4", "8.5"]'
+      laravel:
+        type: string
+        default: '["^11.0", "^12.0", "^13.0"]'
+      stability:
+        type: string
+        default: '["prefer-lowest", "prefer-stable"]'
+      exclude:
+        type: string
+        default: |
+          [
+            {"laravel": "^13.0", "php": "8.2"},
+            {"stability": "prefer-lowest", "php": "8.4"},
+            {"stability": "prefer-lowest", "php": "8.5"}
+          ]
+      extensions:
+        type: string
+        default: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd
+      test-command:
+        type: string
+        default: vendor/bin/phpunit
+      coverage:
+        type: boolean
+        default: true
+      coverage-driver:
+        type: string
+        default: pcov
+        description: pcov (faster) or xdebug
+      timeout-minutes:
+        type: number
+        default: 30
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    # A new push to a PR cancels the previous run; runs on main always finish
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ matrix.os }}-${{ matrix.php }}-${{ matrix.laravel }}-${{ matrix.stability }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os) }}
+        php: ${{ fromJSON(inputs.php) }}
+        laravel: ${{ fromJSON(inputs.laravel) }}
+        stability: ${{ fromJSON(inputs.stability) }}
+        exclude: ${{ fromJSON(inputs.exclude) }}
+
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: ${{ inputs.extensions }}
+          coverage: ${{ inputs.coverage && inputs.coverage-driver || 'none' }}
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        shell: bash
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ matrix.os }}-php-${{ matrix.php }}-laravel-${{ matrix.laravel }}-${{ matrix.stability }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ matrix.os }}-php-${{ matrix.php }}-laravel-${{ matrix.laravel }}-${{ matrix.stability }}-
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:${{ matrix.laravel }}" --no-interaction --no-update
+          composer update --${{ matrix.stability }} --prefer-dist --no-interaction
+
+      - name: Execute tests
+        run: ${{ inputs.test-command }}
+
+      - name: Coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

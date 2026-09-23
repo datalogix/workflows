@@ -1,0 +1,7 @@
+{
+  "name": "laravel",
+  "description": "Datalogix conventions and commands for Laravel projects",
+  "author": {
+    "name": "Datalogix"
+  }
+}

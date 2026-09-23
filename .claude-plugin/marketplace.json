@@ -1,0 +1,16 @@
+{
+  "name": "datalogix",
+  "owner": {
+    "name": "Datalogix"
+  },
+  "metadata": {
+    "description": "Datalogix plugins for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "laravel",
+      "source": "./plugins/laravel",
+      "description": "Datalogix conventions and commands for Laravel projects"
+    }
+  ]
+}

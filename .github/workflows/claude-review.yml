@@ -1,0 +1,65 @@
+name: claude-review
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        type: string
+        default: opus
+        description: Claude model (e.g. fable, opus, sonnet); empty uses the account default
+      timeout-minutes:
+        type: number
+        default: 30
+      ignored-authors:
+        type: string
+        default: '["dependabot[bot]", "renovate[bot]"]'
+        description: JSON list of PR authors that are not reviewed
+      skip-label:
+        type: string
+        default: no-review
+        description: PRs with this label are not reviewed
+      allowed-bots:
+        type: string
+        default: "*"
+        description: Bots whose PRs are reviewed (ignored-authors still takes precedence)
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  review:
+    if: |
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(fromJSON(inputs.ignored-authors), github.event.pull_request.user.login) &&
+      !contains(github.event.pull_request.labels.*.name, inputs.skip-label)
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: claude-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: ${{ inputs.allowed-bots }}
+          plugin_marketplaces: https://github.com/anthropics/claude-code.git
+          plugins: code-review@claude-code-plugins
+          prompt: /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+          claude_args: ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}

@@ -1,0 +1,16 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: datalogix/workflows/.github/workflows/laravel-app-tests.yml@v1
+    # with:
+    #   php-version: "8.3"
+    #   pint: false

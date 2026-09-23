@@ -1,0 +1,156 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Lint workflows
+        shell: bash
+        env:
+          # Not updated by Dependabot: bump manually from https://github.com/rhysd/actionlint/releases
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          bash <(curl -sSL "https://raw.githubusercontent.com/rhysd/actionlint/v$ACTIONLINT_VERSION/scripts/download-actionlint.bash") "$ACTIONLINT_VERSION"
+
+          # Point the examples at the local workflows so their inputs and secrets are checked too
+          mkdir -p .lint/examples
+          for f in examples/*.yml; do
+            sed 's|datalogix/workflows/\(\.github/workflows/[^@]*\)@v[0-9]*|./\1|' "$f" > ".lint/$f"
+          done
+
+          ./actionlint -color .github/workflows/*.yml .lint/examples/*.yml
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - name: Validate Claude plugin
+        shell: bash
+        run: |
+          npx -y @anthropic-ai/claude-code plugin validate .
+          npx -y @anthropic-ai/claude-code plugin validate plugins/laravel
+
+  setup-laravel:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4", "8.5"]
+        node: ["22", "24"]
+        boost: [false, true]
+        pm: [npm]
+        include:
+          # Empty versions exercise auto-detection (latest PHP, Node LTS)
+          - php: ""
+            node: ""
+            boost: false
+            pm: npm
+          # Node 25+ no longer ships Corepack
+          - php: "8.5"
+            node: "25"
+            boost: false
+            pm: pnpm
+          - php: "8.5"
+            node: "24"
+            boost: false
+            pm: yarn
+
+    name: setup-laravel (php ${{ matrix.php || 'auto' }}, node ${{ matrix.node || 'auto' }}, ${{ matrix.pm }}, boost ${{ matrix.boost }})
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          path: .central
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Create Laravel app
+        shell: bash
+        env:
+          PM: ${{ matrix.pm }}
+        run: |
+          composer create-project laravel/laravel "$RUNNER_TEMP/app" --no-interaction --prefer-dist --no-scripts
+          cp -a "$RUNNER_TEMP/app/." .
+
+          # Simulate an older project whose .env.example points to MySQL
+          sed -i -e '/DB_CONNECTION=/d' -e '/DB_DATABASE=/d' .env.example
+          printf 'DB_CONNECTION=mysql\nDB_DATABASE=laravel\n' >> .env.example
+
+          # Commit a lockfile for the package manager under test
+          case "$PM" in
+            pnpm)
+              version=$(npm view pnpm version)
+              npm pkg set packageManager="pnpm@$version"
+              npx -y "pnpm@$version" install --lockfile-only
+              ;;
+            yarn)
+              npm pkg set packageManager="yarn@1.22.22"
+              npx -y yarn@1.22.22 install --ignore-scripts
+              rm -rf node_modules
+              ;;
+          esac
+
+      - name: Install Laravel Boost
+        if: matrix.boost
+        shell: bash
+        run: composer require laravel/boost --dev --no-interaction
+
+      - name: Run setup-laravel
+        id: setup
+        uses: ./.central/.github/actions/setup-laravel
+        with:
+          php-version: ${{ matrix.php }}
+          node-version: ${{ matrix.node }}
+
+      - name: Check environment
+        shell: bash
+        env:
+          MCP_CONFIG: ${{ steps.setup.outputs.mcp-config }}
+          BOOST: ${{ matrix.boost }}
+          PHP: ${{ matrix.php }}
+          NODE: ${{ matrix.node }}
+        run: |
+          set -x
+          if [ -n "$PHP" ]; then
+            test "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" = "$PHP"
+          fi
+          if [ -n "$NODE" ]; then
+            node --version | grep -q "^v$NODE\."
+          fi
+          grep -qx 'DB_CONNECTION=sqlite' .env
+          grep -qx "DB_DATABASE=$PWD/database/database.sqlite" .env
+          grep -q '^APP_KEY=base64:' .env
+          test -f database/database.sqlite
+          test "$(sqlite3 database/database.sqlite 'select count(*) from migrations')" -gt 0
+          test -d node_modules
+          test -f public/build/manifest.json
+
+          if [ "$BOOST" = true ]; then
+            test -f "$MCP_CONFIG"
+            jq -e '.mcpServers["laravel-boost"].args[1] == "boost:mcp"' "$MCP_CONFIG"
+          else
+            test -z "$MCP_CONFIG"
+          fi
+
+      - name: Run tests
+        shell: bash
+        run: php artisan test

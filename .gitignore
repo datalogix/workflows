@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+/.idea/
+/.vscode/
+/.zed/
+/.fleet/
+/.nova/
+/.cursor/
+
+# Local CI tooling (see ci.yml)
+/actionlint
+/.lint/
