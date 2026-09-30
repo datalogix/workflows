@@ -85,7 +85,7 @@ jobs:
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
       - name: Cache dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ matrix.os }}-php-${{ matrix.php }}-laravel-${{ matrix.laravel }}-${{ matrix.stability }}-${{ hashFiles('composer.json') }}
@@ -101,6 +101,6 @@ jobs:
 
       - name: Coverage
         if: inputs.coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
