@@ -20,5 +20,7 @@ jobs:
   review:
     uses: datalogix/workflows/.github/workflows/claude-review.yml@v1
     secrets: inherit
+    # All inputs are optional:
     # with:
     #   model: sonnet
+    #   extra-instructions: Pay special attention to authorization in controllers and policies.

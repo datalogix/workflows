@@ -17,6 +17,8 @@ jobs:
   fix:
     uses: datalogix/workflows/.github/workflows/claude-fix-ci.yml@v1
     secrets: inherit
+    # All inputs are optional:
     # with:
     #   model: opus
     #   max-attempts: 2
+    #   php-version: "8.3"

@@ -8,6 +8,8 @@ on:
 jobs:
   tests:
     uses: datalogix/workflows/.github/workflows/laravel-app-tests.yml@v1
+    # All inputs are optional:
     # with:
     #   php-version: "8.3"
     #   pint: false
+    #   phpstan: false

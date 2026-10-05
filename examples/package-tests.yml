@@ -9,6 +9,9 @@ jobs:
   tests:
     uses: datalogix/workflows/.github/workflows/laravel-tests.yml@v1
     secrets: inherit
+    # All inputs are optional:
     # with:
     #   laravel: '["^11.0", "^12.0", "^13.0"]'
     #   test-command: vendor/bin/pest
+    #   coverage: false
+    #   pint: false
