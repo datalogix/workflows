@@ -11,7 +11,7 @@ jobs:
     secrets: inherit
     # All inputs are optional:
     # with:
-    #   laravel: '["^11.0", "^12.0", "^13.0"]'
+    #   laravel: '["^13.0"]'
     #   test-command: vendor/bin/pest
     #   coverage: false
     #   pint: false

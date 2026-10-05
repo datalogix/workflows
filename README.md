@@ -82,8 +82,6 @@ jobs:
       exclude: "[]"
 ```
 
-A package that still supports Laravel 11 adds it back with `laravel: '["^11.0", "^12.0", "^13.0"]'`.
-
 See all inputs in [`laravel-tests`](#laravel-tests).
 
 ---
