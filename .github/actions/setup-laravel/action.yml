@@ -52,7 +52,7 @@ runs:
 
     - name: Cache Composer dependencies
       if: hashFiles('composer.json') != ''
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ${{ steps.composer-cache.outputs.dir }}
         key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
@@ -72,7 +72,7 @@ runs:
 
     - name: Cache Node dependencies
       if: hashFiles('package.json') != ''
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.npm
@@ -161,7 +161,8 @@ runs:
       run: |
         if jq -e '[.packages[]?, .["packages-dev"][]?] | any(.name == "laravel/boost")' composer.lock >/dev/null; then
           config="$RUNNER_TEMP/mcp-laravel-boost.json"
+          # Boost only registers boost:mcp outside the testing environment, and the Claude steps run with APP_ENV=testing
           jq -n --arg artisan "$GITHUB_WORKSPACE/artisan" \
-            '{mcpServers: {"laravel-boost": {command: "php", args: [$artisan, "boost:mcp"]}}}' > "$config"
+            '{mcpServers: {"laravel-boost": {command: "php", args: [$artisan, "boost:mcp"], env: {APP_ENV: "local"}}}}' > "$config"
           echo "config=$config" >> "$GITHUB_OUTPUT"
         fi

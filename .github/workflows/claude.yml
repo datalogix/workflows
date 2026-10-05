@@ -152,11 +152,18 @@ jobs:
       group: claude-plan-${{ github.repository }}-${{ github.event.issue.number }}
       cancel-in-progress: true
 
+    # Planning never changes code: it only reads the repository and comments on the issue
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          fetch-depth: 1
+          # Full history, so the plan can use git log
+          fetch-depth: 0
 
       - name: Plan with Claude Code
         uses: anthropics/claude-code-action@v1
