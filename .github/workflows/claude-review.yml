@@ -22,6 +22,18 @@ on:
         type: string
         default: "*"
         description: Bots whose PRs are reviewed (ignored-authors still takes precedence)
+      plugin-marketplaces:
+        type: string
+        default: https://github.com/datalogix/workflows.git
+        description: Extra marketplaces, besides the one with the code-review plugin
+      plugins:
+        type: string
+        default: laravel@datalogix
+        description: Extra plugins, besides code-review
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this repository (no double quotes)
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -59,7 +71,13 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: ${{ inputs.allowed-bots }}
-          plugin_marketplaces: https://github.com/anthropics/claude-code.git
-          plugins: code-review@claude-code-plugins
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-code.git
+            ${{ inputs.plugin-marketplaces }}
+          plugins: |
+            code-review@claude-code-plugins
+            ${{ inputs.plugins }}
           prompt: /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
-          claude_args: ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+          claude_args: |
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --append-system-prompt "Before starting, load the laravel:conventions skill and follow its language rules: write every review comment in Brazilian Portuguese. ${{ inputs.extra-instructions }}"

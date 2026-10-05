@@ -95,7 +95,16 @@ jobs:
           echo "Previous attempts: $count of $MAX"
           if [ "$count" -ge "$MAX" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "O CI continua falhando após $count tentativas automáticas de correção. Parei por aqui; é preciso revisão humana. [Ver execução]($RUN_URL)"
+
+            # Warn only once per PR, not on every later failure
+            marker="<!-- claude-fix-ci:limit -->"
+            warned=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments --jq "any(.comments[]; .body | contains(\"$marker\"))")
+            if [ "$warned" = true ]; then
+              echo "The PR was already told that the limit was reached"
+            else
+              body="O CI continua falhando após $count tentativas automáticas de correção. Parei por aqui; é preciso revisão humana. [Ver execução]($RUN_URL)"
+              gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$(printf '%s\n\n%s' "$body" "$marker")"
+            fi
           fi
 
       - name: Setup Laravel

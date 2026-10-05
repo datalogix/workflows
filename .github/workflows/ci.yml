@@ -151,6 +151,28 @@ jobs:
             test -z "$MCP_CONFIG"
           fi
 
+      - name: Check Laravel Boost MCP server
+        if: matrix.boost
+        shell: bash
+        env:
+          MCP_CONFIG: ${{ steps.setup.outputs.mcp-config }}
+          # Same environment as the Claude steps
+          APP_ENV: testing
+        run: |
+          server='.mcpServers["laravel-boost"]'
+          command=$(jq -r "$server.command" "$MCP_CONFIG")
+          mapfile -t args < <(jq -r "$server.args[]" "$MCP_CONFIG")
+          mapfile -t vars < <(jq -r "$server.env // {} | to_entries[] | \"\(.key)=\(.value)\"" "$MCP_CONFIG")
+
+          request='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1.0.0"}}}'
+          response=$(echo "$request" | timeout 30 env "${vars[@]}" "$command" "${args[@]}" || true)
+          echo "$response"
+
+          if ! grep -q '"serverInfo"' <<< "$response"; then
+            echo "::error::The Laravel Boost MCP server did not answer the initialize request"
+            exit 1
+          fi
+
       - name: Run tests
         shell: bash
         run: php artisan test

@@ -15,7 +15,7 @@ Reusable GitHub Actions workflows, a shared setup action and a Claude Code plugi
 | **Package** (public Laravel package)      | `laravel-tests`                                                                    | `package-tests.yml`                                                     |
 | **Project** (private Laravel application) | `claude`, plus optionally `laravel-app-tests`, `claude-review` and `claude-fix-ci` | `claude.yml`, `app-tests.yml`, `claude-review.yml`, `claude-fix-ci.yml` |
 
-Every workflow is called from a small file in the target repository (see [`examples/`](examples)), so fixes and improvements made here reach every repository at once.
+Every workflow is called from a small file in the target repository (see [`examples/`](examples)) pinned to the `v1` tag, so fixes and improvements made here reach every repository as soon as a release is published.
 
 > This repository must stay **public**: public repositories (the packages) can only call reusable workflows stored in public repositories. Private projects can use it either way. No secrets live here; they come from the calling repository.
 
@@ -61,6 +61,8 @@ For each combination of the matrix it:
        </report>
    </coverage>
    ```
+
+On pull requests, a separate job also runs `pint --test` on the files changed by the pull request, once and outside the matrix, when the package requires `laravel/pint` (1.20+). Existing style issues in untouched files do not fail the build. Disable it with `pint: false`.
 
 A new push to a pull request cancels the previous run; runs on `main` always finish.
 
@@ -131,7 +133,7 @@ A typical flow for a new feature:
 
 ### Conventions
 
-Claude follows the rules in the `laravel` plugin ([`plugins/laravel`](plugins/laravel)), loaded by every Claude workflow:
+Claude follows the rules in the `laravel` plugin ([`plugins/laravel`](plugins/laravel)), loaded by every Claude workflow, including the review:
 
 - Everything Claude writes for the team (commits, pull requests, comments) is in Brazilian Portuguese; commits use Conventional Commits with English types, e.g. `feat: adiciona autenticação via OAuth`.
 - Implements only what is needed and reuses the existing architecture.
@@ -181,18 +183,19 @@ All inputs are optional. Pass them with `with:` in the calling workflow.
 
 ### `laravel-tests`
 
-| Input             | Default                                                                | Description                 |
-| ----------------- | ---------------------------------------------------------------------- | --------------------------- |
-| `php`             | `["8.2", "8.3", "8.4", "8.5"]`                                         | PHP versions (JSON)         |
-| `laravel`         | `["^11.0", "^12.0", "^13.0"]`                                          | Laravel versions (JSON)     |
-| `stability`       | `["prefer-lowest", "prefer-stable"]`                                   | Composer stability (JSON)   |
-| `exclude`         | Laravel 13 on PHP 8.2; `prefer-lowest` on PHP 8.4 and 8.5              | Matrix exclusions (JSON)    |
-| `os`              | `["ubuntu-latest"]`                                                    | Runners (JSON)              |
-| `extensions`      | `dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd` | PHP extensions              |
-| `test-command`    | `vendor/bin/phpunit`                                                   | Test command                |
-| `coverage`        | `true`                                                                 | Collect and upload coverage |
-| `coverage-driver` | `pcov`                                                                 | `pcov` or `xdebug`          |
-| `timeout-minutes` | `30`                                                                   | Timeout per matrix job      |
+| Input             | Default                                                                | Description                                                             |
+| ----------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `php`             | `["8.2", "8.3", "8.4", "8.5"]`                                         | PHP versions (JSON)                                                     |
+| `laravel`         | `["^11.0", "^12.0", "^13.0"]`                                          | Laravel versions (JSON)                                                 |
+| `stability`       | `["prefer-lowest", "prefer-stable"]`                                   | Composer stability (JSON)                                               |
+| `exclude`         | Laravel 13 on PHP 8.2; `prefer-lowest` on PHP 8.4 and 8.5              | Matrix exclusions (JSON)                                                |
+| `os`              | `["ubuntu-latest"]`                                                    | Runners (JSON)                                                          |
+| `extensions`      | `dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd` | PHP extensions                                                          |
+| `test-command`    | `vendor/bin/phpunit`                                                   | Test command                                                            |
+| `coverage`        | `true`                                                                 | Collect and upload coverage                                             |
+| `coverage-driver` | `pcov`                                                                 | `pcov` or `xdebug`                                                      |
+| `timeout-minutes` | `30`                                                                   | Timeout per job                                                         |
+| `pint`            | `true`                                                                 | Run `pint --test` on the files changed by the pull request (Pint 1.20+) |
 
 Secret: `CODECOV_TOKEN` (optional).
 
@@ -232,13 +235,15 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ### `claude-review`
 
-| Input             | Default                                | Description                                    |
-| ----------------- | -------------------------------------- | ---------------------------------------------- |
-| `model`           | `opus`                                 | Review model                                   |
-| `skip-label`      | `no-review`                            | Pull requests with this label are not reviewed |
-| `ignored-authors` | `["dependabot[bot]", "renovate[bot]"]` | Authors that are not reviewed (JSON)           |
-| `allowed-bots`    | `*`                                    | Bots whose pull requests are reviewed          |
-| `timeout-minutes` | `30`                                   | Job timeout                                    |
+| Input                             | Default                                | Description                                            |
+| --------------------------------- | -------------------------------------- | ------------------------------------------------------ |
+| `model`                           | `opus`                                 | Review model                                           |
+| `skip-label`                      | `no-review`                            | Pull requests with this label are not reviewed         |
+| `ignored-authors`                 | `["dependabot[bot]", "renovate[bot]"]` | Authors that are not reviewed (JSON)                   |
+| `allowed-bots`                    | `*`                                    | Bots whose pull requests are reviewed                  |
+| `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes) |
+| `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins, besides `code-review`       |
+| `timeout-minutes`                 | `30`                                   | Job timeout                                            |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
@@ -259,11 +264,38 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ### Troubleshooting
 
-| Problem                                   | Check                                                                                                                                        |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude does not react to `@claude`        | The author is an owner, member or collaborator; the Claude GitHub App is installed; `CLAUDE_CODE_OAUTH_TOKEN` is available to the repository |
-| `claude-fix-ci` never runs                | The tests workflow is named `tests`; the pull request branch starts with `claude/`                                                           |
-| Wrong PHP version                         | Add a `.php-version` file or pass `php-version`                                                                                              |
-| Views fail with "Vite manifest not found" | Check the warning of the _Build frontend assets_ step in `setup-laravel`                                                                     |
+| Problem                                    | Check                                                                                                                                        |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude does not react to `@claude`         | The author is an owner, member or collaborator; the Claude GitHub App is installed; `CLAUDE_CODE_OAUTH_TOKEN` is available to the repository |
+| `claude-fix-ci` never runs                 | The tests workflow is named `tests`; the pull request branch starts with `claude/`                                                           |
+| Wrong PHP version                          | Add a `.php-version` file or pass `php-version`                                                                                              |
+| Views fail with "Vite manifest not found"  | Check the warning of the _Build frontend assets_ step in `setup-laravel`                                                                     |
+| Pint fails with an unknown `--diff` option | Update `laravel/pint` to 1.20+ or pass `pint: false`                                                                                         |
 
 ---
+
+## Maintaining this repository
+
+### Releases
+
+Repositories call the workflows with `@v1`, so changes on `main` reach them only when a release is published:
+
+1. Merge the changes into `main` and make sure `ci` passes.
+2. Publish a GitHub release tagged `vX.Y.Z` (for example `v1.2.0`). The `release` workflow moves the major tag (`v1`) to it; other tag formats are rejected.
+
+Breaking changes (renamed or removed inputs, new required secrets or permissions) need a new major version. In that case, also update the `setup-laravel@v1` references inside the workflows and the `@v1` in the examples and in this README.
+
+### The Claude plugin is not versioned
+
+The workflows install the `laravel` plugin from this repository's default branch, not from the tag they are called with (the Claude Code action only accepts marketplace URLs without a ref). Changes to [`plugins/laravel`](plugins/laravel) therefore apply to every project immediately, without a release, and must stay compatible with every released version of the workflows. For example, the `[ci-fix]` commit tag required by the `fix-ci` command is what `claude-fix-ci` counts to limit attempts.
+
+### CI
+
+[`ci.yml`](.github/workflows/ci.yml) runs on every pull request and push to `main`:
+
+- **lint**: `actionlint` on the workflows and on the examples (pointed at the local workflows, so their inputs and secrets are checked too), and `claude plugin validate` on the marketplace and the plugin.
+- **setup-laravel**: creates a fresh Laravel app and runs the action across PHP, Node and package manager versions, with and without Laravel Boost, then checks the environment, starts the Boost MCP server and runs the app's tests.
+
+### Dependencies
+
+Dependabot updates the actions weekly, in a single grouped pull request. The `actionlint` version in `ci.yml` is not covered and must be bumped manually.

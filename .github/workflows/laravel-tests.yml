@@ -39,6 +39,10 @@ on:
       timeout-minutes:
         type: number
         default: 30
+      pint:
+        type: boolean
+        default: true
+        description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+ in require-dev)
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -85,7 +89,7 @@ jobs:
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
       - name: Cache dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ matrix.os }}-php-${{ matrix.php }}-laravel-${{ matrix.laravel }}-${{ matrix.stability }}-${{ hashFiles('composer.json') }}
@@ -101,6 +105,76 @@ jobs:
 
       - name: Coverage
         if: inputs.coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Code style does not depend on the matrix, so it runs once, next to the tests
+  pint:
+    if: inputs.pint && github.event_name == 'pull_request'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-pint
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for Pint
+        id: pint
+        shell: bash
+        env:
+          PHP: ${{ inputs.php }}
+        run: |
+          if jq -e '.["require-dev"]["laravel/pint"] // .require["laravel/pint"]' composer.json >/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            # Highest PHP version of the matrix, which the package is known to support
+            echo "php=$(jq -r 'max_by(split(".") | map(tonumber))' <<< "$PHP")" >> "$GITHUB_OUTPUT"
+          else
+            echo "laravel/pint is not required by composer.json, skipping"
+          fi
+
+      - name: Setup PHP
+        if: steps.pint.outputs.enabled
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ steps.pint.outputs.php }}
+          extensions: ${{ inputs.extensions }}
+          coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        if: steps.pint.outputs.enabled
+        shell: bash
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache dependencies
+        if: steps.pint.outputs.enabled
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-pint-${{ runner.os }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-pint-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.pint.outputs.enabled
+        shell: bash
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      # Only the files changed by the PR, so existing style issues do not fail the build
+      - name: Laravel Pint
+        if: steps.pint.outputs.enabled
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+        run: vendor/bin/pint --test --diff="origin/$BASE"
