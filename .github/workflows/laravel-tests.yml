@@ -11,7 +11,7 @@ on:
         default: '["8.2", "8.3", "8.4", "8.5"]'
       laravel:
         type: string
-        default: '["^11.0", "^12.0", "^13.0"]'
+        default: '["^12.0", "^13.0"]'
       stability:
         type: string
         default: '["prefer-lowest", "prefer-stable"]'
