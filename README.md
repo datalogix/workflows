@@ -303,4 +303,6 @@ The workflows install the `laravel` plugin from this repository's default branch
 
 ### Dependencies
 
-Dependabot updates the actions weekly, in a single grouped pull request. Actions that receive secrets (`anthropics/claude-code-action`, `codecov/codecov-action`) are pinned to a commit SHA with the version in a comment, so a moved tag upstream cannot change what runs with those secrets; Dependabot keeps both up to date. The `actionlint` version in `ci.yml` is not covered and must be bumped manually.
+Third-party actions are pinned to a full commit SHA, with the version in a comment (`actions/checkout@<sha> # v7.0.1`). A tag can be moved to other code, and anything these workflows run reaches every Datalogix repository that calls them, together with its secrets. References to this repository (`setup-laravel@v1` inside the workflows, and the `@v1` in the examples) stay on the major tag, since they are released together.
+
+Dependabot updates the pinned SHAs and their comments weekly, in a single grouped pull request. The `actionlint` version in `ci.yml` is not covered and must be bumped manually.
