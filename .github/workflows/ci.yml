@@ -176,3 +176,22 @@ jobs:
       - name: Run tests
         shell: bash
         run: php artisan test
+
+  # Single status check for branch protection, so it does not depend on the matrix job names
+  all-checks:
+    if: always()
+
+    needs: [lint, setup-laravel]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check results
+        shell: bash
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = success ] || exit 1
+          done
