@@ -68,7 +68,7 @@ A new push to a pull request cancels the previous run; runs on `main` always fin
 
 ### Customizing the matrix
 
-All matrix inputs are JSON strings. For example, a package that only supports Laravel 12 and 13 on PHP 8.3+:
+All matrix inputs are JSON strings. For example, a package that only supports Laravel 13 on PHP 8.3+:
 
 ```yaml
 jobs:
@@ -77,9 +77,11 @@ jobs:
     secrets: inherit
     with:
       php: '["8.3", "8.4", "8.5"]'
-      laravel: '["^12.0", "^13.0"]'
+      laravel: '["^13.0"]'
       exclude: "[]"
 ```
+
+A package that still supports Laravel 11 adds it back with `laravel: '["^11.0", "^12.0", "^13.0"]'`.
 
 See all inputs in [`laravel-tests`](#laravel-tests).
 
@@ -186,7 +188,7 @@ All inputs are optional. Pass them with `with:` in the calling workflow.
 | Input             | Default                                                                | Description                                                             |
 | ----------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `php`             | `["8.2", "8.3", "8.4", "8.5"]`                                         | PHP versions (JSON)                                                     |
-| `laravel`         | `["^11.0", "^12.0", "^13.0"]`                                          | Laravel versions (JSON)                                                 |
+| `laravel`         | `["^12.0", "^13.0"]`                                                   | Laravel versions (JSON)                                                 |
 | `stability`       | `["prefer-lowest", "prefer-stable"]`                                   | Composer stability (JSON)                                               |
 | `exclude`         | Laravel 13 on PHP 8.2; `prefer-lowest` on PHP 8.4 and 8.5              | Matrix exclusions (JSON)                                                |
 | `os`              | `["ubuntu-latest"]`                                                    | Runners (JSON)                                                          |
