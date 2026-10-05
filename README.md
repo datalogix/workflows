@@ -48,19 +48,20 @@ jobs:
 
 For each combination of the matrix it:
 
-1. Sets up PHP with the requested extensions and the coverage driver (`pcov` by default).
+1. Sets up PHP with the requested extensions.
 2. Restores the Composer cache.
 3. Requires the Laravel version under test (`composer require laravel/framework:<version> --no-update`) and runs `composer update --prefer-lowest` or `--prefer-stable`.
 4. Runs the tests (`vendor/bin/phpunit` by default).
-5. Uploads coverage to Codecov. The package's `phpunit.xml` must produce a Clover report, for example:
 
-   ```xml
-   <coverage>
-       <report>
-           <clover outputFile="clover.xml"/>
-       </report>
-   </coverage>
-   ```
+Coverage is collected only on the newest combination (highest PHP and Laravel, `prefer-stable`, first OS), with `pcov` by default, and uploaded to Codecov: the driver slows the tests down, and the other combinations would upload the same report. The other jobs run PHPUnit or Pest with `--no-coverage`, so a coverage report configured in `phpunit.xml` does not fail them with `failOnWarning`. The package's `phpunit.xml` must produce a Clover report, for example:
+
+```xml
+<coverage>
+    <report>
+        <clover outputFile="clover.xml"/>
+    </report>
+</coverage>
+```
 
 On pull requests, a separate job also runs `pint --test` on the files changed by the pull request, once and outside the matrix, when the package requires `laravel/pint` (1.20+). Existing style issues in untouched files do not fail the build. Disable it with `pint: false`.
 
@@ -194,7 +195,7 @@ All inputs are optional. Pass them with `with:` in the calling workflow.
 | `os`              | `["ubuntu-latest"]`                                                    | Runners (JSON)                                                          |
 | `extensions`      | `dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd` | PHP extensions                                                          |
 | `test-command`    | `vendor/bin/phpunit`                                                   | Test command                                                            |
-| `coverage`        | `true`                                                                 | Collect and upload coverage                                             |
+| `coverage`        | `true`                                                                 | Collect and upload coverage on the newest combination of the matrix     |
 | `coverage-driver` | `pcov`                                                                 | `pcov` or `xdebug`                                                      |
 | `timeout-minutes` | `30`                                                                   | Timeout per job                                                         |
 | `pint`            | `true`                                                                 | Run `pint --test` on the files changed by the pull request (Pint 1.20+) |
@@ -283,6 +284,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 Repositories call the workflows with `@v1`, so changes on `main` reach them only when a release is published:
 
 1. Merge the changes into `main` and make sure `ci` passes.
+   - `ci` does not run `laravel-tests` or `laravel-app-tests`. When they change, first point a package or project at the branch (`laravel-tests.yml@<branch>`) and open a test pull request there.
 2. Publish a GitHub release tagged `vX.Y.Z` (for example `v1.2.0`). The `release` workflow moves the major tag (`v1`) to it; other tag formats are rejected.
 
 Breaking changes (renamed or removed inputs, new required secrets or permissions) need a new major version. In that case, also update the `setup-laravel@v1` references inside the workflows and the `@v1` in the examples and in this README.
@@ -300,4 +302,4 @@ The workflows install the `laravel` plugin from this repository's default branch
 
 ### Dependencies
 
-Dependabot updates the actions weekly, in a single grouped pull request. The `actionlint` version in `ci.yml` is not covered and must be bumped manually.
+Dependabot updates the actions weekly, in a single grouped pull request. Actions that receive secrets (`anthropics/claude-code-action`, `codecov/codecov-action`) are pinned to a commit SHA with the version in a comment, so a moved tag upstream cannot change what runs with those secrets; Dependabot keeps both up to date. The `actionlint` version in `ci.yml` is not covered and must be bumped manually.

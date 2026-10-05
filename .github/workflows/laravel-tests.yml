@@ -32,6 +32,7 @@ on:
       coverage:
         type: boolean
         default: true
+        description: Collect and upload coverage on the newest combination of the matrix (highest PHP and Laravel, prefer-stable, first OS)
       coverage-driver:
         type: string
         default: pcov
@@ -76,12 +77,40 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      # The coverage driver slows the tests down and Codecov merges every upload into the same report,
+      # so coverage is collected only once, on the newest combination of the matrix
+      - name: Check coverage
+        id: coverage
+        if: inputs.coverage
+        shell: bash
+        env:
+          OS: ${{ inputs.os }}
+          PHP: ${{ inputs.php }}
+          LARAVEL: ${{ inputs.laravel }}
+          STABILITY: ${{ inputs.stability }}
+          MATRIX_OS: ${{ matrix.os }}
+          MATRIX_PHP: ${{ matrix.php }}
+          MATRIX_LARAVEL: ${{ matrix.laravel }}
+          MATRIX_STABILITY: ${{ matrix.stability }}
+        run: |
+          newest='map(tostring) | max_by(gsub("[^0-9.]"; "") | split(".") | map(select(. != "") | tonumber))'
+          os=$(jq -r 'first' <<< "$OS")
+          php=$(jq -r "$newest" <<< "$PHP")
+          laravel=$(jq -r "$newest" <<< "$LARAVEL")
+          stability=$(jq -r 'if index("prefer-stable") then "prefer-stable" else last end' <<< "$STABILITY")
+
+          if [ "$MATRIX_OS" = "$os" ] && [ "$MATRIX_PHP" = "$php" ] && [ "$MATRIX_LARAVEL" = "$laravel" ] && [ "$MATRIX_STABILITY" = "$stability" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Coverage is collected on PHP $php, Laravel $laravel, $stability, $os"
+          fi
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
           extensions: ${{ inputs.extensions }}
-          coverage: ${{ inputs.coverage && inputs.coverage-driver || 'none' }}
+          coverage: ${{ steps.coverage.outputs.enabled && inputs.coverage-driver || 'none' }}
 
       - name: Get Composer cache directory
         id: composer-cache
@@ -101,11 +130,21 @@ jobs:
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
       - name: Execute tests
-        run: ${{ inputs.test-command }}
+        shell: bash
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+          COVERAGE: ${{ steps.coverage.outputs.enabled }}
+        run: |
+          # Without a driver, a coverage report requested in phpunit.xml produces a warning, which fails the run with failOnWarning
+          if [ "$COVERAGE" != true ] && [[ "$TEST_COMMAND" =~ ^vendor/bin/(phpunit|pest)([[:space:]]|$) ]]; then
+            TEST_COMMAND="$TEST_COMMAND --no-coverage"
+          fi
+
+          eval "$TEST_COMMAND"
 
       - name: Coverage
-        if: inputs.coverage
-        uses: codecov/codecov-action@v7
+        if: steps.coverage.outputs.enabled
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 

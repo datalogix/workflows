@@ -117,7 +117,7 @@ jobs:
 
       - name: Fix CI with Claude Code
         if: steps.check.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@cab360f6565aa35a51d6ce9e43f1f4287c0a32ea # v1.0.241
         env:
           APP_ENV: testing
         with:
