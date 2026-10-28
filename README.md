@@ -1,8 +1,8 @@
 # datalogix/workflows
 
-Reusable GitHub Actions workflows, the composite actions they use, a Claude Code plugin, a monitoring relay and a setup command used across Datalogix repositories.
+Claude-powered CI/CD for Datalogix Laravel projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
 
-A Laravel project adds **one workflow file** and gets:
+What each project gets:
 
 - **Claude on issues and pull requests**: it plans and implements issues, answers `@claude` and fixes failed checks (tests, Pint, PHPStan, `composer audit`) on its own pull requests.
 - **Checks on every pull request**: tests, a Claude code review (once per pull request), a security review and a risk gate that asks for your approval when the change is risky.
