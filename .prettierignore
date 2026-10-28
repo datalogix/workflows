@@ -1,0 +1,8 @@
+# Only JavaScript and JSON are formatted: Prettier would rewrite workflow YAML and Markdown tables
+*.yml
+*.yaml
+*.md
+
+package-lock.json
+.lint/
+.wrangler/

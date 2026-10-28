@@ -1,0 +1,61 @@
+name: Risk gate
+description: Labels a pull request by risk (low, medium, high) and fails until it has the human approvals that risk requires of its current changes
+
+inputs:
+  pull-request:
+    description: Pull request number
+    required: true
+  high-risk-paths:
+    description: Patterns (one per line, * also matches /) that make a pull request high risk
+    required: true
+  low-risk-paths:
+    description: Patterns of files that are low risk; a pull request touching only these is low risk
+    required: true
+  ignored-paths:
+    description: Patterns of generated files; they make a pull request at least medium risk but are not counted in the changed lines
+    required: true
+  high-risk-lines:
+    description: Changed lines (outside ignored and low-risk paths) that make a pull request high risk
+    required: true
+  approvals-low:
+    description: Human approvals a low-risk pull request needs of its current changes
+    required: true
+  approvals-medium:
+    description: Human approvals a medium-risk pull request needs of its current changes
+    required: true
+  approvals-high:
+    description: Human approvals a high-risk pull request needs of its current changes
+    required: true
+  count-author:
+    description: Count a human author with write access as one approval
+    default: "false"
+  label-prefix:
+    description: Prefix of the risk labels
+    default: "risk:"
+  language:
+    description: Language of the label descriptions (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+  token:
+    description: Token that reads the pull request and its reviews and labels it
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Classify risk and check approvals
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR: ${{ inputs.pull-request }}
+        HIGH_PATHS: ${{ inputs.high-risk-paths }}
+        LOW_PATHS: ${{ inputs.low-risk-paths }}
+        IGNORED_PATHS: ${{ inputs.ignored-paths }}
+        HIGH_LINES: ${{ inputs.high-risk-lines }}
+        APPROVALS_LOW: ${{ inputs.approvals-low }}
+        APPROVALS_MEDIUM: ${{ inputs.approvals-medium }}
+        APPROVALS_HIGH: ${{ inputs.approvals-high }}
+        COUNT_AUTHOR: ${{ inputs.count-author }}
+        PREFIX: ${{ inputs.label-prefix }}
+        LANGUAGE: ${{ inputs.language }}
+      run: bash "$GITHUB_ACTION_PATH/risk-gate.sh"

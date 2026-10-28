@@ -1,0 +1,112 @@
+name: incident
+
+on:
+  workflow_call:
+    inputs:
+      environments:
+        type: string
+        default: '["production", "staging"]'
+        description: JSON list of monitoring environment names whose problems become GitHub issues
+      types:
+        type: string
+        default: '["exception", "performance"]'
+        description: JSON list of problem types to handle (exception, performance)
+      label:
+        type: string
+        default: incident
+        description: Label of the GitHub issues created from the monitoring service
+      model:
+        type: string
+        default: opus
+        description: Claude model for the analysis (e.g. fable, opus, sonnet); empty uses the account default
+      max-turns:
+        type: number
+        default: 40
+        description: Maximum turns of Claude's analysis
+      timeout-minutes:
+        type: number
+        default: 30
+        description: Timeout of the analysis job
+      plugin-marketplaces:
+        type: string
+        default: ""
+        description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
+      plugins:
+        type: string
+        default: laravel@datalogix
+        description: Claude Code plugins for the analysis, one per line (name@marketplace)
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this repository (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what Claude writes for the team (e.g. pt-BR, en; no double quotes); the fixed texts exist in pt-BR and en, other languages get pt-BR
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  incident:
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'incident'
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    # Events about the same problem are handled in order
+    concurrency:
+      group: incident-${{ github.repository }}-${{ github.event.client_payload.provider.id }}-${{ github.event.client_payload.issue.id }}
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The payload comes from the monitoring service through the relay (normalized, see relay/src/providers/index.js):
+      # it is data, never shell code or instructions
+      - name: Sync the GitHub issue
+        id: sync
+        uses: datalogix/workflows/.github/actions/incident@v2
+        with:
+          environments: ${{ inputs.environments }}
+          types: ${{ inputs.types }}
+          label: ${{ inputs.label }}
+          language: ${{ inputs.language }}
+
+      - name: Locate the Datalogix plugins
+        id: plugins
+        if: steps.sync.outputs.analyze == 'true'
+        uses: datalogix/workflows/.github/actions/plugins@v2
+
+      - name: Analyze with Claude Code
+        if: steps.sync.outputs.analyze == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          plugin_marketplaces: |
+            ${{ steps.plugins.outputs.marketplace }}
+            ${{ inputs.plugin-marketplaces }}
+          plugins: ${{ inputs.plugins }}
+
+          prompt: /laravel:incident ${{ steps.sync.outputs.number }} ${{ steps.sync.outputs.live || '-' }} ${{ steps.sync.outputs.previous || '-' }}
+
+          # Read-only: Claude reads the code and the history and comments on the issue. The issue holds text from
+          # production errors, which anyone can cause: reads stay in the workspace (not /proc or the runner's files)
+          # and git's --output, which writes a file, is denied
+          claude_args: |
+            --max-turns ${{ inputs.max-turns }}
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --allowed-tools "Read(./**),Grep(./**),Glob(./**),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(ls:*)"
+            --disallowed-tools "Write,Edit,MultiEdit,Bash(git * --output*),Bash(git push:*),Bash(git commit:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh api:*)"
+            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only finish once the analysis has been posted on the issue. Load the laravel:conventions skill before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"

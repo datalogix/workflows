@@ -1,0 +1,6 @@
+paths:
+  # actionlint 1.7.12 knows create-github-app-token from before client-id replaced the deprecated app-id
+  .github/workflows/release-pr.yml:
+    ignore:
+      - 'missing input "app-id"'
+      - 'input "client-id" is not defined'

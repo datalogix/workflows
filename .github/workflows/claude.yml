@@ -22,18 +22,23 @@ on:
       plan-max-turns:
         type: number
         default: 40
+        description: Maximum turns of Claude when planning (plan label)
       plan-timeout-minutes:
         type: number
         default: 30
+        description: Timeout of the planning job (plan label)
       max-turns:
         type: number
         default: 80
+        description: Maximum turns of Claude when answering a mention or implementing
       timeout-minutes:
         type: number
         default: 90
+        description: Timeout of the job that answers a mention or implements
       trigger-phrase:
         type: string
         default: "@claude"
+        description: Phrase that calls Claude in comments and reviews
       label:
         type: string
         default: claude
@@ -49,6 +54,7 @@ on:
       branch-name-template:
         type: string
         default: "{{prefix}}{{entityNumber}}-{{description}}-{{timestamp}}"
+        description: Name of the branches Claude creates (placeholders of claude-code-action)
       commit-signing:
         type: boolean
         default: false
@@ -56,38 +62,49 @@ on:
       allowed-tools:
         type: string
         default: Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*
+        description: Tools Claude may use, comma-separated
       disallowed-tools:
         type: string
-        default: Bash(git push --force:*),Bash(git push -f:*),Bash(git push --delete:*),Bash(gh pr merge:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
+        default: Bash(git push --force:*),Bash(git push -f:*),Bash(git push --delete:*),Bash(gh pr merge:*),Bash(gh pr review:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
+        description: Tools Claude may not use, comma-separated; takes precedence over allowed-tools
       plugin-marketplaces:
         type: string
-        default: https://github.com/datalogix/workflows.git
+        default: ""
+        description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
       plugins:
         type: string
         default: laravel@datalogix
+        description: Claude Code plugins to install, one per line (name@marketplace)
       extra-instructions:
         type: string
         default: ""
         description: Extra instructions for this repository (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what Claude writes for the team (e.g. pt-BR, en; no double quotes)
       show-full-output:
         type: boolean
         default: false
+        description: Show Claude's full output in the job log (it may include what Claude read, such as file contents)
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
 
 jobs:
   claude:
+    # The plan label takes precedence: an issue that also has it is only planned (the plan job then removes this label,
+    # so adding it again starts the implementation)
     if: |
-      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == inputs.label) ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == inputs.label &&
+       !contains(github.event.issue.labels.*.name, inputs.plan-label)) ||
       (github.event_name == 'issues' && github.event.action == 'assigned' && inputs.assignee != '' && github.event.assignee.login == inputs.assignee) ||
       (
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association) &&
         (
           (github.event_name == 'issue_comment' && contains(github.event.comment.body, inputs.trigger-phrase)) ||
           (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, inputs.trigger-phrase)) ||
-          (github.event_name == 'pull_request_review' && contains(github.event.review.body, inputs.trigger-phrase)) ||
-          (github.event_name == 'issues' && github.event.action == 'opened' && (contains(github.event.issue.body, inputs.trigger-phrase) || contains(github.event.issue.title, inputs.trigger-phrase)))
+          (github.event_name == 'pull_request_review' && github.event.action == 'submitted' && contains(github.event.review.body, inputs.trigger-phrase))
         )
       )
 
@@ -95,24 +112,85 @@ jobs:
 
     timeout-minutes: ${{ inputs.timeout-minutes }}
 
+    # One run per issue or PR at a time; GitHub keeps only one pending run per group, so a newer request replaces it
     concurrency:
       group: claude-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
 
     steps:
+      # Claude pushes and runs commands with the Claude token: only for users who can push to the repository. The
+      # author_association above does not tell it (an organization member or a collaborator may have only read or
+      # triage access, and labels only need triage). A user without access to the repository (404) has no permission
+      - name: Require write access
+        id: access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          err=$(mktemp)
+          if ! permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission 2>"$err"); then
+            if ! grep -qE 'HTTP 404|Not Found' "$err"; then
+              echo "::error::Could not read the permission of $SENDER: $(head -n 1 "$err")"
+              exit 1
+            fi
+            permission=''
+          fi
+          case "$permission" in
+            admin | maintain | write) ;;
+            *)
+              echo "::notice::$SENDER needs write access for Claude to run (has '${permission:-none}')"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      # A fork's code would run with write access and the Claude token: comments on fork PRs are ignored. Review
+      # events carry the head repository; a comment on a PR (issue_comment) does not, so it is read from the API.
+      # A review event without it comes from a deleted fork: ignored too
+      - name: Ignore fork pull requests
+        if: steps.access.outputs.skip != 'true'
+        id: fork
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REVIEW: ${{ github.event.pull_request && 'true' || '' }}
+          PR: ${{ github.event.issue.pull_request && github.event.issue.number || '' }}
+        run: |
+          if [ -z "$HEAD_REPO" ] && [ -n "$REVIEW" ]; then
+            echo "::notice::Pull request from a deleted fork: Claude does not run on it"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$HEAD_REPO" ] && [ -n "$PR" ]; then
+            HEAD_REPO=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRepository,headRepositoryOwner --jq '"\(.headRepositoryOwner.login)/\(.headRepository.name)"')
+          fi
+          if [ -n "$HEAD_REPO" ] && [ "${HEAD_REPO,,}" != "${GITHUB_REPOSITORY,,}" ]; then
+            echo "::notice::Pull request from a fork ($HEAD_REPO): Claude does not run on it"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout code
+        if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true'
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Laravel
+        if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true'
         id: setup
-        uses: datalogix/workflows/.github/actions/setup-laravel@v1
+        uses: datalogix/workflows/.github/actions/setup-laravel@v2
         with:
           php-version: ${{ inputs.php-version }}
           node-version: ${{ inputs.node-version }}
 
+      - name: Locate the Datalogix plugins
+        if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true'
+        id: plugins
+        uses: datalogix/workflows/.github/actions/plugins@v2
+
       - name: Run Claude Code
+        if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         env:
           APP_ENV: testing
@@ -125,7 +203,9 @@ jobs:
           branch_name_template: ${{ inputs.branch-name-template }}
           use_commit_signing: ${{ inputs.commit-signing }}
 
-          plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
+          plugin_marketplaces: |
+            ${{ steps.plugins.outputs.marketplace }}
+            ${{ inputs.plugin-marketplaces }}
           plugins: ${{ inputs.plugins }}
 
           additional_permissions: |
@@ -139,7 +219,7 @@ jobs:
             ${{ steps.setup.outputs.mcp-config != '' && format('--mcp-config {0}', steps.setup.outputs.mcp-config) || '' }}
             --allowed-tools "${{ inputs.allowed-tools }}"
             --disallowed-tools "${{ inputs.disallowed-tools }}"
-            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Explore the code yourself, synchronously, and only end your turn when the task is complete. Before starting, load the laravel:conventions skill and follow all of its rules. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Explore the code yourself, synchronously, and only end your turn when the task is complete. Before starting, load the laravel:conventions skill and follow all of its rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
 
   plan:
     if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == inputs.plan-label
@@ -164,13 +244,21 @@ jobs:
         with:
           # Full history, so the plan can use git log
           fetch-depth: 0
+          # Claude reads untrusted text and can comment: keep the token out of .git/config
+          persist-credentials: false
+
+      - name: Locate the Datalogix plugins
+        id: plugins
+        uses: datalogix/workflows/.github/actions/plugins@v2
 
       - name: Plan with Claude Code
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          plugin_marketplaces: ${{ inputs.plugin-marketplaces }}
+          plugin_marketplaces: |
+            ${{ steps.plugins.outputs.marketplace }}
+            ${{ inputs.plugin-marketplaces }}
           plugins: ${{ inputs.plugins }}
 
           prompt: /laravel:plan ${{ github.event.issue.number }}
@@ -179,13 +267,23 @@ jobs:
             --max-turns ${{ inputs.plan-max-turns }}
             ${{ inputs.plan-model != '' && format('--model {0}', inputs.plan-model) || '' }}
             --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(ls:*)"
-            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only finish once the plan has been posted on the issue. Load the laravel:conventions skill before starting. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only finish once the plan has been posted on the issue. Load the laravel:conventions skill before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
 
-      - name: Remove plan label
+      # Also removes the implementation label, added before or during the plan: the implementation did not start, and
+      # adding the label again after reading the plan starts it. An implementation started before the plan label was
+      # added keeps running
+      - name: Remove the labels
         if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ github.event.issue.number }}
-          LABEL: ${{ inputs.plan-label }}
-        run: gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL"
+          PLAN_LABEL: ${{ inputs.plan-label }}
+          LABEL: ${{ inputs.label }}
+        run: |
+          remove=(--remove-label "$PLAN_LABEL")
+          labels=$(gh issue view "$ISSUE" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' || true)
+          if grep -qixF "$LABEL" <<< "$labels"; then
+            remove+=(--remove-label "$LABEL")
+          fi
+          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" "${remove[@]}"

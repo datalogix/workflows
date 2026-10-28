@@ -1,0 +1,376 @@
+name: project
+
+# Every workflow a Laravel project needs, behind a single file in the project (examples/project.yml).
+# Each job decides from the event whether it applies; the reusable workflows filter further (drafts, forks, authors).
+#
+# Required checks (branch ruleset): <calling job> / tests / tests, <calling job> / security / security,
+# <calling job> / gate / gate. They run on pull_request and merge_group. On other events their calling jobs are skipped
+# before the reusable workflow expands, so the skipped job has a different name and never replaces a real result.
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugin (laravel@datalogix). Only laravel is supported today
+      # Layers
+      tests:
+        type: boolean
+        default: true
+        description: Run Pint, PHPStan, composer audit, the test suite and the typecheck, lint and test scripts of package.json
+      review:
+        type: boolean
+        default: true
+        description: Claude code review once per pull request (opened, reopened or ready for review)
+      security-review:
+        type: boolean
+        default: true
+        description: Claude security review on every pull request (not drafts, forks or ignored authors such as Dependabot)
+      risk-gate:
+        type: boolean
+        default: true
+        description: Label pull requests by risk and require human approvals according to it
+      fix-ci:
+        type: boolean
+        default: true
+        description: Let Claude fix failed tests on its own pull requests
+
+      # Deploy
+      deploy:
+        type: string
+        default: none
+        description: Deploy the default branch after its tests pass, with forge or cloud (none disables)
+      staging:
+        type: boolean
+        default: true
+        description: Deploy to the staging environment and watch it before production
+      production:
+        type: string
+        default: auto
+        description: auto deploys to production after staging; any other value (e.g. manual) only on Run workflow
+      production-branch:
+        type: string
+        default: ""
+        description: Branch deployed to production (e.g. main); the default branch then deploys only staging. Empty deploys the default branch to both. The release pull requests run their checks only with the RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY secrets
+      watch-minutes:
+        type: number
+        default: 10
+        description: Minutes each environment is watched after a deploy before it counts as successful. The deploy job stops after 60 minutes, waits included (settle, watch and a rollback), so keep it well below that
+
+      # Incidents
+      incidents:
+        type: boolean
+        default: true
+        description: Turn problems detected by the monitoring service into GitHub issues analyzed by Claude
+      incident-environments:
+        type: string
+        default: '["production", "staging"]'
+        description: JSON list of monitoring environments whose problems become GitHub issues
+      incident-types:
+        type: string
+        default: '["exception", "performance"]'
+        description: JSON list of problem types that become GitHub issues (exception, performance)
+
+      # Environment
+      php-version:
+        type: string
+        default: ""
+        description: Empty reads .php-version, composer.lock or composer.json config.platform.php, otherwise latest
+      node-version:
+        type: string
+        default: ""
+        description: Empty reads .nvmrc or .node-version, otherwise the current LTS
+      test-command:
+        type: string
+        default: ""
+        description: Empty runs composer test when composer.json defines it, otherwise php artisan test
+      js:
+        type: boolean
+        default: true
+        description: Run the typecheck, lint and test scripts of package.json when they are defined
+
+      # Claude
+      model:
+        type: string
+        default: opus
+        description: Model for replies, implementation, reviews and incident analysis
+      plan-model:
+        type: string
+        default: best
+        description: Model for plans
+      fix-ci-model:
+        type: string
+        default: sonnet
+        description: Model for CI fixes
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this project, given to every Claude workflow (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what is written for the team (issues, pull requests, comments, commits; no double quotes). Claude writes in any language; the fixed texts exist in pt-BR and en, and other languages get pt-BR
+
+      # Security review and risk gate
+      security-fail-on:
+        type: string
+        default: high
+        description: Lowest security finding severity that fails the check (high, medium, low or none)
+      approvals-medium:
+        type: number
+        default: 1
+        description: Human approvals a medium-risk pull request needs of its current changes
+      approvals-high:
+        type: number
+        default: 1
+        description: Human approvals a high-risk pull request needs of its current changes
+      count-author:
+        type: boolean
+        default: false
+        description: Count a human PR author with write access as one approval (solo maintainers)
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  # Fails the run for an unsupported stack; the other jobs check inputs.stack in their condition, so no runner starts
+  # just to check it on every event. GitHub compares strings ignoring case, so the jobs name the laravel plugin as it
+  # is written in the marketplace, not as the input is spelled
+  stack:
+    if: inputs.stack != 'laravel'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check the stack
+        shell: bash
+        env:
+          STACK: ${{ inputs.stack }}
+        run: |
+          echo "::error::stack '$STACK' is not supported; use laravel"
+          exit 1
+
+  claude:
+    if: inputs.stack == 'laravel' && contains(fromJSON('["issues", "issue_comment", "pull_request_review_comment", "pull_request_review"]'), github.event_name)
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/claude.yml@v2
+    secrets: inherit
+    with:
+      plugins: laravel@datalogix
+      php-version: ${{ inputs.php-version }}
+      node-version: ${{ inputs.node-version }}
+      model: ${{ inputs.model }}
+      plan-model: ${{ inputs.plan-model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  tests:
+    if: inputs.stack == 'laravel' && inputs.tests && contains(fromJSON('["push", "pull_request", "merge_group", "schedule", "workflow_dispatch"]'), github.event_name)
+    permissions:
+      contents: read
+    uses: datalogix/workflows/.github/workflows/laravel-app-tests.yml@v2
+    with:
+      php-version: ${{ inputs.php-version }}
+      node-version: ${{ inputs.node-version }}
+      test-command: ${{ inputs.test-command }}
+      js: ${{ inputs.js }}
+
+  # Once per pull request (opened, reopened or ready for review), not on every push: ask @claude for another review.
+  # Skipped here rather than in claude-review, so a push neither expands the workflow nor cancels a review in progress.
+  # Also skipped on the release and sync pull requests between the two branches: their changes were reviewed in the
+  # pull requests to the development branch (hotfix pull requests to the production branch are reviewed)
+  review:
+    if: |
+      inputs.stack == 'laravel' && inputs.review && github.event_name == 'pull_request' && github.event.action != 'synchronize' &&
+      !(inputs.production-branch != '' && (github.head_ref == inputs.production-branch ||
+        (github.head_ref == github.event.repository.default_branch && github.base_ref == inputs.production-branch)))
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/claude-review.yml@v2
+    secrets: inherit
+    with:
+      plugins: laravel@datalogix
+      model: ${{ inputs.model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  security:
+    if: inputs.stack == 'laravel' && inputs.security-review && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/claude-security-review.yml@v2
+    secrets: inherit
+    with:
+      plugins: laravel@datalogix
+      model: ${{ inputs.model }}
+      fail-on: ${{ inputs.security-fail-on }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  gate:
+    if: inputs.stack == 'laravel' && inputs.risk-gate && contains(fromJSON('["pull_request", "pull_request_review", "merge_group"]'), github.event_name)
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    uses: datalogix/workflows/.github/workflows/risk-gate.yml@v2
+    with:
+      approvals-medium: ${{ inputs.approvals-medium }}
+      approvals-high: ${{ inputs.approvals-high }}
+      count-author: ${{ inputs.count-author }}
+      language: ${{ inputs.language }}
+
+  # In the same run as the tests, so no separate workflow_run trigger is needed
+  fix-ci:
+    needs: tests
+    if: ${{ !cancelled() && inputs.stack == 'laravel' && inputs.fix-ci && github.event_name == 'pull_request' && needs.tests.result == 'failure' }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/claude-fix-ci.yml@v2
+    secrets: inherit
+    with:
+      plugins: laravel@datalogix
+      php-version: ${{ inputs.php-version }}
+      node-version: ${{ inputs.node-version }}
+      model: ${{ inputs.fix-ci-model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  staging:
+    needs: tests
+    if: |
+      !cancelled() && inputs.stack == 'laravel' && inputs.deploy != 'none' && inputs.staging &&
+      (needs.tests.result == 'success' || (needs.tests.result == 'skipped' && !inputs.tests)) &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+      issues: write
+    uses: datalogix/workflows/.github/workflows/deploy.yml@v2
+    secrets: inherit
+    with:
+      environment: staging
+      provider: ${{ inputs.deploy }}
+      watch-minutes: ${{ inputs.watch-minutes }}
+      language: ${{ inputs.language }}
+
+  production:
+    needs: [tests, staging]
+    if: |
+      !cancelled() && inputs.stack == 'laravel' && inputs.deploy != 'none' &&
+      (needs.tests.result == 'success' || (needs.tests.result == 'skipped' && !inputs.tests)) &&
+      (needs.staging.result == 'success' || (needs.staging.result == 'skipped' && (!inputs.staging || inputs.production-branch != ''))) &&
+      github.ref == format('refs/heads/{0}', inputs.production-branch || github.event.repository.default_branch) &&
+      ((github.event_name == 'push' && inputs.production == 'auto') || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+      issues: write
+    uses: datalogix/workflows/.github/workflows/deploy.yml@v2
+    secrets: inherit
+    with:
+      environment: production
+      provider: ${{ inputs.deploy }}
+      branch: ${{ inputs.production-branch }}
+      watch-minutes: ${{ inputs.watch-minutes }}
+      language: ${{ inputs.language }}
+
+  release:
+    if: |
+      inputs.stack == 'laravel' && inputs.deploy != 'none' && inputs.production-branch != '' && github.event_name == 'push' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       github.ref == format('refs/heads/{0}', inputs.production-branch))
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: datalogix/workflows/.github/workflows/release-pr.yml@v2
+    secrets: inherit
+    with:
+      production-branch: ${{ inputs.production-branch }}
+      language: ${{ inputs.language }}
+
+  incident:
+    if: inputs.stack == 'laravel' && inputs.incidents && github.event_name == 'repository_dispatch' && github.event.action == 'incident'
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/incident.yml@v2
+    secrets: inherit
+    with:
+      plugins: laravel@datalogix
+      environments: ${{ inputs.incident-environments }}
+      types: ${{ inputs.incident-types }}
+      model: ${{ inputs.model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  rollback:
+    if: |
+      inputs.stack == 'laravel' && inputs.deploy != 'none' &&
+      github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'rollback' &&
+      ((contains(github.event.issue.labels.*.name, 'env:staging') && inputs.staging) ||
+       (contains(github.event.issue.labels.*.name, 'env:production') && !contains(github.event.issue.labels.*.name, 'env:staging')))
+    permissions:
+      contents: write
+      issues: write
+    uses: datalogix/workflows/.github/workflows/deploy.yml@v2
+    secrets: inherit
+    with:
+      # Issues opened by a failed deploy or the monitoring service carry an env:<name> label; an issue without
+      # env:staging or env:production (an unrelated issue, or env:qa) does not run this job
+      environment: ${{ contains(github.event.issue.labels.*.name, 'env:staging') && 'staging' || 'production' }}
+      provider: ${{ inputs.deploy }}
+      branch: ${{ !contains(github.event.issue.labels.*.name, 'env:staging') && inputs.production-branch || '' }}
+      mode: rollback
+      issue: ${{ github.event.issue.number }}
+      watch-minutes: 5
+      language: ${{ inputs.language }}
+
+  # The rollback label on a staging issue with staging off: no environment to roll back, so the issue says why and
+  # loses the label, as after a rollback
+  rollback-off:
+    if: |
+      inputs.stack == 'laravel' && inputs.deploy != 'none' && !inputs.staging &&
+      github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'rollback' &&
+      contains(github.event.issue.labels.*.name, 'env:staging')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Datalogix language
+        id: language
+        uses: datalogix/workflows/.github/actions/language@v2
+        with:
+          language: ${{ inputs.language }}
+
+      - name: Explain on the issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          ENGLISH: ${{ steps.language.outputs.english }}
+        run: |
+          if [ "$ENGLISH" = true ]; then
+            body="Nothing was rolled back: this issue is about **staging**, and the project's workflow deploys no staging (the \`staging\` input is off)."
+          else
+            body="Nada foi revertido: esta issue é sobre **staging**, e o workflow do projeto não faz deploy em staging (o input \`staging\` está desligado)."
+          fi
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "$body"
+          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label rollback >/dev/null || true

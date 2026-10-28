@@ -1,4 +1,4 @@
-name: laravel-tests
+name: laravel-package-tests
 
 on:
   workflow_call:
@@ -28,7 +28,8 @@ on:
         default: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd
       test-command:
         type: string
-        default: vendor/bin/phpunit
+        default: ""
+        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit
       coverage:
         type: boolean
         default: true
@@ -59,7 +60,8 @@ jobs:
 
     # A new push to a PR cancels the previous run; runs on main always finish
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ matrix.os }}-${{ matrix.php }}-${{ matrix.laravel }}-${{ matrix.stability }}
+      # Outside pull requests each run has its own group: one per ref would let a newer pending run replace an older one
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ matrix.os }}-${{ matrix.php }}-${{ matrix.laravel }}-${{ matrix.stability }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     strategy:
@@ -88,6 +90,7 @@ jobs:
           PHP: ${{ inputs.php }}
           LARAVEL: ${{ inputs.laravel }}
           STABILITY: ${{ inputs.stability }}
+          EXCLUDE: ${{ inputs.exclude }}
           MATRIX_OS: ${{ matrix.os }}
           MATRIX_PHP: ${{ matrix.php }}
           MATRIX_LARAVEL: ${{ matrix.laravel }}
@@ -98,6 +101,12 @@ jobs:
           php=$(jq -r "$newest" <<< "$PHP")
           laravel=$(jq -r "$newest" <<< "$LARAVEL")
           stability=$(jq -r 'if index("prefer-stable") then "prefer-stable" else last end' <<< "$STABILITY")
+
+          # An exclude entry matching the newest combination would leave no job collecting coverage
+          combination=$(jq -n --arg os "$os" --arg php "$php" --arg laravel "$laravel" --arg stability "$stability" '$ARGS.named')
+          if jq -e --argjson c "$combination" 'any(.[]; to_entries | all((.value | tostring) == $c[.key]))' <<< "$EXCLUDE" >/dev/null; then
+            echo "::warning::exclude removes PHP $php, Laravel $laravel, $stability, $os, the combination that collects coverage: no coverage is reported"
+          fi
 
           if [ "$MATRIX_OS" = "$os" ] && [ "$MATRIX_PHP" = "$php" ] && [ "$MATRIX_LARAVEL" = "$laravel" ] && [ "$MATRIX_STABILITY" = "$stability" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -125,19 +134,45 @@ jobs:
           restore-keys: composer-${{ matrix.os }}-php-${{ matrix.php }}-laravel-${{ matrix.laravel }}-${{ matrix.stability }}-
 
       - name: Install dependencies
+        shell: bash
+        env:
+          LARAVEL: ${{ matrix.laravel }}
+          STABILITY: ${{ matrix.stability }}
         run: |
-          composer require "laravel/framework:${{ matrix.laravel }}" --no-interaction --no-update
-          composer update --${{ matrix.stability }} --prefer-dist --no-interaction
+          composer require "laravel/framework:$LARAVEL" --no-interaction --no-update
+          composer update "--$STABILITY" --prefer-dist --no-interaction
 
       - name: Execute tests
         shell: bash
         env:
           TEST_COMMAND: ${{ inputs.test-command }}
           COVERAGE: ${{ steps.coverage.outputs.enabled }}
+          # Composer stops scripts after 300 seconds by default
+          COMPOSER_PROCESS_TIMEOUT: 0
         run: |
+          # Pest depends on PHPUnit, so it is checked first
+          if [ -z "$TEST_COMMAND" ]; then
+            script=$(jq -r '.scripts.test // empty | if type == "string" then . else "multiple commands" end' composer.json)
+            if [ -n "$script" ]; then
+              TEST_COMMAND="composer test"
+            elif [ -x vendor/bin/pest ]; then
+              TEST_COMMAND=vendor/bin/pest
+            elif [ -x vendor/bin/phpunit ]; then
+              TEST_COMMAND=vendor/bin/phpunit
+            else
+              echo "::error::Neither Pest nor PHPUnit is installed; set the test-command input"
+              exit 1
+            fi
+          fi
+
           # Without a driver, a coverage report requested in phpunit.xml produces a warning, which fails the run with failOnWarning
-          if [ "$COVERAGE" != true ] && [[ "$TEST_COMMAND" =~ ^vendor/bin/(phpunit|pest)([[:space:]]|$) ]]; then
-            TEST_COMMAND="$TEST_COMMAND --no-coverage"
+          if [ "$COVERAGE" != true ]; then
+            if [[ "$TEST_COMMAND" =~ ^vendor/bin/(phpunit|pest)([[:space:]]|$) ]]; then
+              TEST_COMMAND="$TEST_COMMAND --no-coverage"
+            # Composer passes the arguments after -- to the script's command, so only a single PHPUnit or Pest command takes it
+            elif [ "$TEST_COMMAND" = "composer test" ] && [[ "$script" =~ ^(@php[[:space:]]+)?(vendor/bin/)?(phpunit|pest)([[:space:]]|$) ]]; then
+              TEST_COMMAND="composer test -- --no-coverage"
+            fi
           fi
 
           eval "$TEST_COMMAND"
@@ -177,8 +212,9 @@ jobs:
         run: |
           if jq -e '.["require-dev"]["laravel/pint"] // .require["laravel/pint"]' composer.json >/dev/null; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            # Highest PHP version of the matrix, which the package is known to support
-            echo "php=$(jq -r 'max_by(split(".") | map(tonumber))' <<< "$PHP")" >> "$GITHUB_OUTPUT"
+            # Highest PHP version of the matrix, which the package is known to support (given as strings or numbers)
+            newest='map(tostring) | max_by(gsub("[^0-9.]"; "") | split(".") | map(select(. != "") | tonumber))'
+            echo "php=$(jq -r "$newest" <<< "$PHP")" >> "$GITHUB_OUTPUT"
           else
             echo "laravel/pint is not required by composer.json, skipping"
           fi
@@ -217,3 +253,25 @@ jobs:
         env:
           BASE: ${{ github.base_ref }}
         run: vendor/bin/pint --test --diff="origin/$BASE"
+
+  # Single status check for branch protection and merge queues, so it does not depend on the matrix job names
+  all-checks:
+    if: always()
+
+    needs: [tests, pint]
+
+    runs-on: ubuntu-latest
+
+    permissions: {}
+
+    steps:
+      - name: Check results
+        shell: bash
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            # pint is skipped outside pull requests or when disabled
+            [ "$result" = success ] || [ "$result" = skipped ] || exit 1
+          done

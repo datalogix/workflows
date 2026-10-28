@@ -1,0 +1,16 @@
+name = "incident-relay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+ALLOWED_OWNER = "datalogix"
+
+# Webhook secrets, one key per repository: "<provider>:<owner>/<repo>" (e.g. "nightwatch:datalogix/app").
+# Create the namespace once with `npx wrangler kv namespace create SECRETS` and paste its id here:
+# the setup command reads it from this file (at the released tag) to register projects.
+[[kv_namespaces]]
+binding = "SECRETS"
+id = "REPLACE_WITH_THE_NAMESPACE_ID"
+
+# Secret (set with `npx wrangler secret put GITHUB_TOKEN`):
+#   GITHUB_TOKEN  fine-grained token with Contents: read and write on the project repositories

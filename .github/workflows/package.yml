@@ -1,0 +1,102 @@
+name: package
+
+# Every workflow a Laravel package needs, behind a single file in the package (examples/package.yml). New layers are
+# added here, so packages get them without changing their file.
+#
+# Required checks (branch ruleset): <calling job> / tests / all-checks.
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the package, which picks its tests. Only laravel is supported today
+      tests:
+        type: boolean
+        default: true
+        description: Run the test suite across the matrix (laravel-package-tests)
+
+      # Passed to laravel-package-tests, with the same defaults
+      os:
+        type: string
+        default: '["ubuntu-latest"]'
+      php:
+        type: string
+        default: '["8.2", "8.3", "8.4", "8.5"]'
+      laravel:
+        type: string
+        default: '["^12.0", "^13.0"]'
+      stability:
+        type: string
+        default: '["prefer-lowest", "prefer-stable"]'
+      exclude:
+        type: string
+        default: |
+          [
+            {"laravel": "^13.0", "php": "8.2"},
+            {"stability": "prefer-lowest", "php": "8.4"},
+            {"stability": "prefer-lowest", "php": "8.5"}
+          ]
+      extensions:
+        type: string
+        default: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd
+      test-command:
+        type: string
+        default: ""
+        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit
+      coverage:
+        type: boolean
+        default: true
+        description: Collect and upload coverage on the newest combination of the matrix (highest PHP and Laravel, prefer-stable, first OS)
+      coverage-driver:
+        type: string
+        default: pcov
+        description: pcov (faster) or xdebug
+      timeout-minutes:
+        type: number
+        default: 30
+      pint:
+        type: boolean
+        default: true
+        description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+ in require-dev)
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+jobs:
+  # Fails the run for an unsupported stack; the other jobs check inputs.stack in their condition, so no runner starts
+  # just to check it on every event
+  stack:
+    if: inputs.stack != 'laravel'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check the stack
+        shell: bash
+        env:
+          STACK: ${{ inputs.stack }}
+        run: |
+          echo "::error::stack '$STACK' is not supported; use laravel"
+          exit 1
+
+  tests:
+    if: inputs.stack == 'laravel' && inputs.tests && contains(fromJSON('["push", "pull_request", "merge_group", "schedule", "workflow_dispatch"]'), github.event_name)
+    permissions:
+      contents: read
+    uses: datalogix/workflows/.github/workflows/laravel-package-tests.yml@v2
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    with:
+      os: ${{ inputs.os }}
+      php: ${{ inputs.php }}
+      laravel: ${{ inputs.laravel }}
+      stability: ${{ inputs.stability }}
+      exclude: ${{ inputs.exclude }}
+      extensions: ${{ inputs.extensions }}
+      test-command: ${{ inputs.test-command }}
+      coverage: ${{ inputs.coverage }}
+      coverage-driver: ${{ inputs.coverage-driver }}
+      timeout-minutes: ${{ inputs.timeout-minutes }}
+      pint: ${{ inputs.pint }}

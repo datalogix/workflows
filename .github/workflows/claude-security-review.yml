@@ -1,0 +1,222 @@
+name: claude-security-review
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        type: string
+        default: opus
+        description: Claude model (e.g. fable, opus, sonnet); empty uses the account default
+      max-turns:
+        type: number
+        default: 40
+        description: Maximum turns of Claude's security review
+      timeout-minutes:
+        type: number
+        default: 30
+        description: Timeout of the security review job
+      fail-on:
+        type: string
+        default: high
+        description: Lowest severity that fails the check (high, medium, low or none)
+      ignored-authors:
+        type: string
+        default: '["dependabot[bot]", "renovate[bot]"]'
+        description: JSON list of PR authors that are not reviewed, unless someone else pushed the commits (dependency updates are covered by composer audit)
+      allowed-bots:
+        type: string
+        default: "*"
+        description: Bots whose PRs are reviewed (ignored-authors still takes precedence)
+      plugin-marketplaces:
+        type: string
+        default: ""
+        description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
+      plugins:
+        type: string
+        default: laravel@datalogix
+        description: Claude Code plugins to install, one per line (name@marketplace)
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this repository (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what Claude writes for the team (e.g. pt-BR, en; no double quotes); the fixed texts exist in pt-BR and en, other languages get pt-BR
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  # Skipped here, inside the called workflow, the check <caller> / security / security still reports as skipped, which
+  # satisfies a required check (a skip in the caller would not: keep this condition here). Drafts, forks, ignored
+  # authors and merge queue runs therefore pass without a security review; the PR itself was already reviewed.
+  security:
+    if: |
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !(contains(fromJSON(inputs.ignored-authors), github.event.pull_request.user.login) &&
+        contains(fromJSON(inputs.ignored-authors), github.actor))
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: claude-security-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      # Before the review: a typo in fail-on would otherwise cost a whole review and fail the check
+      - name: Check settings
+        id: settings
+        shell: bash
+        env:
+          FAIL_ON: ${{ inputs.fail-on }}
+        run: |
+          case "$FAIL_ON" in
+            high) levels='["high"]' ;;
+            medium) levels='["high", "medium"]' ;;
+            low) levels='["high", "medium", "low"]' ;;
+            none) levels='[]' ;;
+            *) echo "::error::Invalid fail-on value: $FAIL_ON (use high, medium, low or none)"; exit 1 ;;
+          esac
+          echo "levels=$levels" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read the team language
+        id: language
+        uses: datalogix/workflows/.github/actions/language@v2
+        with:
+          language: ${{ inputs.language }}
+
+      - name: Locate the Datalogix plugins
+        id: plugins
+        uses: datalogix/workflows/.github/actions/plugins@v2
+
+      - name: Review security with Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: ${{ inputs.allowed-bots }}
+
+          plugin_marketplaces: |
+            ${{ steps.plugins.outputs.marketplace }}
+            ${{ inputs.plugin-marketplaces }}
+          plugins: ${{ inputs.plugins }}
+
+          prompt: /laravel:security-review ${{ env.PR_NUMBER }} ${{ runner.temp }}/security-findings.json
+
+          # Read-only: Claude can only read the code and the PR, and write the findings file (// starts an absolute
+          # path): any other file it could write (the findings of a forged review, $GITHUB_ENV) would be read by the
+          # steps after it. Reads stay in the workspace (not /proc or the runner's files) and git's --output, which
+          # writes a file, is denied
+          claude_args: |
+            --max-turns ${{ inputs.max-turns }}
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --allowed-tools "Read(./**),Grep(./**),Glob(./**),Write(/${{ runner.temp }}/security-findings.json),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(ls:*)"
+            --disallowed-tools "Edit,MultiEdit,Bash(git * --output*),Bash(git push:*),Bash(git commit:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh api:*)"
+            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only end your turn once the findings file has been written. Load the laravel:conventions skill before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+
+      # Also after a failed review (max-turns, an error of the action), so the PR comment does not keep the result of an
+      # earlier commit; not when cancelled, since a newer run replaces this one
+      - name: Publish findings
+        id: findings
+        if: ${{ !cancelled() && steps.language.outcome == 'success' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINDINGS: ${{ runner.temp }}/security-findings.json
+          LEVELS: ${{ steps.settings.outputs.levels }}
+          FAIL_ON: ${{ inputs.fail-on }}
+          ENGLISH: ${{ steps.language.outputs.english }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker="<!-- claude-security-review -->"
+          # A single comment per PR, updated on every push. Every page is read and the first id kept in bash: a pipe
+          # into head could end gh with SIGPIPE, which pipefail turns into a failed step
+          publish() {
+            local comments comment
+            comments=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+              --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
+            comment=${comments%%$'\n'*}
+            if [ -n "$comment" ]; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment" -f body="$1" >/dev/null
+            else
+              gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$1"
+            fi
+          }
+
+          if ! jq -e '.findings | type == "array" and all(type == "object")' "$FINDINGS" >/dev/null 2>&1; then
+            echo "::error::The security review did not produce a valid findings file"
+            if [ "$ENGLISH" = true ]; then
+              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Security review" \
+                "The security review did not finish; this check fails until it runs again (push a commit or re-run the job)." \
+                "[View run]($RUN_URL)" "$marker")"
+            else
+              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Revisão de segurança" \
+                "A revisão de segurança não terminou; este check falha até ela rodar de novo (envie um commit ou rode o job de novo)." \
+                "[Ver execução]($RUN_URL)" "$marker")"
+            fi
+            exit 1
+          fi
+          # Severities spelled otherwise (High, critical) or unknown count as high, so they never pass unseen
+          jq '.findings |= map(.severity = ((.severity // "") | tostring | ascii_downcase
+            | if IN("medium", "low") then . else "high" end))' "$FINDINGS" > "$FINDINGS.normalized"
+          mv "$FINDINGS.normalized" "$FINDINGS"
+
+          blocking=$(jq --argjson levels "$LEVELS" '[.findings[] | select(.severity as $s | $levels | index($s))] | length' "$FINDINGS")
+          total=$(jq '.findings | length' "$FINDINGS")
+          echo "blocking=$blocking" >> "$GITHUB_OUTPUT"
+
+          body=$(jq -r --arg marker "$marker" --arg run "$RUN_URL" --argjson blocking "$blocking" --argjson en "$ENGLISH" '
+            def icon: {"high": "🔴", "medium": "🟠", "low": "🟡"}[.] // "⚪";
+            [
+              (if $en then "## Security review" else "## Revisão de segurança" end),
+              "",
+              .summary,
+              "",
+              (if (.findings | length) == 0 then
+                 (if $en then "No security problems found in the changes of this PR." else "Nenhum problema de segurança encontrado nas mudanças deste PR." end)
+               else
+                 (.findings | sort_by({"high": 0, "medium": 1, "low": 2}[.severity] // 3)[] |
+                   "### \(.severity | icon) \(.title)\n\n`\(.file)\(if .line then ":\(.line)" else "" end)` · \(.severity) · \(.category)\n\n\(.description)\n\n**\(if $en then "Recommendation" else "Recomendação" end):** \(.recommendation)\n")
+               end),
+              "",
+              (if $blocking == 0 then empty
+               elif $en then "This PR is blocked until the problems above are fixed. Ask `@claude fix the security problems`; if one is a false positive, record it in `.github/security-review.md`."
+               else "Este PR está bloqueado até que os problemas acima sejam corrigidos. Peça `@claude corrija os problemas de segurança`; se for um falso positivo, registre-o em `.github/security-review.md`." end),
+              "",
+              (if $en then "[View run](\($run))" else "[Ver execução](\($run))" end),
+              "",
+              $marker
+            ] | join("\n")
+          ' "$FINDINGS")
+
+          publish "$body"
+
+          {
+            echo "### Security review"
+            echo
+            echo "$total finding(s), $blocking at or above \`$FAIL_ON\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$blocking" -gt 0 ]; then
+            echo "::error::$blocking security finding(s) at or above $FAIL_ON"
+            exit 1
+          fi

@@ -1,0 +1,154 @@
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+        description: GitHub environment to deploy (e.g. staging, production); holds the DEPLOY_HOOK secret and the HEALTH_URL variable
+      provider:
+        type: string
+        required: true
+        description: forge or cloud
+      branch:
+        type: string
+        default: ""
+        description: Branch the environment deploys, sent to Forge with the commit; empty uses the default branch
+      mode:
+        type: string
+        default: deploy
+        description: deploy publishes the current commit; rollback returns to the release before the one that is live
+      issue:
+        type: number
+        default: 0
+        description: Issue that asked for the rollback (mode rollback); receives the result and loses the rollback label
+      rollback-label:
+        type: string
+        default: rollback
+        description: Label removed from the issue after a rollback (mode rollback), so it can be added again
+      settle-seconds:
+        type: number
+        default: 0
+        description: Seconds to wait after triggering the deploy before watching (0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first)
+      watch-minutes:
+        type: number
+        default: 10
+        description: Minutes to watch the health URL after the deploy
+      max-failures:
+        type: number
+        default: 3
+        description: Consecutive failed health checks that trigger a rollback
+      rollback:
+        type: boolean
+        default: true
+        description: Redeploy the last good release of this environment when the health checks fail
+      timeout-minutes:
+        type: number
+        default: 60
+        description: Job timeout; must cover the deploy wait, the watch and a possible rollback
+      language:
+        type: string
+        default: pt-BR
+        description: Language of the issues and comments (pt-BR or en; other languages get pt-BR)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # The environment holds the DEPLOY_HOOK secret, the HEALTH_URL variable and any protection rules (required reviewers, wait timer)
+    environment: ${{ inputs.environment }}
+
+    # One deploy per environment at a time; a running one is never cancelled. GitHub keeps only one pending run per group:
+    # a newer one replaces it (see docs/troubleshooting.md, "The `rollback` label does nothing")
+    concurrency:
+      group: deploy-${{ github.repository }}-${{ inputs.environment }}
+      cancel-in-progress: false
+
+    # contents: write only to keep the release history in refs/datalogix/* (not branches or tags)
+    permissions:
+      contents: write
+      issues: write
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    env:
+      MODE: ${{ inputs.mode }}
+      PROVIDER: ${{ inputs.provider }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      DEPLOY_HOOK: ${{ secrets.DEPLOY_HOOK }}
+      HEALTH_URL: ${{ vars.HEALTH_URL }}
+      NIGHTWATCH_TOKEN: ${{ secrets.NIGHTWATCH_TOKEN }}
+      BRANCH: ${{ inputs.branch || github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      LANGUAGE: ${{ inputs.language }}
+      SETTLE: ${{ inputs.settle-seconds }}
+      MINUTES: ${{ inputs.watch-minutes }}
+      MAX_FAILURES: ${{ inputs.max-failures }}
+
+    steps:
+      - name: Check configuration
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        env:
+          SENDER: ${{ github.event.sender.login }}
+        with:
+          step: check
+
+      - name: Choose the release
+        id: release
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        with:
+          step: choose
+
+      - name: Deploy
+        id: deploy
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+          # Marked as rolled back once the hook accepts the rollback
+          FROM: ${{ steps.release.outputs.from }}
+        with:
+          step: deploy
+
+      - name: Wait for the deploy
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        with:
+          step: settle
+
+      - name: Watch health
+        id: watch
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+        with:
+          step: watch
+
+      - name: Roll back
+        id: rollback
+        if: failure() && steps.watch.outcome == 'failure' && inputs.mode == 'deploy' && inputs.rollback
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        with:
+          step: rollback
+
+      - name: Open an issue
+        if: failure() && steps.watch.outcome == 'failure' && inputs.mode == 'deploy'
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        env:
+          TARGET: ${{ steps.rollback.outputs.target }}
+          ROLLBACK: ${{ steps.rollback.outcome }}
+        with:
+          step: open-issue
+
+      - name: Report the rollback
+        if: always() && inputs.mode == 'rollback' && inputs.issue > 0
+        uses: datalogix/workflows/.github/actions/deploy@v2
+        env:
+          ISSUE: ${{ inputs.issue }}
+          LABEL: ${{ inputs.rollback-label }}
+          FROM: ${{ steps.release.outputs.from }}
+          SHA: ${{ steps.release.outputs.sha }}
+          # A rollback the hook accepted whose watch never ran (cancelled or timed out while waiting) was triggered
+          RESULT: ${{ steps.deploy.outcome == 'success' && steps.watch.outcome == 'skipped' && 'cancelled' || steps.watch.outcome }}
+        with:
+          step: report-rollback

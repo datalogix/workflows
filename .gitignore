@@ -10,6 +10,24 @@ Thumbs.db
 /.nova/
 /.cursor/
 
+# Claude Code
+/.claude/settings.local.json
+
 # Local CI tooling (see ci.yml)
 /actionlint
 /.lint/
+
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Local secrets (safety net: this repository is public)
+.env
+.env.*
+!.env.example
+secret.txt
+
+# Wrangler (relay/)
+.wrangler/
+.dev.vars*
+!.dev.vars.example

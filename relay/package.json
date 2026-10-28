@@ -1,0 +1,14 @@
+{
+  "name": "incident-relay",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5",
+    "wrangler": "^4"
+  }
+}

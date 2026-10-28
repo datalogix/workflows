@@ -19,9 +19,18 @@ on:
         type: boolean
         default: true
         description: Run PHPStan when it is installed
+      audit:
+        type: boolean
+        default: true
+        description: Run composer audit on schedule and manual runs, and on PRs that change composer.lock
       test-command:
         type: string
-        default: php artisan test
+        default: ""
+        description: Empty runs composer test when composer.json defines it, otherwise php artisan test
+      js:
+        type: boolean
+        default: true
+        description: Run the typecheck, lint and test scripts of package.json when they are defined
       timeout-minutes:
         type: number
         default: 30
@@ -37,7 +46,8 @@ jobs:
 
     # A new push to a PR cancels the previous run; runs on main always finish
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      # Outside pull requests each run has its own group: one per ref would let a newer pending run replace an older one
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
@@ -47,7 +57,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Laravel
-        uses: datalogix/workflows/.github/actions/setup-laravel@v1
+        uses: datalogix/workflows/.github/actions/setup-laravel@v2
         with:
           php-version: ${{ inputs.php-version }}
           node-version: ${{ inputs.node-version }}
@@ -67,4 +77,75 @@ jobs:
 
       - name: Tests
         shell: bash
-        run: ${{ inputs.test-command }}
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+          # Composer stops scripts after 300 seconds by default
+          COMPOSER_PROCESS_TIMEOUT: 0
+        run: |
+          if [ -z "$TEST_COMMAND" ]; then
+            if jq -e '.scripts.test' composer.json >/dev/null 2>&1; then
+              TEST_COMMAND="composer test"
+            else
+              TEST_COMMAND="php artisan test"
+            fi
+          fi
+
+          eval "$TEST_COMMAND"
+
+      - name: Detect package.json scripts
+        id: js
+        if: inputs.js && hashFiles('package.json') != ''
+        shell: bash
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            echo "run=pnpm run" >> "$GITHUB_OUTPUT"
+          elif [ -f yarn.lock ]; then
+            echo "run=yarn run" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=npm run" >> "$GITHUB_OUTPUT"
+          fi
+
+          for script in typecheck lint test; do
+            # npm init writes a test script that only fails
+            if jq -e --arg script "$script" '.scripts[$script] // "" | select(. != "" and (contains("no test specified") | not))' package.json >/dev/null; then
+              echo "$script=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "No $script script in package.json, skipping"
+            fi
+          done
+
+      - name: Typecheck
+        if: steps.js.outputs.typecheck
+        shell: bash
+        env:
+          RUN: ${{ steps.js.outputs.run }}
+        run: $RUN typecheck
+
+      - name: JS lint
+        if: steps.js.outputs.lint
+        shell: bash
+        env:
+          RUN: ${{ steps.js.outputs.run }}
+        run: $RUN lint
+
+      - name: JS tests
+        if: steps.js.outputs.test
+        shell: bash
+        env:
+          RUN: ${{ steps.js.outputs.run }}
+        run: $RUN test
+
+      # On PRs only when composer.lock changes, so a new advisory does not block unrelated PRs;
+      # scheduled runs catch advisories published after the dependencies were installed
+      - name: Composer audit
+        if: inputs.audit && hashFiles('composer.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && git diff --quiet "origin/$BASE...HEAD" -- composer.lock; then
+            echo "composer.lock did not change, skipping"
+            exit 0
+          fi
+
+          composer audit --locked --abandoned=report --no-interaction
