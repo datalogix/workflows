@@ -33,7 +33,8 @@ function setupSteps(stack) {
           await clack.password({
             message: question(
               header,
-              `Codecov token${dim('  optional: uploads the coverage report; empty to skip (an organization secret also works)')}`,
+              `Codecov token${dim('  optional; an organization secret also works')}`,
+              'Empty: the tests run, but the coverage report is not uploaded',
             ),
           }),
         ),

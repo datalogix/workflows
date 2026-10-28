@@ -95,7 +95,7 @@ const relayHint = (registered) =>
     ? '  empty to keep it as it is'
     : registered
       ? '  empty to keep the current one'
-      : '  empty to set it later';
+      : '  empty to set it later; until then, problems do not become issues';
 // --layers review,security-review,risk-gate,fix-ci, or none: the inputs of LAYERS
 const layerChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
 const validLayers = (value) =>
@@ -109,7 +109,7 @@ const validUrl = (value) => (/^https:\/\/\S+$/.test(value?.trim() ?? '') ? undef
  * A secret question: keep the current value or type a new one, one question at a time. An optional secret may be left
  * empty, to set it later.
  */
-function secretSteps(id, { label, exists, when, validate: validValue = notEmpty, hint, optional = false }) {
+function secretSteps(id, { label, exists, when, validate: validValue = notEmpty, hint, about, optional = false }) {
   const validate = optional ? (value) => (value?.trim() ? validValue(value) : undefined) : validValue;
   const hints = [hint, optional && 'empty to set it later'].filter(Boolean).join(' · ');
   return [
@@ -133,7 +133,10 @@ function secretSteps(id, { label, exists, when, validate: validValue = notEmpty,
       when: (a, ctx) => when(a, ctx) && (!exists(ctx) || a[`${id}Keep`] === false),
       ask: async ({ header }) =>
         orExit(
-          await clack.password({ message: question(header, `${label}${hints ? dim(`  ${hints}`) : ''}`), validate }),
+          await clack.password({
+            message: question(header, `${label}${hints ? dim(`  ${hints}`) : ''}`, about),
+            validate,
+          }),
         ),
     },
   ];
@@ -187,7 +190,11 @@ function setupSteps(stack) {
       ask: async ({ header, answers, ctx }) =>
         orExit(
           await clack.text({
-            message: question(header, 'Production domain'),
+            message: question(
+              header,
+              'Production domain',
+              'After each deploy, https://<domain><health check path> is checked',
+            ),
             initialValue:
               domainOf(ctx.state.environments.production.healthUrl ?? '') ??
               suggestedDomain(answers.repository, ctx.state.locale),
@@ -220,7 +227,11 @@ function setupSteps(stack) {
       ask: async ({ header, answers, ctx }) =>
         orExit(
           await clack.text({
-            message: question(header, 'Staging domain'),
+            message: question(
+              header,
+              'Staging domain',
+              'Where staging is checked after each deploy; to have no staging, answer no to the previous question',
+            ),
             initialValue: domainOf(ctx.state.environments.staging.healthUrl ?? '') ?? `dev.${answers.domain}`,
             validate: validDomain,
           }),
@@ -250,7 +261,11 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.text({
-            message: question(header, `Development branch${dim('  becomes the default branch')}`),
+            message: question(
+              header,
+              `Development branch${dim('  becomes the default branch')}`,
+              'Each push to it deploys staging; created from the default branch when missing',
+            ),
             initialValue: ctx.state.current?.productionBranch ? ctx.state.defaultBranch : 'develop',
             validate: validBranch,
           }),
@@ -264,7 +279,11 @@ function setupSteps(stack) {
       ask: async ({ header, answers, ctx }) =>
         orExit(
           await clack.text({
-            message: question(header, 'Production branch'),
+            message: question(
+              header,
+              'Production branch',
+              'Each push to it deploys production; created from what production runs today when missing',
+            ),
             // The current one, else main; the first that differs from the development branch, so the prefilled value is valid
             initialValue: [ctx.state.current?.productionBranch, 'main', 'production'].find(
               (name) => name && name !== answers.developmentBranch,
@@ -334,7 +353,11 @@ function setupSteps(stack) {
         const current = ctx.state.environments.production.healthUrl;
         return orExit(
           await clack.text({
-            message: question(header, 'Health check path'),
+            message: question(
+              header,
+              'Health check path',
+              'Called every 30 seconds after each deploy; when it keeps failing, the deploy is rolled back, so it must answer 200 without a login or an IP allow list',
+            ),
             initialValue: (current && pathOf(current)) || stack.healthPath(ctx),
             validate: validPath,
           }),
@@ -346,6 +369,7 @@ function setupSteps(stack) {
     ...secretSteps('productionHook', {
       label: 'Production deploy hook',
       hint: stack.deployHookHint,
+      about: 'Empty: production deploys fail until setup runs again with it',
       when: (a) => deploys(a) && !a.deployHooks?.production,
       exists: (ctx) => ctx.state.environments.production.deployHook,
       validate: validUrl,
@@ -355,6 +379,7 @@ function setupSteps(stack) {
     ...secretSteps('stagingHook', {
       label: 'Staging deploy hook',
       hint: stack.deployHookHint,
+      about: 'Empty: staging deploys fail until setup runs again with it, and production waits for staging',
       when: (a) => staging(a) && !a.deployHooks?.staging,
       exists: (ctx) => ctx.state.environments.staging.deployHook,
       validate: validUrl,
@@ -400,6 +425,7 @@ function setupSteps(stack) {
             message: question(
               header,
               `Claude token${dim('  from `claude setup-token`; stored as a repository secret')}`,
+              'Used by every Claude workflow: @claude, the reviews, Fix CI and the analysis of production problems',
             ),
             validate: notEmpty,
           }),
@@ -414,7 +440,8 @@ function setupSteps(stack) {
           await clack.text({
             message: question(
               header,
-              `Client ID of the release GitHub App${dim('  optional: runs the checks on release pull requests; empty to skip')}`,
+              `Client ID of the release GitHub App${dim('  optional; empty to add it later')}`,
+              'Empty: GitHub Actions opens the release pull requests, and their checks do not run',
             ),
             placeholder: 'Iv23li...',
           }),
@@ -571,7 +598,11 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.text({
-            message: question(header, `Human approvals a ${level}-risk pull request needs`),
+            message: question(
+              header,
+              `Human approvals a ${level}-risk pull request needs`,
+              "0: the risk gate passes without one; the author's own approval never counts",
+            ),
             initialValue: ctx.state.current?.[id] ?? '1',
             validate: validApprovals,
           }),

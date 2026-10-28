@@ -161,7 +161,8 @@ const deployTokenStep = {
       await clack.password({
         message: question(
           header,
-          `${provider.name} API token${dim(`  optional: ${provider.tokenHint}; empty to do it by hand`)}`,
+          `${provider.name} API token${dim(`  optional: ${provider.tokenHint}`)}`,
+          'Empty: setup lists what to do by hand at the end',
         ),
       }),
     );
@@ -215,7 +216,7 @@ function deploySiteStep(environment) {
               label: provider.label(target),
               hint: target.branch ? `branch ${target.branch}` : undefined,
             })),
-            { value: -1, label: 'None of these', hint: 'set it up by hand' },
+            { value: -1, label: 'None of these', hint: 'setup lists what to do by hand at the end' },
           ],
         }),
       );
