@@ -65,7 +65,7 @@ export function parseArgs(argv) {
   return { command: command ?? (flags.help ? 'help' : 'setup'), flags };
 }
 
-export const HELP = `Usage: npx github:datalogix/workflows#v2 <command> [options]
+export const HELP = `Usage: npx --allow-git=root github:datalogix/workflows#v2 <command> [options]
 
 Run it from the project folder. It uses your gh login.
 

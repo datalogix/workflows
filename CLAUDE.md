@@ -26,7 +26,7 @@ YAML and Markdown are not formatted (`.prettierignore`); they follow `.editorcon
 
 ## Release model (the key constraint)
 
-- Everything reaches projects only when a GitHub release `vX.Y.Z` is published; the `release` workflow moves the major tag `v2`. Projects run `npx github:datalogix/workflows#v2 <command>` and call workflows `@v2`.
+- Everything reaches projects only when a GitHub release `vX.Y.Z` is published; the `release` workflow moves the major tag `v2`. Projects run `npx --allow-git=root github:datalogix/workflows#v2 <command>` and call workflows `@v2`.
 - Internal references are hard-coded to `@v2`: `project.yml` and `package.yml` call the other workflows `@v2`, workflows call `datalogix/workflows/.github/actions/<name>@v2`, `cli/kinds/project/workflow.js` and `cli/kinds/package/workflow.js` have `PROJECT_REF` and `PACKAGE_REF`, the CLI's messages say `#v2` (`SETUP` and `PROTECT` in `cli/lib/evaluate.js`, `HELP` in `cli/lib/args.js` and a few next steps: `grep -rn '#v2' cli`), and examples/docs use `@v2`. Consequently a project pointed at a branch of `project.yml` still runs the *released* nested workflows/actions; to test a change, point the project at the individual workflow or action on the branch.
 - Breaking changes (renamed/removed inputs, new required secrets or permissions) require a new major and updating every one of those references together (see `docs/maintaining.md`).
 - The plugin ships with the workflows: the `plugins` action returns the repository checkout at the tag as a local marketplace. Plugin and workflows are coupled (e.g. the `[ci-fix]` commit tag written by the `fix-ci` command is what `claude-fix-ci.yml` counts to limit attempts).

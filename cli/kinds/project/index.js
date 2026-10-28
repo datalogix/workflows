@@ -770,7 +770,7 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
 
   if (state.canProtect) {
     steps.push(
-      `After the first pull request shows its checks, protect the ${twoBranches(answers) ? 'branches' : 'default branch'}:\n  ${cyan('npx github:datalogix/workflows#v2 protect')}`,
+      `After the first pull request shows its checks, protect the ${twoBranches(answers) ? 'branches' : 'default branch'}:\n  ${cyan('npx --allow-git=root github:datalogix/workflows#v2 protect')}`,
     );
   } else {
     steps.push(

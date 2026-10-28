@@ -3,7 +3,7 @@
 The `setup`, `check` and `protect` commands that configure Datalogix projects for these workflows. Projects run them with:
 
 ```bash
-npx github:datalogix/workflows#v2 setup
+npx --allow-git=root github:datalogix/workflows#v2 setup
 ```
 
 How to use them is in [Adding a Laravel app](../docs/laravel/app.md) and [Adding a Laravel package](../docs/laravel/package.md). This page is for working on them.
@@ -15,7 +15,7 @@ There is no npm package: `npx` downloads this repository at the `v2` tag, instal
 To try a branch before releasing it, run it from a project folder:
 
 ```bash
-npx github:datalogix/workflows#<branch> setup
+npx --allow-git=root github:datalogix/workflows#<branch> setup
 # or, from a local clone:
 node /path/to/workflows/cli/index.js setup
 ```

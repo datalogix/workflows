@@ -83,7 +83,7 @@ function nextSteps(answers, { results, state }) {
     );
   }
   steps.push(
-    `After the first pull request shows its checks, protect the default branch:\n  ${cyan(`npx github:datalogix/workflows#v2 protect ${answers.solo ? '--solo' : '--no-solo'}`)}`,
+    `After the first pull request shows its checks, protect the default branch:\n  ${cyan(`npx --allow-git=root github:datalogix/workflows#v2 protect ${answers.solo ? '--solo' : '--no-solo'}`)}`,
   );
   return steps;
 }

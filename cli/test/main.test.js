@@ -26,7 +26,9 @@ beforeEach(() => {
 test('prints the help and exits with 0', async () => {
   expect(await main(['help'])).toBe(0);
   expect(await main(['check', '--help'])).toBe(0);
-  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Usage: npx github:datalogix/workflows#v2'));
+  expect(console.log).toHaveBeenCalledWith(
+    expect.stringContaining('Usage: npx --allow-git=root github:datalogix/workflows#v2'),
+  );
 });
 
 test('exits with 2 on bad arguments or an unknown command', async () => {

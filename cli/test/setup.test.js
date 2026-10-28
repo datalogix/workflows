@@ -133,7 +133,7 @@ test('sets up a new project deployed with Forge', async (t) => {
   const steps = nextSteps(answers, { relay, results: [], state: APP_STATE });
   expect(steps).toContainEqual(expect.stringContaining('FORGE_VAR_COMMIT'));
   expect(steps).toContainEqual(expect.stringContaining('https://relay.test/nightwatch/datalogix/app'));
-  expect(steps.at(-1)).toContain('npx github:datalogix/workflows#v2 protect');
+  expect(steps.at(-1)).toContain('npx --allow-git=root github:datalogix/workflows#v2 protect');
 });
 
 test('changes nothing when everything is already set', async (t) => {

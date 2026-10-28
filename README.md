@@ -16,9 +16,9 @@ Packages call a single `package` workflow, today the test matrix. Only public Co
 After the one-time [organization setup](docs/organization-setup.md), from a project's folder:
 
 ```bash
-npx github:datalogix/workflows#v2 setup     # asks a few questions and sets the project up
-npx github:datalogix/workflows#v2 check     # lists what is missing, without changing anything
-npx github:datalogix/workflows#v2 protect   # protects the default branch, after the first pull request
+npx --allow-git=root github:datalogix/workflows#v2 setup     # asks a few questions and sets the project up
+npx --allow-git=root github:datalogix/workflows#v2 check     # lists what is missing, without changing anything
+npx --allow-git=root github:datalogix/workflows#v2 protect   # protects the default branch, after the first pull request
 ```
 
 The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md) or [Adding a Laravel package](docs/laravel/package.md).

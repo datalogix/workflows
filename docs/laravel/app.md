@@ -9,7 +9,7 @@ The setup command does almost everything. It needs [Node.js](https://nodejs.org)
 From the project folder:
 
 ```bash
-npx github:datalogix/workflows#v2 setup
+npx --allow-git=root github:datalogix/workflows#v2 setup
 ```
 
 It first says what the folder looks like (a Laravel app has an `artisan` file) and asks you to confirm it; `--kind app` and `--stack laravel` answer it, and `--yes` takes what it detected. When `.github/workflows/datalogix.yml` already calls the package workflow, setup refuses to set the folder up as an app: remove the file first.
@@ -49,7 +49,7 @@ After a summary and your confirmation, it applies the changes with a progress ba
 
 Secrets never appear on screen, in a command line or in a file: they go straight to GitHub (encrypted by `gh`) or to Cloudflare.
 
-Each question can also be answered with an option, which skips it (`--deploy forge --domain app.example.com --no-staging --solo`); see `npx github:datalogix/workflows#v2 --help`. Unknown options and invalid values stop the command before anything changes. Run from another repository's folder, setup and protect ask before going on.
+Each question can also be answered with an option, which skips it (`--deploy forge --domain app.example.com --no-staging --solo`); see `npx --allow-git=root github:datalogix/workflows#v2 --help`. Unknown options and invalid values stop the command before anything changes. Run from another repository's folder, setup and protect ask before going on.
 
 ## Step 2: Do what setup cannot
 
@@ -102,7 +102,7 @@ Merge the test pull request.
 ## Step 5: Protect the default branch
 
 ```bash
-npx github:datalogix/workflows#v2 protect
+npx --allow-git=root github:datalogix/workflows#v2 protect
 ```
 
 It checks that the latest pull request ran the checks of the layers that are on (`tests`, `security-review`, `risk-gate`), then creates (or updates) a ruleset named `datalogix` for the default branch, and the production branch when the project has one and the [release GitHub App](../organization-setup.md#6-create-the-release-github-app). Private repositories on GitHub Free cannot be protected: `protect` says so and changes nothing (see [Branch ruleset](../verification-layers.md#branch-ruleset)).
@@ -124,7 +124,7 @@ A required check that never reports would leave every pull request waiting, whic
 ## Checking the app
 
 ```bash
-npx github:datalogix/workflows#v2 check
+npx --allow-git=root github:datalogix/workflows#v2 check
 ```
 
 Lists what is set up and what is missing or different, without changing anything: the workflow file, labels, Claude token, environments and their secrets, whether each `HEALTH_URL` answers `200`, the database check, the production branch (exists, is not the default branch, and pushes to it and to the default branch run the workflow, following `push.branches` or `branches-ignore` patterns; a warning when staging is off), who opens the release pull requests (the release GitHub App, or GitHub Actions with the repository's permission, a warning when reading that permission needs admin access), the ruleset and whether it protects the production branch, the code owners of `.github/` and the relay registration. On private repositories on GitHub Free it warns that nothing can be protected. Errors break the workflows; warnings leave a layer weaker. Run it after updating these workflows, or when something does not work. Setup fixes most of what it reports.
