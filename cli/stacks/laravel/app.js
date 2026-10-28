@@ -32,6 +32,36 @@ async function readLocale(root) {
   return /^APP_LOCALE\s*=\s*["']?([^"'\s#]+)/m.exec(env)?.[1] ?? null;
 }
 
+// The package.json scripts laravel-app-tests runs (input js); npm init's test script only fails
+const NODE_SCRIPTS = ['typecheck', 'lint', 'test'];
+
+/** The scripts of package.json the tests would run. */
+async function nodeScripts(root) {
+  try {
+    const { scripts = {} } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    return NODE_SCRIPTS.filter((name) => scripts[name] && !String(scripts[name]).includes('no test specified'));
+  } catch {
+    return [];
+  }
+}
+
+/** Whether the tests run the package.json scripts, asked when it has some. */
+const jsStep = {
+  id: 'js',
+  flag: 'js',
+  when: (a, ctx) => Boolean(ctx.state.nodeScripts?.length),
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.confirm({
+        message: question(
+          header,
+          `Run the package.json scripts in the tests?${dim(`  ${ctx.state.nodeScripts.map((name) => `npm run ${name}`).join(', ')}`)}`,
+        ),
+        initialValue: ctx.state.current?.js ?? true,
+      }),
+    ),
+};
+
 /** Whether composer.json requires Nightwatch's agent, without which no problem or deploy reaches Nightwatch. */
 async function requiresNightwatch(root) {
   try {
@@ -350,17 +380,23 @@ export default projectKind({
     // Deploy markers need the Nightwatch token of a Forge site
     markers: (answers) => answers.deploy === 'forge',
   },
-  empty: { health: { laravel: false, route: null, databaseCheck: false }, tools: NO_TOOLS, nightwatch: false },
+  empty: {
+    health: { laravel: false, route: null, databaseCheck: false },
+    tools: NO_TOOLS,
+    nightwatch: false,
+    nodeScripts: [],
+  },
   /** What collectState reads from the folder for a Laravel app: its health check, its locale and its tools. */
   inspect: async (root) => ({
     health: await inspectHealth(root),
     locale: await readLocale(root),
     nightwatch: await requiresNightwatch(root),
+    nodeScripts: await nodeScripts(root),
     tools: await inspectTools(root),
   }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
   deploySteps: () => [deployTokenStep, deploySiteStep('production'), deploySiteStep('staging')],
-  steps: () => [databaseCheckStep, ...toolSteps('project')],
+  steps: () => [databaseCheckStep, ...toolSteps('project'), jsStep],
   tasks: (answers, { root, state }) => [
     ...deploySiteTasks(answers, { state }),
     ...(answers.databaseCheck ? [healthCheckTask(root)] : []),

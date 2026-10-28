@@ -58,6 +58,12 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     productionBranch: null,
     solo: true,
     githubDeployments: undefined,
+    production: 'auto',
+    approvalsMedium: null,
+    approvalsHigh: null,
+    review: undefined,
+    fixCi: undefined,
+    js: undefined,
     incidents: false,
     incidentStaging: undefined,
     incidentPerformance: undefined,
@@ -353,4 +359,54 @@ test('writes github-deployments only when it is off and the app deploys, and rea
   expect(
     parseInputs(await renderProjectWorkflow({ deploy: 'none', githubDeployments: false }, off)),
   ).not.toHaveProperty('github-deployments');
+});
+
+test('writes the layers, production, approvals and js inputs only when they leave the default', async () => {
+  const answers = {
+    deploy: 'forge',
+    staging: true,
+    production: 'manual',
+    review: false,
+    securityReview: true,
+    riskGate: true,
+    fixCi: false,
+    approvalsMedium: '0',
+    approvalsHigh: '2',
+    js: false,
+  };
+  const content = await renderProjectWorkflow(answers);
+  expect(parseInputs(content)).toStrictEqual({
+    review: 'false',
+    'fix-ci': 'false',
+    deploy: 'forge',
+    production: 'manual',
+    'approvals-medium': '0',
+    'approvals-high': '2',
+    js: 'false',
+  });
+  expect(projectAnswers(parseInputs(content))).toMatchObject({
+    production: 'manual',
+    review: false,
+    securityReview: undefined,
+    fixCi: false,
+    approvalsMedium: '0',
+    approvalsHigh: '2',
+    js: false,
+  });
+
+  // Back to the defaults, nothing is written; questions not asked keep what the file has
+  const defaults = {
+    deploy: 'forge',
+    staging: true,
+    production: 'auto',
+    review: true,
+    fixCi: true,
+    approvalsMedium: '1',
+    approvalsHigh: '1',
+    js: true,
+  };
+  expect(parseInputs(await renderProjectWorkflow(defaults, content))).toStrictEqual({ deploy: 'forge' });
+  expect(parseInputs(await renderProjectWorkflow({ deploy: 'forge', staging: true }, content))).toStrictEqual(
+    parseInputs(content),
+  );
 });

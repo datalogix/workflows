@@ -1173,6 +1173,7 @@ const setupFlags = {
   language: 'pt-BR',
   lint: 'none',
   'test-command': 'none',
+  layers: 'review,security-review,risk-gate,fix-ci',
   solo: true,
   'code-owners': '@ana',
 };
@@ -1302,4 +1303,40 @@ test('tells when the Claude GitHub App may not reach the repository', () => {
 test('asks whether to record deploys in GitHub only when the app deploys', () => {
   expect(askedSteps(setupSteps(), { ...branchAnswers })).toContain('githubDeployments');
   expect(askedSteps(setupSteps(), { ...branchAnswers, deploy: 'none' })).not.toContain('githubDeployments');
+});
+
+test('asks for the approvals only in team projects with the risk gate, and production only when the app deploys', () => {
+  const asked = (answers) => askedSteps(setupSteps(), { ...branchAnswers, ...answers });
+  expect(asked({ solo: false })).toEqual(expect.arrayContaining(['approvalsMedium', 'approvalsHigh', 'production']));
+  expect(asked({ solo: true })).not.toContain('approvalsMedium');
+  expect(asked({ solo: false, riskGate: false })).not.toContain('approvalsHigh');
+  expect(asked({ deploy: 'none' })).not.toContain('production');
+  expect(asked({})).toContain('layers');
+});
+
+test('asks whether to run the package.json scripts only when it has some', () => {
+  expect(askedSteps(setupSteps(), branchAnswers, { state: { ...APP_STATE, nodeScripts: ['lint'] } })).toContain('js');
+  expect(askedSteps(setupSteps(), branchAnswers)).not.toContain('js');
+});
+
+test('tells to run protect again when the layers change what the ruleset should require', async () => {
+  const { rulesetBody } = await import('../lib/ruleset.js');
+  const state = {
+    ...APP_STATE,
+    ruleset: rulesetBody(['pipeline / tests / tests', 'pipeline / security / security', 'pipeline / gate / gate']),
+  };
+  const protect = (answers) =>
+    nextSteps({ ...branchAnswers, ...answers }, { relay, results: [], state }).find((step) =>
+      step.includes('run protect again'),
+    );
+  expect(protect({ securityReview: true, riskGate: true })).toBeUndefined();
+  expect(protect({ securityReview: false, riskGate: true })).toContain(
+    'still requires pipeline / security / security, which no longer runs',
+  );
+  const fewer = { ...state, ruleset: rulesetBody(['pipeline / tests / tests']) };
+  expect(
+    nextSteps({ ...branchAnswers, securityReview: true, riskGate: false }, { relay, results: [], state: fewer }).find(
+      (step) => step.includes('run protect again'),
+    ),
+  ).toContain('does not require pipeline / security / security yet');
 });

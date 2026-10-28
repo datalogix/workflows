@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
-import { includedRefs, protectsBranch } from '../../lib/ruleset.js';
+import { includedRefs, protectsBranch, requiredChecks } from '../../lib/ruleset.js';
 import { checksOn, readOrFail } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
@@ -18,7 +18,14 @@ import {
   NO_ENVIRONMENT,
   textIn,
 } from './state.js';
-import { DEFAULT_LANGUAGE, PROJECT_REF, projectAnswers, projectTemplate, renderProjectWorkflow } from './workflow.js';
+import {
+  DEFAULT_LANGUAGE,
+  LAYERS,
+  PROJECT_REF,
+  projectAnswers,
+  projectTemplate,
+  renderProjectWorkflow,
+} from './workflow.js';
 
 // What project.yml needs from a project, whatever its stack: the workflow file, labels, the Claude token, environments
 // with their deploy hook and health URL, the production branch and its release pull requests, the monitoring relay,
@@ -89,6 +96,13 @@ const relayHint = (registered) =>
     : registered
       ? '  empty to keep the current one'
       : '  empty to set it later';
+// --layers review,security-review,risk-gate,fix-ci, or none: the inputs of LAYERS
+const layerChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
+const validLayers = (value) =>
+  layerChoices(value ?? '').every((choice) => Object.values(LAYERS).includes(choice))
+    ? undefined
+    : `use ${Object.values(LAYERS).join(', ')} separated by commas, or none`;
+const validApprovals = (value) => (/^\d+$/.test(value?.trim() ?? '') ? undefined : 'Use a whole number, e.g. 1');
 const validUrl = (value) => (/^https:\/\/\S+$/.test(value?.trim() ?? '') ? undefined : 'Paste the full https:// URL');
 
 /**
@@ -259,6 +273,32 @@ function setupSteps(stack) {
           throw new Error('The production branch must differ from the development branch');
         }
       },
+    },
+    {
+      id: 'production',
+      flag: 'production',
+      validate: (value) => (['auto', 'manual'].includes(value) ? undefined : 'use auto or manual'),
+      when: deploys,
+      ask: async ({ header, answers, ctx }) =>
+        orExit(
+          await clack.select({
+            message: question(header, 'How does production deploy?'),
+            // Any other value than auto deploys only from Run workflow, as manual does
+            initialValue: (ctx.state.current?.production ?? 'auto') === 'auto' ? 'auto' : 'manual',
+            options: [
+              {
+                value: 'auto',
+                label: 'Automatically',
+                hint: twoBranches(answers)
+                  ? `on each push to ${answers.productionBranch}`
+                  : answers.staging
+                    ? 'after staging stays healthy'
+                    : 'after the tests',
+              },
+              { value: 'manual', label: 'Manually', hint: 'only from Actions > datalogix > Run workflow' },
+            ],
+          }),
+        ),
     },
     {
       id: 'githubDeployments',
@@ -449,6 +489,34 @@ function setupSteps(stack) {
     },
     ...stack.steps(),
     {
+      id: 'layers',
+      flag: 'layers',
+      validate: validLayers,
+      parse: layerChoices,
+      ask: async ({ header, ctx }) =>
+        orExit(
+          await clack.multiselect({
+            message: question(
+              header,
+              `Claude and the risk gate on pull requests${dim("  each Claude workflow uses the Claude token's usage limits")}`,
+            ),
+            options: [
+              { value: 'review', label: 'Code review', hint: 'once per pull request' },
+              { value: 'security-review', label: 'Security review', hint: 'on every push; a required check' },
+              { value: 'risk-gate', label: 'Risk gate', hint: 'human approvals by risk; a required check' },
+              { value: 'fix-ci', label: 'Fix CI', hint: 'Claude fixes failed tests on its own pull requests' },
+            ],
+            initialValues: Object.entries(LAYERS)
+              .filter(([answer]) => ctx.state.current?.[answer] !== false)
+              .map(([, input]) => input),
+            required: false,
+          }),
+        ),
+      then: (answers) => {
+        for (const [answer, input] of Object.entries(LAYERS)) answers[answer] = answers.layers.includes(input);
+      },
+    },
+    {
       id: 'language',
       flag: 'language',
       validate: validLanguage,
@@ -466,6 +534,24 @@ function setupSteps(stack) {
         ),
     },
     soloStep({ subject: 'project', initial: (ctx) => ctx.state.current?.solo ?? true }),
+    // A team project: how many people approve each risk level (solo maintainers count as their own approval)
+    ...[
+      ['approvalsMedium', 'approvals-medium', 'medium'],
+      ['approvalsHigh', 'approvals-high', 'high'],
+    ].map(([id, flag, level]) => ({
+      id,
+      flag,
+      validate: validApprovals,
+      when: (a) => a.riskGate !== false && a.solo === false,
+      ask: async ({ header, ctx }) =>
+        orExit(
+          await clack.text({
+            message: question(header, `Human approvals a ${level}-risk pull request needs`),
+            initialValue: ctx.state.current?.[id] ?? '1',
+            validate: validApprovals,
+          }),
+        ),
+    })),
     codeOwnersStep(),
   ];
 }
@@ -895,6 +981,25 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
   }
 
   steps.push(...stack.nextSteps(answers, { state, results }));
+
+  // A layer turned off whose check the ruleset still requires: every pull request would wait for it
+  if (state.ruleset) {
+    const expected = checksOn(stack.checks, answers);
+    const required = requiredChecks(state.ruleset);
+    const stale = required.filter((check) => Object.values(stack.checks).includes(check) && !expected.includes(check));
+    const missing = expected.filter((check) => !required.includes(check));
+    if (stale.length || missing.length) {
+      steps.push(
+        `Once the workflow file is merged, run protect again: the ruleset ${[
+          stale.length &&
+            `still requires ${stale.map((check) => bold(check)).join(', ')}, which no longer runs, so every pull request would wait`,
+          missing.length && `does not require ${missing.map((check) => bold(check)).join(', ')} yet`,
+        ]
+          .filter(Boolean)
+          .join(', and ')}:\n  ${cyan(PROTECT)}`,
+      );
+    }
+  }
 
   if (state.canProtect) {
     steps.push(

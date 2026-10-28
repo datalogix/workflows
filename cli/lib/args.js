@@ -1,7 +1,7 @@
 import { isRepository } from './project.js';
 
 // The options it accepts, each listed in HELP
-export const BOOLEAN = ['staging', 'branches', 'github-deployments', 'incidents', 'solo', 'yes', 'help'];
+export const BOOLEAN = ['staging', 'branches', 'github-deployments', 'incidents', 'js', 'solo', 'yes', 'help'];
 export const VALUE = [
   'repo',
   'deploy',
@@ -10,6 +10,10 @@ export const VALUE = [
   'development-branch',
   'production-branch',
   'health-path',
+  'production',
+  'layers',
+  'approvals-medium',
+  'approvals-high',
   'code-owners',
   'language',
   'lint',
@@ -98,14 +102,19 @@ Options (each one skips its question in setup)
   --development-branch develop  Development branch, made the default branch
   --production-branch main    Production branch
   --health-path /up           Health check path
+  --production auto|manual    Deploy production automatically, or only from Run workflow
   --github-deployments / --no-github-deployments  Record each deploy in the repository's Deployments
   --incidents / --no-incidents  Turn problems of the monitoring service (laravel: Nightwatch) into GitHub issues
   --solo / --no-solo          You work alone on the project (protect: on the package)
+  --approvals-medium 1        Human approvals a medium-risk pull request needs (team projects)
+  --approvals-high 1          Human approvals a high-risk pull request needs (team projects)
+  --layers review,security-review,risk-gate,fix-ci  Claude workflows and risk gate on pull requests (none turns all off)
   --code-owners "@user"       Who must approve changes to .github/ (users or @org/teams)
   --language pt-BR            Language of what is written for the team (fixed texts: pt-BR or en)
   --lint pint,phpstan,command  Lint checks, separated by commas (none turns lint off)
   --lint-command "<command>"  Lint command, with --lint command
   --test-command "<command>"  Test command (none turns the test suite off)
+  --js / --no-js              Run the typecheck, lint and test scripts of package.json
   --yes                       Do not ask for confirmation before applying
   --help                      Show this help
 

@@ -22,6 +22,7 @@ Then it asks one question at a time, with a progress bar showing how many are le
 | Where the app is deployed: Forge, Laravel Cloud or not by the workflows | always |
 | Production domain, whether there is a staging environment, staging domain, health check path | the app is deployed |
 | Whether production deploys from its own branch, and the development and production branch names (`develop` and `main` by default) | there is a staging environment (turning staging off, or choosing not to deploy, removes `production-branch`; setup warns first) |
+| Whether production deploys automatically (after staging, or on each push to the production branch) or only from **Run workflow** (`production: manual`) | the app is deployed |
 | Whether to record each deploy in the repository's Deployments (`github-deployments`, on by default) | the app is deployed |
 | Forge or Laravel Cloud API token (hidden input; optional, used during setup only and never stored; empty leaves [step 2](#step-2-do-what-setup-cannot) to do by hand). Forge needs the `site:manage-deploys` permission, plus `server:view` and `site:manage-environment` with Nightwatch | the app is deployed |
 | The Forge site (or Laravel Cloud environment) of production and of staging, from those that deploy the repository; the one on the branch it deploys comes selected, and **None of these** leaves it to do by hand | an API token was given and it found a site (or environment) of the repository |
@@ -34,8 +35,11 @@ Then it asks one question at a time, with a progress bar showing how many are le
 | Whether `/up` should check the database (edits `AppServiceProvider`) | the app is deployed, setup can read `bootstrap/app.php` and `/up` does not check it yet |
 | Lint checks: Laravel Pint, PHPStan (the installed ones come checked) and another command, with its command (the `composer.json` scripts that only check are suggested) | always (another command: when checked) |
 | Test suite: the suggested command (`composer test`, or `php artisan test` when that script also runs Pint or PHPStan), another command or off | always (another command: when chosen) |
+| Whether the tests run the `typecheck`, `lint` and `test` scripts of `package.json` (`js`) | `package.json` has one of them |
+| Claude and the risk gate on pull requests: code review, security review, risk gate and fix CI (all checked by default; each Claude workflow uses the Claude token's usage limits, and turning the security review or the risk gate off also drops its required check: setup says to run `protect` again when the ruleset still requires it) | always |
 | Language of what is written for the team (`pt-BR` by default; written to the workflow file only when it is another) | always |
 | Whether you work alone on the project | always |
+| Human approvals a medium-risk and a high-risk pull request need (`1` each by default) | a team project with the risk gate on |
 | Who must approve changes to `.github/` (your `gh` login by default; users or `@org/team`) | always |
 
 After a summary and your confirmation, it applies the changes with a progress bar:
