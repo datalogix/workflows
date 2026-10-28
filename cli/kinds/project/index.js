@@ -8,7 +8,7 @@ import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { pushBranches, runsOnPush, WORKFLOW_PATH } from '../../lib/workflow-file.js';
-import { domainOf, isDomain, pathOf } from './domain.js';
+import { domainOf, isDomain, pathOf, suggestedDomain } from './domain.js';
 import { hasSecret, loadRelayConfig, registerSecret, relayAccepts, relaySupported, webhookUrl } from './relay.js';
 import {
   deployedProductionBranch,
@@ -42,6 +42,8 @@ const PROJECT_STATE = {
   releaseApp: false,
   actionsPullRequests: null,
   productionBranchStatus: null,
+  // The app's locale (e.g. pt_BR), read by the stack's inspect: the suggested domain ends with .com.br for pt_BR
+  locale: null,
 };
 
 export const deploys = (a) => Boolean(a.deploy) && a.deploy !== 'none';
@@ -148,11 +150,13 @@ function setupSteps(stack) {
       flag: 'domain',
       validate: validDomain,
       when: deploys,
-      ask: async ({ header, ctx }) =>
+      ask: async ({ header, answers, ctx }) =>
         orExit(
           await clack.text({
             message: question(header, 'Production domain'),
-            initialValue: domainOf(ctx.state.environments.production.healthUrl ?? '') ?? '',
+            initialValue:
+              domainOf(ctx.state.environments.production.healthUrl ?? '') ??
+              suggestedDomain(answers.repository, ctx.state.locale),
             placeholder: 'app.example.com',
             validate: validDomain,
           }),
@@ -179,7 +183,7 @@ function setupSteps(stack) {
         orExit(
           await clack.text({
             message: question(header, 'Staging domain'),
-            initialValue: domainOf(ctx.state.environments.staging.healthUrl ?? '') ?? `staging.${answers.domain}`,
+            initialValue: domainOf(ctx.state.environments.staging.healthUrl ?? '') ?? `dev.${answers.domain}`,
             validate: validDomain,
           }),
         ),

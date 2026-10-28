@@ -46,7 +46,7 @@ for env in staging production; do
   gh api --method PUT "repos/OWNER/REPO/environments/$env" >/dev/null
 done
 gh secret set DEPLOY_HOOK --repo OWNER/REPO --env staging
-gh variable set HEALTH_URL --repo OWNER/REPO --env staging --body "https://staging.example.com/up"
+gh variable set HEALTH_URL --repo OWNER/REPO --env staging --body "https://dev.example.com/up"
 gh secret set DEPLOY_HOOK --repo OWNER/REPO --env production
 gh variable set HEALTH_URL --repo OWNER/REPO --env production --body "https://example.com/up"
 # Forge only, optional: marks deploys in Nightwatch

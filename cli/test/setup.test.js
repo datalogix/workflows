@@ -326,6 +326,32 @@ test('asks for the Nightwatch deploy markers only with Forge', () => {
   expect(step.when({ deploy: 'cloud' })).toBe(false);
 });
 
+test('suggests the production domain from the health check URL, else from the repository and the locale', async (t) => {
+  const step = setupSteps().find((candidate) => candidate.id === 'domain');
+  const initialValue = async (healthUrl, locale) => {
+    prompts.asked = [];
+    const environments = { ...APP_STATE.environments, production: { exists: true, healthUrl } };
+    const answers = { repository: 'datalogix/example' };
+    await step.ask({ header: '', answers, ctx: { state: { ...APP_STATE, environments, locale } } });
+    return prompts.asked[0].initialValue;
+  };
+
+  expect(await initialValue('https://app.example.com/up', 'pt_BR')).toBe('app.example.com');
+  expect(await initialValue(null, 'pt_BR')).toBe('example.com.br');
+  expect(await initialValue(null, null)).toBe('example.com');
+
+  // Staging suggests the dev subdomain of the production domain
+  prompts.asked = [];
+  const staging = setupSteps().find((candidate) => candidate.id === 'stagingDomain');
+  await staging.ask({ header: '', answers: { domain: 'example.com.br' }, ctx: { state: APP_STATE } });
+  expect(prompts.asked[0].initialValue).toBe('dev.example.com.br');
+
+  // The locale comes from the app's .env
+  const root = await folder(t, { '.env': 'APP_NAME=Example\nAPP_LOCALE="pt_BR"\n' }, 'locale-');
+  expect((await app.inspect(root)).locale).toBe('pt_BR');
+  expect((await app.inspect(await folder(t, {}, 'locale-'))).locale).toBe(null);
+});
+
 test('suggests deploy markers to a project that moves to Forge', async () => {
   const step = setupSteps().find((candidate) => candidate.id === 'monitoringMarkers');
   const initialValue = async (current, monitoringToken) => {

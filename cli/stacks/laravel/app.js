@@ -15,6 +15,17 @@ fi`;
 
 const BY_HAND = 'see docs/laravel/app-manual-setup.md in datalogix/workflows';
 
+/** The app's locale (APP_LOCALE in .env), or null without one. */
+async function readLocale(root) {
+  let env;
+  try {
+    env = await readFile(join(root, '.env'), 'utf8');
+  } catch {
+    return null;
+  }
+  return /^APP_LOCALE\s*=\s*["']?([^"'\s#]+)/m.exec(env)?.[1] ?? null;
+}
+
 /** Whether to make the health check fail when the database is down, when it does not yet. */
 const databaseCheckStep = {
   id: 'databaseCheck',
@@ -100,8 +111,8 @@ export default projectKind({
     markers: (answers) => answers.deploy === 'forge',
   },
   empty: { health: { laravel: false, route: null, databaseCheck: false } },
-  /** What collectState reads from the folder for a Laravel app: its health check. */
-  inspect: async (root) => ({ health: await inspectHealth(root) }),
+  /** What collectState reads from the folder for a Laravel app: its health check and its locale. */
+  inspect: async (root) => ({ health: await inspectHealth(root), locale: await readLocale(root) }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
   steps: () => [databaseCheckStep],
   tasks: (answers, { root }) => (answers.databaseCheck ? [healthCheckTask(root)] : []),
