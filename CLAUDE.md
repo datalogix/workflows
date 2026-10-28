@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-Reusable GitHub Actions workflows for Datalogix Laravel projects and packages, plus everything they depend on: composite actions (`.github/actions`), a Claude Code plugin (`plugins/laravel`), a Cloudflare Worker that relays monitoring webhooks (`relay/`) and the `setup` / `check` / `protect` command (`cli/`). Projects consume it by tag, never by npm package. The repository must stay public (public packages can only call reusable workflows from public repositories) and holds no secrets.
+Reusable GitHub Actions workflows for Datalogix Laravel projects and packages, plus everything they depend on: composite actions (`.github/actions`), a Claude Code plugin (`plugins/laravel`), a Cloudflare Worker that relays monitoring webhooks (`relay/`) and the `setup` / `check` / `protect` / `org` command (`cli/`). Projects consume it by tag, never by npm package. The repository must stay public (public packages can only call reusable workflows from public repositories) and holds no secrets.
 
 ## Commands
 
@@ -30,7 +30,7 @@ YAML and Markdown are not formatted (`.prettierignore`); they follow `.editorcon
 - Internal references are hard-coded to `@v2`: `project.yml` and `package.yml` call the other workflows `@v2`, workflows call `datalogix/workflows/.github/actions/<name>@v2`, `cli/kinds/project/workflow.js` and `cli/kinds/package/workflow.js` have `PROJECT_REF` and `PACKAGE_REF`, the CLI's messages say `#v2` (`SETUP` and `PROTECT` in `cli/lib/evaluate.js`, `HELP` in `cli/lib/args.js` and a few next steps: `grep -rn '#v2' cli`), and examples/docs use `@v2`. Consequently a project pointed at a branch of `project.yml` still runs the *released* nested workflows/actions; to test a change, point the project at the individual workflow or action on the branch.
 - Breaking changes (renamed/removed inputs, new required secrets or permissions) require a new major and updating every one of those references together (see `docs/maintaining.md`).
 - The plugin ships with the workflows: the `plugins` action returns the repository checkout at the tag as a local marketplace. Plugin and workflows are coupled (e.g. the `[ci-fix]` commit tag written by the `fix-ci` command is what `claude-fix-ci.yml` counts to limit attempts).
-- The relay is deployed separately with `npx wrangler deploy`; a release does not change it.
+- A release does not deploy the relay: the CLI's `org` command deploys the relay of its version (from `relay/src`, with a generated `wrangler.toml`) and stores its settings in `workflows/relay.json` of the organization's public `.github` repository, where setup and check read them (`loadRelayConfig`).
 
 ## Architecture
 

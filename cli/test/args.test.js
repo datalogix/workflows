@@ -35,6 +35,8 @@ test('accepts the stack and an app or package kind', () => {
     kind: 'package',
   });
   expect(() => parseArgs(['setup', '--kind', 'library'])).toThrow('--kind must be app or package');
+  expect(parseArgs(['org', '--org', 'datalogix']).flags).toStrictEqual({ org: 'datalogix' });
+  expect(() => parseArgs(['org', '--org', 'datalogix/app'])).toThrow('--org must be an organization name');
 });
 
 test('takes a flag that follows a value option as a missing value', () => {

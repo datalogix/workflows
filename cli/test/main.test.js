@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { check } from '../commands/check.js';
+import { org } from '../commands/org.js';
 import { main } from '../lib/main.js';
 import { detectProject } from '../lib/project.js';
 import { run } from '../lib/shell.js';
@@ -9,6 +10,7 @@ import { run } from '../lib/shell.js';
 vi.mock('../lib/shell.js', () => ({ run: vi.fn(), runOrThrow: vi.fn() }));
 vi.mock('../lib/project.js', async (importOriginal) => ({ ...(await importOriginal()), detectProject: vi.fn() }));
 vi.mock('../commands/check.js', () => ({ check: vi.fn(async () => 0) }));
+vi.mock('../commands/org.js', () => ({ org: vi.fn(async () => 0) }));
 vi.mock('@clack/prompts', async (importOriginal) => ({
   ...(await importOriginal()),
   intro: vi.fn(),
@@ -57,6 +59,12 @@ test('needs a repository for check and protect, from the folder or --repo', asyn
   expect(check).toHaveBeenCalledWith(
     expect.objectContaining({ root: '/project', repository: 'datalogix/other', folderRepository: null }),
   );
+});
+
+test('runs org without a repository, for the organization of --org', async () => {
+  detectProject.mockResolvedValue({ root: '/project', repository: null });
+  expect(await main(['org', '--org', 'datalogix'])).toBe(0);
+  expect(org).toHaveBeenCalledWith(expect.objectContaining({ repository: null, flags: { org: 'datalogix' } }));
 });
 
 test('shows the error of a command that fails and exits with 1', async () => {

@@ -33,3 +33,12 @@ export async function runOrThrow(command, args, options) {
   }
   return result.stdout;
 }
+
+/** Runs a command attached to this terminal, its output shown and its prompts answered; resolves with its exit code. */
+export function runInteractive(command, args, { cwd } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd, stdio: 'inherit' });
+    child.on('error', () => resolve(127));
+    child.on('close', (code) => resolve(code));
+  });
+}

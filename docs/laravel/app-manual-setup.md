@@ -72,7 +72,7 @@ On Laravel 10 or older, create a route that answers `200` and use it instead.
 
 ## Relay
 
-Store the Nightwatch signing secret under the key `nightwatch:OWNER/REPO`. `<id>` is the `id` under `[[kv_namespaces]]` in `relay/wrangler.toml`. The secret goes through a file only you can read, removed right after, so it never appears in a command line:
+Store the Nightwatch signing secret under the key `nightwatch:OWNER/REPO`. `<id>` is the `namespaceId` in `workflows/relay.json` of the organization's `.github` repository. The secret goes through a file only you can read, removed right after, so it never appears in a command line:
 
 ```bash
 read -rs SECRET   # paste the signing secret; it is not shown or saved in the shell history

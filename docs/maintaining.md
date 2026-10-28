@@ -23,7 +23,7 @@ To try a plugin change in a project before releasing it, point the `plugins@v2` 
 
 Both live here and have their own README, for working on them:
 
-- [`relay`](../relay/README.md) runs on Cloudflare Workers and is deployed separately, with `npx wrangler deploy`.
+- [`relay`](../relay/README.md) runs on Cloudflare Workers. A release does not deploy it: `org` deploys the relay of its version, so after a release that changes it, run `org` and say yes to updating the relay.
 - [`cli`](../cli/README.md) is released with the workflows: projects run it from the `v2` tag.
 
 ## CI

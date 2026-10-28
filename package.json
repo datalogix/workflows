@@ -12,8 +12,9 @@
     "!cli/test/",
     "examples/project.yml",
     "examples/package.yml",
+    "examples/issue-templates/",
     "relay/wrangler.toml",
-    "relay/src/keys.js"
+    "relay/src/"
   ],
   "scripts": {
     "test": "vitest run",

@@ -13,13 +13,21 @@ Packages call a single `package` workflow, today the test matrix. Only public Co
 
 ## Quick start
 
-After the one-time [organization setup](docs/organization-setup.md), from a project's folder:
+1. **Once per organization**, follow the [organization setup](docs/organization-setup.md): install the Claude GitHub App and generate the Claude token. For the shared issue forms and for Nightwatch problems as issues, an organization admin also runs `org`, before the projects (setup reads the monitoring relay it deploys):
 
-```bash
-npx --allow-git=root github:datalogix/workflows#v2 setup     # asks a few questions and sets the project up
-npx --allow-git=root github:datalogix/workflows#v2 check     # lists what is missing, without changing anything
-npx --allow-git=root github:datalogix/workflows#v2 protect   # protects the default branch, after the first pull request
-```
+   ```bash
+   npx --allow-git=root github:datalogix/workflows#v2 org       # optional: issue forms, monitoring relay
+   ```
+
+2. **For each project**, from its folder:
+
+   ```bash
+   npx --allow-git=root github:datalogix/workflows#v2 setup     # asks a few questions and sets the project up
+   npx --allow-git=root github:datalogix/workflows#v2 check     # lists what is missing, without changing anything
+   npx --allow-git=root github:datalogix/workflows#v2 protect   # protects the default branch, after the first pull request
+   ```
+
+Without `org`, everything else works: tests, reviews, the risk gate and deploys. A project set up before `org` ran misses only the relay: run `setup` again afterwards.
 
 The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md) or [Adding a Laravel package](docs/laravel/package.md).
 

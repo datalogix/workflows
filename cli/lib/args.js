@@ -14,6 +14,7 @@ export const VALUE = [
   'language',
   'stack',
   'kind',
+  'org',
 ];
 
 /** The value of --flag=value for a boolean flag; anything but true/false, 1/0 or yes/no is refused. */
@@ -58,6 +59,9 @@ export function parseArgs(argv) {
   if (flags.repo !== undefined && !isRepository(flags.repo)) {
     throw new Error('--repo must be owner/repo');
   }
+  if (flags.org !== undefined && !/^[\w-]+$/.test(flags.org)) {
+    throw new Error('--org must be an organization name');
+  }
   if (flags.kind !== undefined && !['app', 'package'].includes(flags.kind)) {
     throw new Error('--kind must be app or package');
   }
@@ -74,10 +78,14 @@ Commands
   check     Lists what is missing or different, without changing anything.
   protect   Protects the default branch (and the production branch) of a project or a package. Run it after the first
             pull request shows its checks.
+  org       Sets up what every project of the organization shares, once, as an organization admin: checks the Claude
+            GitHub App, writes the issue forms to its public .github repository and deploys the monitoring relay.
+            Safe to run again (updates the forms, and the relay if you say so).
 
 Options (each one skips its question in setup)
   --stack laravel             Stack of the folder (default: detected)
   --kind app|package          An app or a package (default: detected)
+  --org <organization>        Organization of org (default: the owner of the git remote)
   --repo owner/repo           Repository (default: from the git remote)
   --deploy <target>           Where the app is deployed (laravel: forge, cloud or none)
   --domain app.example.com    Production domain

@@ -1,8 +1,9 @@
 # Setup command
 
-The `setup`, `check` and `protect` commands that configure Datalogix projects for these workflows. Projects run them with:
+The `setup`, `check` and `protect` commands that configure Datalogix projects for these workflows, and `org`, which sets up what every project of an organization shares. An organization admin may run `org` once, first (optional: issue forms and the monitoring relay); then projects run the others, e.g.:
 
 ```bash
+npx --allow-git=root github:datalogix/workflows#v2 org
 npx --allow-git=root github:datalogix/workflows#v2 setup
 ```
 
@@ -30,8 +31,9 @@ node /path/to/workflows/cli/index.js setup
 | [`commands/setup.js`](commands/setup.js) | Confirms the detected stack and kind (`--stack`, `--kind`; refusing another kind than the one the workflow file calls), then runs its setup: its questions, the changes they lead to and what is left by hand |
 | [`commands/check.js`](commands/check.js) | Runs the `evaluate` of the folder's stack and kind |
 | [`commands/protect.js`](commands/protect.js) | Creates or updates the default branch ruleset, requiring only the checks the stack's module lists for the layers that are on |
+| [`commands/org.js`](commands/org.js) | Once per organization: checks the Claude GitHub App, writes the issue forms of [`examples/issue-templates`](../examples/issue-templates) to its public `.github` repository, deploys the relay (`kinds/project/relay.js`) and stores its settings in `workflows/relay.json` there |
 | [`stacks/index.js`](stacks/index.js) | The supported stacks and `detectStack`: the workflow file decides the kind (`project.yml` or `package.yml`) and its `stack:` input the stack, in any case (an unsupported one stops); without one, the first stack that recognizes the folder. When the file calls neither entry point, that stack's detection decides the kind (an app by default) |
-| [`kinds/project/`](kinds/project) | What `project.yml` needs from any app: `index.js` (`projectKind(stack)`: labels, Claude token, environments, branches, release App, relay, ruleset and code owners, with their questions, tasks, next steps and check items), `workflow.js` (`PROJECT_REF`, `projectAnswers`, `renderProjectWorkflow` from [`examples/project.yml`](../examples/project.yml), keeping the inputs it does not manage), `state.js` (labels, environments, release App), `relay.js` (relay settings, webhook secret in its KV; skipped on Windows), `domain.js` (domains of the health URLs). A stack's `app.js` passes only its own part (deploy targets, monitoring service, health check) |
+| [`kinds/project/`](kinds/project) | What `project.yml` needs from any app: `index.js` (`projectKind(stack)`: labels, Claude token, environments, branches, release App, relay, ruleset and code owners, with their questions, tasks, next steps and check items), `workflow.js` (`PROJECT_REF`, `projectAnswers`, `renderProjectWorkflow` from [`examples/project.yml`](../examples/project.yml), keeping the inputs it does not manage), `state.js` (labels, environments, release App), `relay.js` (relay settings from `<owner>/.github`, webhook secret in its KV, the deploy `org` runs; skipped on Windows), `domain.js` (domains of the health URLs). A stack's `app.js` passes only its own part (deploy targets, monitoring service, health check) |
 | [`kinds/package/`](kinds/package) | What `package.yml` needs from any package: `index.js` (`packageKind(stack)`: Codecov token, ruleset and code owners), `workflow.js` (`PACKAGE_REF`, `packageAnswers`, `renderPackageWorkflow` from [`examples/package.yml`](../examples/package.yml)). A stack's `package.js` passes only its own part (none for Laravel today) |
 | [`stacks/laravel/`](stacks/laravel) | Laravel: `index.js` (detection: `artisan` → app, `composer.json` using Laravel → package), `app.js` (what a Laravel app adds to `projectKind`: Forge and Laravel Cloud, Nightwatch, the health check), `package.js` (a Laravel package: `packageKind` with nothing of its own), `health.js` (reads the health check and adds the database check to `AppServiceProvider`) |
 | [`lib/evaluate.js`](lib/evaluate.js) | The items every stack's `evaluate` shares: workflow file, ruleset, code owners |
@@ -39,13 +41,12 @@ node /path/to/workflows/cli/index.js setup
 | [`lib/tasks.js`](lib/tasks.js) | Setup tasks every stack runs (workflow file, code owners), the warnings about the workflow template and the changed files for the commit step |
 | [`lib/state.js`](lib/state.js) | Reads everything about the project once: default branch, workflow file, code owners and ruleset, plus what the stack's module reads: `inspect` from the folder (a Laravel app's health check) and `read` from GitHub (an app's labels, environments and secrets, a package's Codecov token). A read that fails (no access, network) stops with "Cannot read the … of owner/repo" instead of looking like something missing. `readLocal` is the folder part alone (workflow file, its answers, `inspect`), which `protect` uses too |
 | [`lib/ui.js`](lib/ui.js) | One question at a time with a progress bar (`askSteps`), and tasks with a progress bar (`runTasks`) |
-| [`lib/github.js`](lib/github.js) | GitHub access through `gh` |
+| [`lib/github.js`](lib/github.js) | GitHub access through `gh`: a repository (`createGitHub`) and an organization (`createOrganization`: installed Apps, plan, repository files) |
 | [`lib/project.js`](lib/project.js) | The project folder and its GitHub remote, and the repository check |
 | [`lib/shell.js`](lib/shell.js) | Runs commands without a shell, with input through stdin |
 | [`lib/workflow-file.js`](lib/workflow-file.js) | Reads a workflow file whatever its kind (inputs, `push.branches`, the version of a `uses:`, CRLF or LF) and builds one from an example's base and inputs |
 | [`lib/ruleset.js`](lib/ruleset.js) | The `datalogix` ruleset: its body, and what it requires (checks, code owner approval, other branches) |
 | [`lib/codeowners.js`](lib/codeowners.js) | Writes the `/.github/` line of `.github/CODEOWNERS`, keeping the other lines |
-| [`config.json`](config.json) | The relay's URL (its KV namespace and owner come from [`relay/wrangler.toml`](../relay/wrangler.toml)) |
 | [`test/`](test) | Tests |
 
 ## How setup works

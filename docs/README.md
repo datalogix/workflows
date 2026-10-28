@@ -1,6 +1,6 @@
 # Documentation
 
-Start with the [organization setup](organization-setup.md), done once. Then follow the guide for what you are adding.
+Start with the [organization setup](organization-setup.md), done once: the Claude GitHub App and token, and optionally the `org` command (issue forms, and the monitoring relay for Nightwatch problems as issues), before any project. Then follow the guide for what you are adding.
 
 ## By stack
 

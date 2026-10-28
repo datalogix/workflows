@@ -1,14 +1,15 @@
 import { check } from '../commands/check.js';
+import { org } from '../commands/org.js';
 import { protect } from '../commands/protect.js';
 import { setup } from '../commands/setup.js';
 import { HELP, parseArgs } from './args.js';
-import { createGitHub } from './github.js';
+import { createGitHub, createOrganization } from './github.js';
 import { detectProject } from './project.js';
 import { run } from './shell.js';
 import { EMPTY_STATE } from './state.js';
 import { clack, cyan } from './ui.js';
 
-const COMMANDS = { setup, check, protect };
+const COMMANDS = { setup, check, protect, org };
 
 export async function main(argv) {
   let parsed;
@@ -43,7 +44,8 @@ export async function main(argv) {
 
   const project = await detectProject(process.cwd());
   const repository = flags.repo ?? project.repository;
-  if (command !== 'setup' && !repository) {
+  // org takes the organization from --org when there is no repository
+  if (!['setup', 'org'].includes(command) && !repository) {
     clack.cancel('Run it from the project folder, or pass --repo owner/repo');
     return 1;
   }
@@ -55,6 +57,7 @@ export async function main(argv) {
       folderRepository: project.repository,
       flags,
       createGitHub,
+      createOrganization,
       state: EMPTY_STATE,
     };
     return await COMMANDS[command](ctx);

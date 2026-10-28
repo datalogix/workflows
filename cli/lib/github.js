@@ -1,10 +1,7 @@
 import { run, runOrThrow } from './shell.js';
 
-/**
- * GitHub access through the gh CLI, which provides the login and encrypts secrets.
- * Takes a runner so tests can replace gh.
- */
-export function createGitHub(repository, runner = { run, runOrThrow }) {
+/** The REST calls both clients share, through gh: a request, a GET that is null on 404, and the same over every page. */
+function rest(runner) {
   const api = async (path, { method = 'GET', body } = {}) => {
     const args = ['api', '--method', method, path];
     if (body !== undefined) args.push('--input', '-');
@@ -13,9 +10,6 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
     });
     return stdout.trim() ? JSON.parse(stdout) : null;
   };
-
-  // Private repositories on GitHub Free have no rulesets or branch protection
-  const PLAN_LIMIT = /Upgrade to GitHub Pro|make this repository public/i;
 
   // GET that returns null on 404 instead of failing
   const find = async (path) => {
@@ -36,6 +30,19 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
     if (/HTTP 404|Not Found/i.test(result.stderr)) return null;
     throw new Error(`gh api ${path}: ${result.stderr.trim()}`);
   };
+
+  return { api, find, findAll };
+}
+
+/**
+ * GitHub access through the gh CLI, which provides the login and encrypts secrets.
+ * Takes a runner so tests can replace gh.
+ */
+export function createGitHub(repository, runner = { run, runOrThrow }) {
+  const { api, find, findAll } = rest(runner);
+
+  // Private repositories on GitHub Free have no rulesets or branch protection
+  const PLAN_LIMIT = /Upgrade to GitHub Pro|make this repository public/i;
 
   // Names of the organization secrets this repository can read (none for private repositories on GitHub Free),
   // fetched once per command
@@ -131,5 +138,51 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
       const runs = await findAll(`${r}/commits/${pull.head.sha}/check-runs?per_page=100`, '.check_runs[]');
       return { number: pull.number, names: (runs ?? []).map((check) => check.name) };
     },
+  };
+}
+
+/**
+ * What the org command reads and writes in an organization, through the gh CLI. Takes a runner so tests can replace
+ * gh.
+ */
+export function createOrganization(organization, runner = { run, runOrThrow }) {
+  const { api, find } = rest(runner);
+  const o = `orgs/${organization}`;
+
+  return {
+    organization,
+
+    // The plan's name (free, team, enterprise), or null when gh cannot see it (only members see it)
+    plan: async () => (await find(o))?.plan?.name ?? null,
+
+    // Slugs of the GitHub Apps installed on the organization, or null without the admin:org scope (or not an admin)
+    async installedApps() {
+      const result = await runner.run('gh', [
+        'api',
+        '--paginate',
+        `${o}/installations`,
+        '--jq',
+        '.installations[].app_slug',
+      ]);
+      if (result.code === 0) return result.stdout.split('\n').filter(Boolean);
+      if (/admin:org|HTTP 403|HTTP 404|Not Found/i.test(result.stderr)) return null;
+      throw new Error(`gh api ${o}/installations: ${result.stderr.trim()}`);
+    },
+
+    repo: (name) => find(`repos/${organization}/${name}`),
+    // With a first commit, so files can be added through the contents API right away
+    createPublicRepo: (name, description) =>
+      api(`${o}/repos`, { method: 'POST', body: { name, description, visibility: 'public', auto_init: true } }),
+
+    // A file of a repository: its text and the sha needed to replace it, or null
+    async file(name, path) {
+      const found = await find(`repos/${organization}/${name}/contents/${path}`);
+      return found ? { sha: found.sha, content: Buffer.from(found.content, 'base64').toString('utf8') } : null;
+    },
+    putFile: (name, path, content, message, sha) =>
+      api(`repos/${organization}/${name}/contents/${path}`, {
+        method: 'PUT',
+        body: { message, content: Buffer.from(content).toString('base64'), ...(sha && { sha }) },
+      }),
   };
 }

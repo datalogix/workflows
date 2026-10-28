@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { createGitHub } from '../lib/github.js';
+import { createGitHub, createOrganization } from '../lib/github.js';
 
 /** A gh runner whose `gh api` calls all end with the given result. */
 const runner = (result) => ({
@@ -130,4 +130,32 @@ test('reads the rulesets of the repository it was created for', async () => {
   expect(runner.calls).toStrictEqual([
     ['gh', ['api', 'repos/datalogix/app/rulesets?per_page=100&includes_parents=false'], undefined],
   ]);
+});
+
+test('reads the apps of an organization, null when gh cannot see them', async () => {
+  const apps = (result) => createOrganization('datalogix', runner(result)).installedApps();
+  expect(await apps({ stdout: 'claude\ncodecov\n' })).toStrictEqual(['claude', 'codecov']);
+  expect(await apps({ code: 1, stderr: 'This API operation needs the "admin:org" scope.' })).toBe(null);
+  expect(await apps({ code: 1, stderr: 'gh: Must have admin rights (HTTP 403)' })).toBe(null);
+  await expect(apps({ code: 1, stderr: 'gh: Bad credentials (HTTP 401)' })).rejects.toThrow('Bad credentials');
+});
+
+test('reads and writes the files of an organization repository as base64', async () => {
+  const path = 'repos/datalogix/.github/contents/workflows/relay.json';
+  const content = Buffer.from('{"url":"x"}').toString('base64');
+  const read = recorder({ [path]: { stdout: JSON.stringify({ sha: 'abc', content }) } });
+  expect(await createOrganization('datalogix', read).file('.github', 'workflows/relay.json')).toStrictEqual({
+    sha: 'abc',
+    content: '{"url":"x"}',
+  });
+
+  const write = recorder();
+  await createOrganization('datalogix', write).putFile('.github', 'workflows/relay.json', 'hi', 'chore: x', 'abc');
+  const [[, args, { input }]] = write.calls;
+  expect(args).toStrictEqual(['api', '--method', 'PUT', path, '--input', '-']);
+  expect(JSON.parse(input)).toStrictEqual({
+    message: 'chore: x',
+    content: Buffer.from('hi').toString('base64'),
+    sha: 'abc',
+  });
 });

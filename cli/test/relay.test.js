@@ -1,7 +1,16 @@
 import { expect, test } from 'vitest';
-import { access, readFile, stat } from 'node:fs/promises';
+import { access, readdir, readFile, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { hasSecret, registerSecret, relayAccepts } from '../kinds/project/relay.js';
+import {
+  cloudflareLoggedIn,
+  deployRelay,
+  hasSecret,
+  loadRelayConfig,
+  registerSecret,
+  relayAccepts,
+  relayConfig,
+  relayNamespace,
+} from '../kinds/project/relay.js';
 import { onPlatform, RELAY as relay } from './helpers.js';
 
 /** A runner that answers every wrangler call with the result, recording what it was called with. */
@@ -96,4 +105,85 @@ test('accepts the owner of the relay in any case, as GitHub does', () => {
   expect(relayAccepts({ owner: 'datalogix' }, 'Datalogix/app')).toBe(true);
   expect(relayAccepts({ owner: 'Datalogix' }, 'datalogix/app')).toBe(true);
   expect(relayAccepts({ owner: 'datalogix' }, 'other/app')).toBe(false);
+});
+
+test("reads the relay settings the org command stored in the owner's .github repository", async () => {
+  const read = [];
+  const organization = (content) => ({
+    file: async (name, path) => (read.push(`${name}/${path}`), content === null ? null : { content }),
+  });
+  const settings = '{"url":"https://relay.test/","namespaceId":"id","owner":"datalogix"}';
+  expect(await loadRelayConfig('datalogix', organization(settings))).toStrictEqual({
+    url: 'https://relay.test',
+    namespaceId: 'id',
+    owner: 'datalogix',
+    configured: true,
+  });
+  expect(read).toStrictEqual(['.github/workflows/relay.json']);
+  expect((await loadRelayConfig('datalogix', organization(null))).configured).toBe(false);
+  expect((await loadRelayConfig(null)).configured).toBe(false);
+  // A file someone broke by hand reads as no relay
+  expect(relayConfig('not json').configured).toBe(false);
+  expect(relayConfig('{"url":"https://relay.test"}').configured).toBe(false);
+});
+
+test('tells whether wrangler is logged in to Cloudflare', async () => {
+  expect(await cloudflareLoggedIn(runner({ stdout: 'You are logged in with an OAuth Token' }))).toBe(true);
+  expect(await cloudflareLoggedIn(runner({ stdout: 'You are not authenticated. Please run wrangler login.' }))).toBe(
+    false,
+  );
+  expect(await cloudflareLoggedIn(runner({ code: 1 }))).toBe(false);
+});
+
+test('reuses the relay namespace, else creates it', async () => {
+  const id = 'b'.repeat(32);
+  const existing = runner({ stdout: `⛅️ wrangler 4\n[{"id":"${id}","title":"incident-relay-secrets"}]` });
+  expect(await relayNamespace(existing)).toStrictEqual({ id, created: false });
+  expect(existing.calls).toHaveLength(1);
+
+  const answers = [{ stdout: '[]' }, { stdout: `Created namespace\n  id = "${id}"` }];
+  const created = runner({}, () => {});
+  const fresh = Object.assign(
+    async (...args) => (await created(...args), { code: 0, stderr: '', ...answers.shift() }),
+    {
+      calls: created.calls,
+    },
+  );
+  expect(await relayNamespace(fresh)).toStrictEqual({ id, created: true });
+  expect(created.calls[1][1].slice(2)).toStrictEqual(['kv', 'namespace', 'create', 'incident-relay-secrets']);
+});
+
+test('deploys the relay of this version with its namespace and owner, and the token on stdin', async () => {
+  const id = 'c'.repeat(32);
+  let config;
+  let sources;
+  const calls = [];
+  const deploy = async (command, args, options) => {
+    calls.push([args.slice(2), options.input]);
+    if (args.includes('deploy')) {
+      config = await readFile(`${options.cwd}/wrangler.toml`, 'utf8');
+      sources = await readdir(`${options.cwd}/src`);
+      return { code: 0, stdout: 'Uploaded incident-relay\n  https://incident-relay.acme.workers.dev\n', stderr: '' };
+    }
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  expect(await deployRelay({ namespaceId: id, owner: 'acme', token: 'github_pat_x' }, deploy)).toBe(
+    'https://incident-relay.acme.workers.dev',
+  );
+  expect(config).toContain(`id = "${id}"`);
+  expect(config).toContain('ALLOWED_OWNER = "acme"');
+  expect(sources).toContain('index.js');
+  expect(calls).toStrictEqual([
+    [['deploy'], undefined],
+    [['secret', 'put', 'GITHUB_TOKEN', '--name', 'incident-relay'], 'github_pat_x'],
+  ]);
+
+  // Without a token the one stored before stays
+  calls.length = 0;
+  await deployRelay({ namespaceId: id, owner: 'acme' }, deploy);
+  expect(calls).toStrictEqual([[['deploy'], undefined]]);
+
+  await expect(deployRelay({ namespaceId: id, owner: 'acme' }, runner({ stdout: 'done' }))).rejects.toThrow(
+    'printed no workers.dev URL',
+  );
 });

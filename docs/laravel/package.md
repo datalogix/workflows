@@ -4,7 +4,7 @@ Packages call `package`, their single entry point, like `project` for apps. Toda
 
 ## Setup
 
-From the package folder:
+After the [organization setup](../organization-setup.md), from the package folder:
 
 ```bash
 npx --allow-git=root github:datalogix/workflows#v2 setup

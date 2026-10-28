@@ -2,9 +2,17 @@
 
 Done once, before [adding the first project](laravel/app.md). Each step explains what it is for.
 
+Steps 1 and 2 are required. Steps 3 and 4 are optional (the shared issue forms, and Nightwatch problems as issues) and are done by the `org` command, which also checks step 1. An organization admin runs it from any folder (from macOS or Linux, to deploy the relay), before setting up the projects:
+
+```bash
+npx --allow-git=root github:datalogix/workflows#v2 org --org datalogix
+```
+
+It checks the Claude GitHub App, creates the public `datalogix/.github` repository with the issue forms of this version, deploys the monitoring relay (it logs in to Cloudflare in the browser and asks for the relay's GitHub token, with a link that fills the token in), and lists what is left by hand. Running it again updates the issue forms, and the relay when you say so (also to replace its token).
+
 ## 1. Install the Claude GitHub App
 
-Install the [Claude GitHub App](https://github.com/apps/claude) on the organization, with access to all repositories (or to every project that uses these workflows).
+Install the [Claude GitHub App](https://github.com/apps/claude) on the organization, with access to all repositories (or to every project that uses these workflows). `org` tells whether it is installed; that takes the `admin:org` scope (`gh auth refresh -s admin:org`).
 
 **Why:** the workflows act as `claude[bot]` through this App. Its commits, comments and pull requests trigger the other workflows (tests, reviews) normally, which commits made with the default `GITHUB_TOKEN` would not.
 
@@ -38,28 +46,22 @@ Where it goes depends on the organization's plan, because [organization secrets 
 
 ## 3. Share the issue forms (optional)
 
-Create a repository named `datalogix/.github` and copy the files from [`examples/issue-templates`](../examples/issue-templates) to `.github/ISSUE_TEMPLATE/` in it.
+`org` creates the public repository `datalogix/.github` and writes the files of [`examples/issue-templates`](../examples/issue-templates) to `.github/ISSUE_TEMPLATE/` in it. The repository must be public: GitHub only shares a public one's forms.
 
 **Why:** GitHub uses them in every repository of the organization that has no issue templates of its own. Opening an issue with **Tarefa para o Claude** applies the `claude` label (Claude implements it); **Planejar com o Claude** applies `claude-plan` (Claude only posts a plan).
 
 ## 4. Deploy the monitoring relay (only for production errors)
 
-Skip this if you do not want Nightwatch problems turned into issues.
+Skip this if you do not want Nightwatch problems turned into issues: leave the token empty when `org` asks for it.
 
-1. Create a **fine-grained GitHub token** owned by the organization, with access to the project repositories and the **Contents: read and write** permission. GitHub requires it to receive the `repository_dispatch` events the relay sends.
-2. Create the relay's storage and deploy it to Cloudflare Workers (the first `wrangler` command asks you to log in to Cloudflare):
+`org` deploys the relay of the version it runs to Cloudflare Workers, with:
 
-   ```bash
-   cd relay
-   npm install
-   npx wrangler kv namespace create SECRETS   # copy the id it prints into relay/wrangler.toml
-   npx wrangler secret put GITHUB_TOKEN        # paste the token
-   npx wrangler deploy                         # prints the worker URL
-   ```
+1. A **fine-grained GitHub token** owned by the organization, for all repositories, with **Contents: read and write**: GitHub requires it to receive the `repository_dispatch` events the relay sends. `org` shows a link that fills it in; it expires after a year at most, so note the date and run `org` again with a new one before then.
+2. A Cloudflare login, opened in the browser the first time. The first deploy of an account may ask to choose its `workers.dev` subdomain in the Cloudflare dashboard.
 
-3. Put the worker URL in [`cli/config.json`](../cli/config.json) (`"relayUrl": "https://incident-relay.<account>.workers.dev"`), commit both files and publish a release: the setup command reads them from the released version.
+It stores the worker's URL, its KV namespace and the organization in `workflows/relay.json` of `datalogix/.github`, where every project's setup reads them. To update the relay after a release changes it, run `org` again and say yes to updating it.
 
-**Why:** Nightwatch cannot call GitHub directly, because GitHub requires an authorization header that Nightwatch webhooks cannot send. The relay checks that each webhook really came from Nightwatch, with the secret stored for that repository, and forwards it. It only targets repositories of `ALLOWED_OWNER` (in [`relay/wrangler.toml`](../relay/wrangler.toml)). Each repository's secret is a separate entry in the `SECRETS` namespace, so the setup command can add a project without touching the others.
+**Why:** Nightwatch cannot call GitHub directly, because GitHub requires an authorization header that Nightwatch webhooks cannot send. The relay checks that each webhook really came from Nightwatch, with the secret stored for that repository, and forwards it. It only targets repositories of the organization it was deployed for (`ALLOWED_OWNER`). Each repository's secret is a separate entry in the `SECRETS` namespace, so the setup command can add a project without touching the others.
 
 ## 5. Create the task manager's GitHub App
 

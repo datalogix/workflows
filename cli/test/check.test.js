@@ -167,9 +167,9 @@ test('a team project needs code owner approval in the ruleset', async () => {
 
 test('warns without reading the relay when it is not configured', async () => {
   const state = await stateFor({ deploy: 'none', solo: true, incidents: true });
-  const unconfigured = { configured: false, url: '', namespaceId: 'REPLACE_WITH_THE_NAMESPACE_ID', owner: 'datalogix' };
+  const unconfigured = { configured: false, url: '', namespaceId: '', owner: '' };
   const items = await run(state, { relay: unconfigured, repository: 'datalogix/app' });
-  expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('monitoring relay is not configured'));
+  expect(titles(items, 'warn')).toContainEqual('The monitoring relay is not set up for datalogix');
 });
 
 test('reports missing environments, hooks and health URLs', async () => {

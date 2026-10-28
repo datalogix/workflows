@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { codeOwnerItems, createReport, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
+import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
 import { includedRefs, protectsBranch } from '../../lib/ruleset.js';
 import { checksOn, readOrFail } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
@@ -123,6 +123,19 @@ function secretSteps(id, { label, exists, when, validate: validValue = notEmpty,
   ];
 }
 
+const ownerOf = (repository) => repository.split('/')[0];
+
+/** The repository step, then the relay settings of its owner when prepare had no repository to load them for. */
+function withRelay(step) {
+  return {
+    ...step,
+    then: async (answers, ctx) => {
+      await step.then(answers, ctx);
+      ctx.relay ??= await loadRelayConfig(ownerOf(answers.repository));
+    },
+  };
+}
+
 /** The questions, in order. */
 function setupSteps(stack) {
   const staging = (a) => deploys(a) && a.staging;
@@ -132,7 +145,7 @@ function setupSteps(stack) {
 
   return [
     // How release pull requests are opened: setup can turn a production branch on
-    repositoryStep({ readOptions: { release: true } }),
+    withRelay(repositoryStep({ readOptions: { release: true } })),
     {
       id: 'deploy',
       flag: 'deploy',
@@ -766,11 +779,11 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
   if (answers.incidents) {
     if (!relay.configured) {
       steps.push(
-        'The monitoring relay is not configured in datalogix/workflows (cli/config.json and relay/wrangler.toml): problems will not reach GitHub until it is.',
+        `The monitoring relay of ${ownerOf(answers.repository)} is not set up, so problems will not reach GitHub until an organization admin runs:\n  ${cyan(ORG)}`,
       );
     } else if (!relayAccepts(relay, answers.repository)) {
       steps.push(
-        `The monitoring relay only accepts repositories of ${bold(relay.owner)} (ALLOWED_OWNER), so problems of ${answers.repository} will not reach GitHub.`,
+        `The monitoring relay only accepts repositories of ${bold(relay.owner)}, so problems of ${answers.repository} will not reach GitHub. Deploy it again for ${ownerOf(answers.repository)}:\n  ${cyan(ORG)}`,
       );
     } else if (!relaySupported()) {
       steps.push(
@@ -1025,14 +1038,11 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
 
   if (state.current?.incidents !== false) {
     if (!relay.configured) {
-      warn(
-        'The monitoring relay is not configured in datalogix/workflows',
-        'see docs/organization-setup.md in datalogix/workflows',
-      );
+      warn(`The monitoring relay is not set up${repository ? ` for ${ownerOf(repository)}` : ''}`, ORG);
     } else if (repository && !relayAccepts(relay, repository)) {
       warn(
         `The monitoring relay only accepts repositories of ${relay.owner}: problems of ${repository} are rejected`,
-        'set ALLOWED_OWNER in relay/wrangler.toml of datalogix/workflows',
+        ORG,
       );
     } else if (!relaySupported()) {
       warn('Cannot read the monitoring relay on Windows', 'see relay/README.md in datalogix/workflows');
@@ -1086,9 +1096,12 @@ export function projectKind(stack) {
     inspect: stack.inspect,
     read: (github, read, options) => readProject(kind, github, read, options),
     answers: projectAnswers,
-    /** Loads what the commands need before they read the project: the relay settings, unless given (tests). */
+    /**
+     * Loads what the commands need before they read the project: the relay settings of the repository's owner, unless
+     * given (tests). Without a repository yet (setup asks for it), the repository step loads them.
+     */
     prepare: async (ctx) => {
-      ctx.relay ??= await loadRelayConfig();
+      if (ctx.repository) ctx.relay ??= await loadRelayConfig(ownerOf(ctx.repository));
     },
     setup: {
       steps: () => setupSteps(kind),

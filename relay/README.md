@@ -33,35 +33,18 @@ How projects use it is in [Production errors](../docs/production-errors.md).
 
 | Setting | Where | What it is |
 | --- | --- | --- |
-| `ALLOWED_OWNER` | `wrangler.toml`, `[vars]` | GitHub owner whose repositories may be targeted |
-| `SECRETS` | `wrangler.toml`, `[[kv_namespaces]]` | KV namespace with one entry per repository and provider: `<provider>:<owner>/<repo>` → webhook secret; also the events delivered in the last two hours (`delivery:…`, with a TTL) |
+| `ALLOWED_OWNER` | `wrangler.toml`, `[vars]` (set by `org` to its organization) | GitHub owner whose repositories may be targeted |
+| `SECRETS` | `wrangler.toml`, `[[kv_namespaces]]` (`org` reuses or creates `incident-relay-secrets`) | KV namespace with one entry per repository and provider: `<provider>:<owner>/<repo>` → webhook secret; also the events delivered in the last two hours (`delivery:…`, with a TTL) |
 | `GITHUB_TOKEN` | Worker secret | Fine-grained token with **Contents: read and write** on the project repositories |
-| `relayUrl` | [`../cli/config.json`](../cli/config.json) | The worker's URL, so the setup command can show the webhook URL |
+| `relay.json` | `workflows/relay.json` in `<owner>/.github` | Written by `org`: the worker's URL, the namespace id and the owner, so setup can show the webhook URL and store each repository's secret |
 
 Each repository is a separate KV entry so the setup command can add or replace one without touching the others: Worker secrets cannot be read back, so a single JSON secret would have to be retyped whole every time.
 
 ## Deploying
 
-The first time:
+The CLI's `org` command deploys it (see [Organization setup, step 4](../docs/organization-setup.md#4-deploy-the-monitoring-relay-only-for-production-errors)): it copies `src/` of the version it runs to a private folder with a `wrangler.toml` made from this one (the namespace id and `ALLOWED_OWNER` filled in), runs `wrangler deploy`, stores `GITHUB_TOKEN` on stdin and writes `relay.json`. `wrangler.toml` here keeps the placeholder id: it is the template, and what `npm run deploy` needs for a deploy by hand after you fill it in.
 
-```bash
-npm install
-npx wrangler login
-npx wrangler kv namespace create SECRETS   # put the id it prints in wrangler.toml
-npx wrangler secret put GITHUB_TOKEN
-npx wrangler deploy                         # put the URL it prints in ../cli/config.json
-```
-
-Commit `wrangler.toml` and `cli/config.json` and publish a release: the setup command reads them from the `v2` tag.
-
-After changing the code:
-
-```bash
-npm test
-npx wrangler deploy
-```
-
-The worker is not deployed by GitHub Actions; a release of this repository does not change it.
+After changing the code, run `npm test`, release, and run `org` again, saying yes to updating the relay. A release does not change the deployed worker by itself.
 
 ## Registering a repository
 
@@ -74,7 +57,7 @@ npx wrangler kv key put "nightwatch:datalogix/app" --namespace-id <id> --path se
 rm -f secret.txt; unset SECRET
 ```
 
-On Windows, paste the secret into a file with an editor, save it outside any repository, run the same `kv key put` with `--path <file>` and delete the file afterwards; never type the secret in the command line. `<id>` is the namespace id in [`wrangler.toml`](wrangler.toml).
+On Windows, paste the secret into a file with an editor, save it outside any repository, run the same `kv key put` with `--path <file>` and delete the file afterwards; never type the secret in the command line. `<id>` is the `namespaceId` in `workflows/relay.json` of the organization's `.github` repository.
 
 `npx wrangler kv key list --namespace-id <id> --remote` lists the registered repositories (the keys, not the secrets).
 

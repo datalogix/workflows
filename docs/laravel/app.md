@@ -1,6 +1,6 @@
 # Adding a Laravel app
 
-Run these steps for each Laravel app, in order, after the [organization setup](../organization-setup.md). Each step explains what it is for and how to check it worked. Without the setup command, follow [Manual setup](app-manual-setup.md) instead of step 1.
+Run these steps for each Laravel app, in order, after the [organization setup](../organization-setup.md) (with production errors as issues, that includes the `org` command, whose monitoring relay setup reads). Each step explains what it is for and how to check it worked. Without the setup command, follow [Manual setup](app-manual-setup.md) instead of step 1.
 
 The setup command does almost everything. It needs [Node.js](https://nodejs.org) 22.12 or newer and the [GitHub CLI](https://cli.github.com) logged in (`gh auth login`); for production errors, also `npx wrangler login` (not on Windows, where the relay step is done by hand).
 
@@ -76,7 +76,7 @@ Setup ends with this list, adjusted to your answers:
 3. **Laravel Cloud**, on each environment: in **Settings > Deployments**, turn off **Push to deploy**; make sure staging tracks the default branch.
 4. **Nightwatch**: if you did not have the signing secret during setup, set the webhook to the URL setup showed (`https://<worker>/nightwatch/OWNER/REPO`) and run setup again. Name the Nightwatch environments `production` and `staging`, like the GitHub environments (also needed for the deploy markers).
 5. **Release GitHub App** (optional): with a production branch and without the App's secrets, release pull requests run no checks and the production branch stays unprotected; store them as organization secrets ([Organization setup, step 6](../organization-setup.md#6-create-the-release-github-app)) or run setup again.
-6. **Monitoring relay**: if setup says it is not configured, finish [Organization setup, step 4](../organization-setup.md#4-deploy-the-monitoring-relay-only-for-production-errors) first. On Windows, setup cannot store the signing secret: store it by hand as in [Manual setup](app-manual-setup.md#relay).
+6. **Monitoring relay**: if setup says it is not set up, an organization admin runs `org` first ([Organization setup, step 4](../organization-setup.md#4-deploy-the-monitoring-relay-only-for-production-errors)). On Windows, setup cannot store the signing secret: store it by hand as in [Manual setup](app-manual-setup.md#relay).
 7. **Health check**: if setup could not read `bootstrap/app.php`, make the health path answer `200` only when the app works ([Manual setup](app-manual-setup.md#health-check)).
 
 **Why:** with push to deploy on, every push would deploy before the tests and staging ran. Forge's hook always deploys the branch head; the snippet makes it deploy the commit in `FORGE_VAR_COMMIT`, which is what lets a rollback deploy the previous commit. Forge, Cloud and Nightwatch have no API for these settings that setup could use.

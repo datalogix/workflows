@@ -176,14 +176,15 @@ test('changes nothing when everything is already set', async (t) => {
 
 test('skips the relay secret when the relay is not configured', (t) => {
   onPlatform(t, 'linux');
-  const unconfigured = { configured: false, url: '', namespaceId: 'REPLACE_WITH_THE_NAMESPACE_ID', owner: 'datalogix' };
+  const unconfigured = { configured: false, url: '', namespaceId: '', owner: '' };
   const step = setupSteps().find((candidate) => candidate.id === 'webhookSecret');
   expect(step.when({ incidents: true }, { relay: unconfigured })).toBe(false);
   expect(step.when({ incidents: true }, { relay })).toBe(true);
 
   const answers = { repository: 'datalogix/app', deploy: 'none', incidents: true };
   const steps = nextSteps(answers, { relay: unconfigured, results: [], state: APP_STATE });
-  expect(steps).toContainEqual(expect.stringContaining('monitoring relay is not configured'));
+  expect(steps).toContainEqual(expect.stringContaining('monitoring relay of datalogix is not set up'));
+  expect(steps).toContainEqual(expect.stringContaining('#v2 org'));
   expect(steps).not.toContainEqual(expect.stringContaining('/nightwatch/'));
 });
 

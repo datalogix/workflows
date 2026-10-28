@@ -208,10 +208,9 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 | Setting            | Where                         | Description                                                                         |
 | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------- |
-| `ALLOWED_OWNER`    | `relay/wrangler.toml` (var)   | GitHub owner whose repositories may be targeted                                     |
+| `ALLOWED_OWNER`    | Worker variable, set by `org` | GitHub owner whose repositories may be targeted: the organization `org` ran for     |
 | `GITHUB_TOKEN`     | Cloudflare secret             | Fine-grained token with Contents: read and write on the project repositories        |
 | `SECRETS`          | Cloudflare KV namespace       | One entry per repository: `<provider>:<owner>/<repo>` → webhook secret; also the events delivered in the last two hours (`delivery:…`, with a TTL), not sent again |
-| `relayUrl`         | `cli/config.json`             | Worker URL, used by the setup command to show the webhook URL                       |
-| `SECRETS` namespace `id` | `relay/wrangler.toml`   | Read by the setup command (from the released version) to register and look up each repository's secret |
+| `relay.json`       | `workflows/relay.json` in `<owner>/.github` | Written by `org`: the worker URL (for the webhook URL), the `SECRETS` namespace id (to register and look up each repository's secret) and the owner. Read by setup and check |
 
 Webhook URL: `https://<worker>/<provider>/<owner>/<repo>`. Supported providers: `nightwatch`.

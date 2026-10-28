@@ -5,6 +5,7 @@ import { unversioned, usesRef, WORKFLOW_PATH } from './workflow-file.js';
 // What check suggests running to fix an item
 export const SETUP = 'npx --allow-git=root github:datalogix/workflows#v2 setup';
 export const PROTECT = 'npx --allow-git=root github:datalogix/workflows#v2 protect';
+export const ORG = 'npx --allow-git=root github:datalogix/workflows#v2 org';
 
 /** The items check lists, each { level: ok | warn | error, title, hint }, with a function to add each level. */
 export function createReport() {
