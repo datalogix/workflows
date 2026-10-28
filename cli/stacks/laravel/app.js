@@ -55,7 +55,8 @@ const jsStep = {
       await clack.confirm({
         message: question(
           header,
-          `Run the package.json scripts in the tests?${dim(`  ${ctx.state.nodeScripts.map((name) => `npm run ${name}`).join(', ')}`)}`,
+          'Run the package.json scripts in the tests?',
+          `${ctx.state.nodeScripts.map((name) => `npm run ${name}`).join(', ')} after the PHP checks; a failure fails the tests check`,
         ),
         initialValue: ctx.state.current?.js ?? true,
       }),
@@ -80,7 +81,8 @@ const databaseCheckStep = {
       await clack.confirm({
         message: question(
           header,
-          `Make the health check fail when the database is down?${dim(`  edits ${PROVIDER_PATH}`)}`,
+          'Make the health check fail when the database is down?',
+          `A deploy that breaks the database connection is rolled back; edits ${PROVIDER_PATH}`,
         ),
         initialValue: true,
       }),

@@ -67,9 +67,13 @@ export async function confirmFolder(ctx, repository) {
   }
 }
 
-/** Message of a question: its progress bar on one line, the question on the next. */
-export function question(header, text) {
-  return `${dim(header)}\n${text}`;
+/**
+ * Message of a question: its progress bar on one line, the question on the next and, for a question that turns
+ * something on, what it does (`about`, one line or a list of lines) dimmed below.
+ */
+export function question(header, text, about) {
+  const lines = [about].flat().filter(Boolean);
+  return [dim(header), text, ...lines.map((line) => dim(`  ${line}`))].join('\n');
 }
 
 /** The result fields of what a task's run returned: { detail } or { detail, data }. */

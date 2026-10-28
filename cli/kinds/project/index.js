@@ -203,7 +203,11 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.confirm({
-            message: question(header, 'Deploy to a staging environment before production?'),
+            message: question(
+              header,
+              'Deploy to a staging environment before production?',
+              'Each deploy goes to staging first and is watched; production only gets it if staging stays healthy',
+            ),
             initialValue: ctx.state.current?.staging ?? true,
           }),
         ),
@@ -231,7 +235,8 @@ function setupSteps(stack) {
           await clack.confirm({
             message: question(
               header,
-              `Deploy production from its own branch?${dim('  development branch → staging, production branch → production')}`,
+              'Deploy production from its own branch?',
+              'The development branch deploys staging; merging the release pull request into the production branch deploys production',
             ),
             initialValue: Boolean(ctx.state.current?.productionBranch),
           }),
@@ -282,7 +287,11 @@ function setupSteps(stack) {
       ask: async ({ header, answers, ctx }) =>
         orExit(
           await clack.select({
-            message: question(header, 'How does production deploy?'),
+            message: question(
+              header,
+              'How does production deploy?',
+              'Manually, production waits for someone to run the workflow from GitHub Actions',
+            ),
             // Any other value than auto deploys only from Run workflow, as manual does
             initialValue: (ctx.state.current?.production ?? 'auto') === 'auto' ? 'auto' : 'manual',
             options: [
@@ -309,7 +318,8 @@ function setupSteps(stack) {
           await clack.confirm({
             message: question(
               header,
-              `Record each deploy in the repository's Deployments?${dim('  no: the deploys still use the environments')}`,
+              "Record each deploy in the repository's Deployments?",
+              "Each deploy and rollback appears in the repository's Deployments page and on its pull requests and commits; without it, the deploys work the same",
             ),
             initialValue: ctx.state.current?.githubDeployments ?? true,
           }),
@@ -356,7 +366,11 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.confirm({
-            message: question(header, `Mark each deploy and rollback in ${stack.monitoring.name}?`),
+            message: question(
+              header,
+              `Mark each deploy and rollback in ${stack.monitoring.name}?`,
+              `${stack.monitoring.name} shows when each release went live, next to its errors and performance`,
+            ),
             // Set up before with markers: keep the earlier choice, which the token tells
             initialValue:
               ctx.state.current && markers(ctx.state.current)
@@ -428,7 +442,11 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.confirm({
-            message: question(header, `Turn problems detected by ${stack.monitoring.name} into GitHub issues?`),
+            message: question(
+              header,
+              `Turn problems detected by ${stack.monitoring.name} into GitHub issues?`,
+              `Each problem opens one issue, with the release that was live; Claude analyzes it and suggests a fix. Needs the organization's monitoring relay`,
+            ),
             initialValue: ctx.state.current?.incidents ?? true,
           }),
         ),
@@ -439,7 +457,7 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.confirm({
-            message: question(header, 'Include problems from staging?'),
+            message: question(header, 'Include problems from staging?', 'Issues get the env:staging label'),
             initialValue: ctx.state.current?.incidentStaging ?? true,
           }),
         ),
@@ -450,7 +468,11 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.confirm({
-            message: question(header, 'Include performance problems (slow routes, jobs and commands)?'),
+            message: question(
+              header,
+              'Include performance problems (slow routes, jobs and commands)?',
+              'Without them, only exceptions become issues',
+            ),
             initialValue: ctx.state.current?.incidentPerformance ?? true,
           }),
         ),
@@ -496,15 +518,18 @@ function setupSteps(stack) {
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.multiselect({
-            message: question(
-              header,
-              `Claude and the risk gate on pull requests${dim("  each Claude workflow uses the Claude token's usage limits")}`,
-            ),
+            message: question(header, 'Claude and the risk gate on pull requests', [
+              'Code review: Claude reviews the changes once per pull request and comments; @claude asks for another review',
+              'Security review: Claude looks for vulnerabilities on every push; a finding from high up fails the required check',
+              'Risk gate: labels each pull request low, medium or high risk by its files and size, and requires human approvals by level',
+              "Fix CI: when the tests fail on one of Claude's pull requests, Claude tries to fix them (2 attempts)",
+              "Each Claude workflow uses the Claude token's usage limits, shared by every project",
+            ]),
             options: [
               { value: 'review', label: 'Code review', hint: 'once per pull request' },
               { value: 'security-review', label: 'Security review', hint: 'on every push; a required check' },
               { value: 'risk-gate', label: 'Risk gate', hint: 'human approvals by risk; a required check' },
-              { value: 'fix-ci', label: 'Fix CI', hint: 'Claude fixes failed tests on its own pull requests' },
+              { value: 'fix-ci', label: 'Fix CI', hint: "on Claude's pull requests" },
             ],
             initialValues: Object.entries(LAYERS)
               .filter(([answer]) => ctx.state.current?.[answer] !== false)

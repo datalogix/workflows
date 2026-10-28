@@ -115,3 +115,11 @@ test('runs every task, keeping the first line of a failure', async () => {
   expect(await runTasks([])).toStrictEqual([]);
   expect(taskOutcome(undefined)).toStrictEqual({ detail: 'done' });
 });
+
+test('puts what a question turns on below it, one dimmed line each', async () => {
+  const { question } = await import('../lib/ui.js');
+  const { stripVTControlCharacters: plain } = await import('node:util');
+  expect(plain(question('1/2', 'Turn it on?'))).toBe('1/2\nTurn it on?');
+  expect(plain(question('1/2', 'Turn it on?', 'It does this'))).toBe('1/2\nTurn it on?\n  It does this');
+  expect(plain(question('1/2', 'Pick', ['A: one', 'B: two']))).toBe('1/2\nPick\n  A: one\n  B: two');
+});

@@ -61,7 +61,11 @@ export function soloStep({ subject, initial = () => true }) {
     ask: async ({ header, ctx }) =>
       orExit(
         await clack.confirm({
-          message: question(header, `Do you work alone on this ${subject}?`),
+          message: question(
+            header,
+            `Do you work alone on this ${subject}?`,
+            'Your own pull requests count as your approval, and changes to .github/ need no code owner approval',
+          ),
           initialValue: initial(ctx),
         }),
       ),
