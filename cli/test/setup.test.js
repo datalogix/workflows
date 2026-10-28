@@ -132,7 +132,9 @@ test('sets up a new project deployed with Forge', async (t) => {
   );
 
   const steps = nextSteps(answers, { relay, results: [], state: APP_STATE });
-  expect(steps).toContainEqual(expect.stringContaining('FORGE_VAR_COMMIT'));
+  const forge = steps.find((step) => step.includes('In Forge'));
+  expect(forge).toContain('git checkout --quiet --detach "$FORGE_VAR_COMMIT"');
+  expect(forge).toContain('git checkout --quiet --force --detach "${FORGE_VAR_COMMIT:-origin/$FORGE_SITE_BRANCH}"');
   expect(steps).toContainEqual(expect.stringContaining('https://relay.test/nightwatch/datalogix/app'));
   expect(steps.at(-1)).toContain('npx --allow-git=root github:datalogix/workflows#v2 protect');
 });

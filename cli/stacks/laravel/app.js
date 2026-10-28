@@ -14,6 +14,10 @@ const FORGE_SNIPPET = `if [ -n "$FORGE_VAR_COMMIT" ]; then
     git checkout --quiet --detach "$FORGE_VAR_COMMIT"
 fi`;
 
+// Standard sites (without zero-downtime) pull the branch in place: the checkout replaces their git pull
+const FORGE_STANDARD_SNIPPET = `git fetch --quiet origin
+git checkout --quiet --force --detach "\${FORGE_VAR_COMMIT:-origin/$FORGE_SITE_BRANCH}"`;
+
 const BY_HAND = 'see docs/laravel/app-manual-setup.md in datalogix/workflows';
 
 /** The app's locale (APP_LOCALE in .env), or null without one. */
@@ -71,9 +75,10 @@ function deployNextSteps(answers, { twoBranches }) {
   if (answers.deploy === 'forge') {
     return [
       [
-        `In Forge, for ${answers.staging ? 'both sites' : 'the site'}: turn off ${bold('Push to deploy')}${twoBranches ? ` (staging site on ${bold(answers.developmentBranch)}, production site on ${bold(answers.productionBranch)})` : ''}, and in the deploy script add right after ${bold('cd $FORGE_RELEASE_DIRECTORY')}:`,
+        `In Forge, for ${answers.staging ? 'both sites' : 'the site'}: turn off ${bold('Push to deploy')}${twoBranches ? ` (staging site on ${bold(answers.developmentBranch)}, production site on ${bold(answers.productionBranch)})` : ''}, and in the deploy script, on zero-downtime sites, add right after ${bold('cd $FORGE_RELEASE_DIRECTORY')}:`,
         dim(FORGE_SNIPPET.replace(/^/gm, '  ')),
-        dim('  (standard sites without zero-downtime: see docs/laravel/app.md)'),
+        `  On standard sites, replace ${bold('git pull origin $FORGE_SITE_BRANCH')} with:`,
+        dim(FORGE_STANDARD_SNIPPET.replace(/^/gm, '  ')),
       ].join('\n'),
     ];
   }
