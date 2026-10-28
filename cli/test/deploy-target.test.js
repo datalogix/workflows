@@ -4,6 +4,7 @@ import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from '../stacks/lar
 import {
   forgeApi,
   forgeDeployHook,
+  forgeNightwatchTask,
   forgeSites,
   forgeSiteTask,
   STANDARD_SNIPPET,
@@ -285,4 +286,59 @@ test('leaves to do by hand only the sites setup did not set up', () => {
   ).find((step) => step.includes('In Forge'));
   expect(refused).toContain('In Forge, for both sites:');
   expect(refused).toContain('Setup could not do it through the API (The Forge API token was refused).');
+});
+
+const ENV_URL = `${FORGE}/orgs/datalogix/servers/7/sites/1/environment`;
+
+test("puts the Nightwatch token in a Forge site's .env only when it has none", async () => {
+  fakeFetch({
+    [`GET ${ENV_URL}`]: { data: { attributes: { content: 'APP_ENV=production\nNIGHTWATCH_TOKEN=abc\n' } } },
+  });
+  expect(await forgeNightwatchTask(forgeApi('token'), SITE, 'production', 'new').run()).toBe('unchanged');
+
+  fakeFetch({ [`GET ${ENV_URL}`]: { data: { attributes: { content: 'APP_ENV=production' } } } });
+  expect(await forgeNightwatchTask(forgeApi('token'), SITE, 'production', undefined).run()).toStrictEqual({
+    detail: 'not in .env',
+    data: { missing: true },
+  });
+
+  const calls = fakeFetch({
+    [`GET ${ENV_URL}`]: { data: { attributes: { content: 'APP_ENV=production\nNIGHTWATCH_TOKEN=\n' } } },
+    [`PUT ${ENV_URL}`]: { data: {} },
+  });
+  expect(await forgeNightwatchTask(forgeApi('token'), SITE, 'production', 'n$1w').run()).toBe(
+    'added to .env, from the next deploy',
+  );
+  expect(calls[1].body).toStrictEqual({ environment: 'APP_ENV=production\nNIGHTWATCH_TOKEN=n$1w\n' });
+});
+
+test('sets up Nightwatch in each chosen Forge site, and tells what is left of it', () => {
+  const answers = { ...forgeAnswers, incidents: true, productionMonitoringToken: 'nw' };
+  const titles = setupTasks(answers, { github: fakeGitHub(), root: '', state: APP_STATE, relay }).map(
+    (task) => task.title,
+  );
+  expect(titles).toEqual(
+    expect.arrayContaining([
+      'NIGHTWATCH_TOKEN of Forge site app.example.com (production)',
+      'NIGHTWATCH_TOKEN of Forge site dev.app.example.com (staging)',
+    ]),
+  );
+
+  const nightwatch = (results, state = APP_STATE) =>
+    nextSteps(answers, { relay, results, state }).filter((step) => /laravel\/nightwatch|NIGHTWATCH_TOKEN/.test(step));
+  const set = { id: 'nightwatchEnv:production', ok: true, detail: 'unchanged' };
+  const missing = { id: 'nightwatchEnv:staging', ok: true, detail: 'not in .env', data: { missing: true } };
+  expect(nightwatch([set, missing], { ...APP_STATE, nightwatch: true })).toStrictEqual([
+    expect.stringContaining('in the environment of the Forge site of staging'),
+  ]);
+  expect(nightwatch([set, { ...missing, data: undefined }], { ...APP_STATE, nightwatch: true })).toStrictEqual([]);
+  expect(nightwatch([set, { ...missing, ok: false, detail: 'HTTP 403' }])).toStrictEqual([
+    expect.stringContaining('composer require laravel/nightwatch'),
+    expect.stringContaining('(staging: HTTP 403)'),
+  ]);
+  // Nothing done yet: the agent, and the token of both sites; with Nightwatch off, nothing about it
+  expect(nightwatch([], APP_STATE).length).toBe(2);
+  expect(
+    nextSteps({ ...forgeAnswers, incidents: false }, { relay, results: [], state: APP_STATE }).join('\n'),
+  ).not.toContain('NIGHTWATCH_TOKEN');
 });

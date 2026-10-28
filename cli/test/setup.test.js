@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
@@ -53,7 +53,16 @@ vi.mock('../kinds/project/relay.js', async (importOriginal) => {
 beforeEach(() => {
   Object.assign(prompts, { stops: [], asked: [], answer: undefined });
   vi.mocked(hasSecret).mockReset();
+  // No test reaches the network: the health URLs take a probe, Forge and Cloud a fake fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url) => {
+      throw new Error(`No network in tests: ${url}`);
+    }),
+  );
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 const { steps: setupSteps, tasks: setupTasks, nextSteps, warnings: setupWarnings } = app.setup;
 
@@ -112,6 +121,7 @@ test('sets up a new project deployed with Forge', async (t) => {
     'Claude token',
     'Environment production',
     'Environment staging',
+    'Health check URLs',
   ]);
   for (const task of tasks) await task.run();
 
@@ -154,7 +164,8 @@ test('changes nothing when everything is already set', async (t) => {
     codeOwners: '@ana',
   };
 
-  const first = setupTasks(answers, { github, root, state: APP_STATE, relay });
+  const probe = async () => 200;
+  const first = setupTasks(answers, { github, root, state: APP_STATE, relay, probe });
   for (const task of first) await task.run();
 
   const state = {
@@ -168,11 +179,12 @@ test('changes nothing when everything is already set', async (t) => {
     },
   };
   const quiet = fakeGitHub();
-  expect(byTitle(await runResults(setupTasks(answers, { github: quiet, root, state, relay })))).toStrictEqual({
+  expect(byTitle(await runResults(setupTasks(answers, { github: quiet, root, state, relay, probe })))).toStrictEqual({
     'Workflow file .github/workflows/datalogix.yml': 'unchanged',
     'Code owners .github/CODEOWNERS': 'unchanged',
     Labels: 'unchanged',
     'Environment production': 'unchanged',
+    'Health check URLs': 'production 200',
   });
   expect(quiet.calls).toStrictEqual([]);
 });
@@ -1147,6 +1159,7 @@ function setupGitHub(methods = {}) {
     environment: async () => null,
     hasRepositorySecret: async () => true,
     hasOrganizationSecret: async () => false,
+    claudeApp: async () => 'all',
     workflowPermissions: async () => null,
     ...methods,
   });
@@ -1240,4 +1253,48 @@ test('asks the kind, starting from the detected one, when the folder has no work
   expect((await chooseStack({ root, flags: {} })).label).toBe('Laravel package');
   expect(prompts.asked).toMatchObject([{ initialValue: 'Laravel app' }]);
   expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual(['Laravel app', 'Laravel package']);
+});
+
+test('allows merge commits for the release pull requests, or tells to', async () => {
+  const github = fakeGitHub();
+  const state = { ...APP_STATE, repo: { ...APP_STATE.repo, allow_merge_commit: false } };
+  const tasks = setupTasks(branchAnswers, { github, root: '', state, relay, probe: async () => 200 });
+  const merge = tasks.find((task) => task.id === 'mergeCommits');
+  expect(await merge.run()).toBe('allowed, for the release pull requests');
+  expect(github.calls).toContainEqual(['merge commits']);
+
+  const steps = (results) => nextSteps(branchAnswers, { relay, results, state });
+  expect(steps([done('mergeCommits', 'allowed')]).join('\n')).not.toContain('Allow merge commits');
+  expect(steps([failed('mergeCommits', 'HTTP 403')]).join('\n')).toContain('Allow merge commits');
+  // Unknown without admin access, and nothing to do with a single branch
+  expect(idsOf(setupTasks(branchAnswers, { github, root: '', state: APP_STATE, relay }))).not.toContain('mergeCommits');
+  expect(idsOf(setupTasks({ ...branchAnswers, branches: false }, { github, root: '', state, relay }))).not.toContain(
+    'mergeCommits',
+  );
+});
+
+test('tells what to check when a health URL does not answer 200', async () => {
+  const answers = { ...branchAnswers, branches: false };
+  const probe = async (url) => (url.includes('staging') ? 401 : 200);
+  const health = setupTasks(answers, { github: fakeGitHub(), root: '', state: APP_STATE, relay, probe }).find(
+    (task) => task.id === 'healthUrls',
+  );
+  const [result] = await runResults([health]);
+  expect(result.detail).toBe('production 200, staging 401');
+
+  const steps = nextSteps(answers, { relay, results: [result], state: APP_STATE });
+  const step = steps.find((text) => text.includes('https://staging.app.example.com/up'));
+  expect(step).toContain('answers 401, so every deploy to it is rolled back');
+  expect(steps.join('\n')).not.toContain('https://app.example.com/up answers');
+});
+
+test('tells when the Claude GitHub App may not reach the repository', () => {
+  const step = (claudeApp) =>
+    nextSteps(branchAnswers, { relay, results: [], state: { ...APP_STATE, claudeApp } })
+      .filter((text) => text.includes('Claude GitHub App'))
+      .join('\n');
+  expect(step('all')).toBe('');
+  expect(step('none')).toContain('Install the Claude GitHub App on datalogix');
+  expect(step('selected')).toContain('add datalogix/app in its settings');
+  expect(step(null)).toContain('gh auth refresh -s admin:org');
 });

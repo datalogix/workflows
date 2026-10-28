@@ -36,6 +36,7 @@ const RECORDED = {
   createRuleset: 'create ruleset',
   updateRuleset: 'ruleset',
   allowActionsPullRequests: 'allow',
+  allowMergeCommits: 'merge commits',
 };
 
 /**

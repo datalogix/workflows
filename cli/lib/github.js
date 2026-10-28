@@ -63,6 +63,22 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
 
     repo: () => find(r),
     setDefaultBranch: (name) => api(r, { method: 'PATCH', body: { default_branch: name } }),
+    // Release pull requests are merged with a merge commit: squash would make the branches diverge
+    allowMergeCommits: () => api(r, { method: 'PATCH', body: { allow_merge_commit: true } }),
+
+    // How the Claude GitHub App reaches the owner's repositories: 'all', 'selected' or 'none' (not installed); null
+    // when gh cannot see the installations (only organization admins with the admin:org scope can, never for a user)
+    async claudeApp() {
+      const result = await runner.run('gh', [
+        'api',
+        '--paginate',
+        `orgs/${repository.split('/')[0]}/installations`,
+        '--jq',
+        '.installations[] | select(.app_slug == "claude") | .repository_selection',
+      ]);
+      if (result.code !== 0) return null;
+      return result.stdout.split('\n').find(Boolean) ?? 'none';
+    },
 
     // Each path segment encoded: the name comes from the workflow file and may hold #, % or ?
     branch: (name) => find(`${r}/branches/${name.split('/').map(encodeURIComponent).join('/')}`),

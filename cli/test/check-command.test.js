@@ -46,6 +46,7 @@ const packageGitHub = (methods = {}) =>
     login: async () => 'ana',
     hasRepositorySecret: async () => true,
     hasOrganizationSecret: async () => false,
+    claudeApp: async () => 'all',
     ...methods,
   });
 
@@ -113,6 +114,7 @@ test('looks up the relay with the spelling GitHub gives the repository', async (
     environment: async () => null,
     hasRepositorySecret: async () => true,
     hasOrganizationSecret: async () => false,
+    claudeApp: async () => 'all',
   });
   await run(root, github, { repository: 'datalogix/app' });
   expect(hasSecret).toHaveBeenCalledWith(RELAY, 'nightwatch', 'datalogix/App');

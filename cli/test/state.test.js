@@ -20,6 +20,7 @@ function stateGitHub(overrides = {}) {
     environmentVariable: async () => null,
     hasRepositorySecret: async () => false,
     hasOrganizationSecret: async () => false,
+    claudeApp: async () => 'all',
     rulesets: async () => [],
     ruleset: async () => null,
     login: async () => 'ana',

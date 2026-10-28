@@ -75,6 +75,7 @@ test('passes a fully set up project', async () => {
       claudeToken: { repository: true, organization: false },
       ruleset: rulesetOf(),
       health: { laravel: true, route: '/up', databaseCheck: true },
+      nightwatch: true,
       codeOwners: ['@ana'],
     },
   );
@@ -470,4 +471,43 @@ test('asks for the env label of each deployed environment only', async () => {
   expect(await missing({ deploy: 'forge', staging: false, solo: true, incidents: false })).toBe(
     'Missing labels: env:production',
   );
+});
+
+test('reports how the Claude GitHub App reaches the repository', async () => {
+  const level = async (claudeApp) =>
+    (await run({ ...APP_STATE, claudeApp }, { relayLookup: async () => true })).find((item) =>
+      item.title.includes('Claude GitHub App'),
+    )?.level;
+  expect(await level('all')).toBe('ok');
+  expect(await level('selected')).toBe('warn');
+  expect(await level('none')).toBe('error');
+  expect(await level(null)).toBe('warn');
+});
+
+test('reports merge commits turned off with a production branch', async () => {
+  const answers = { deploy: 'forge', staging: true, productionBranch: 'main', solo: true, incidents: false };
+  const items = async (allow) =>
+    run(await stateFor(answers, { defaultBranch: 'develop', repo: { allow_merge_commit: allow } }), {
+      probe: async () => 200,
+    });
+  expect(titles(await items(false), 'error')).toContainEqual(expect.stringContaining('Merge commits are off'));
+  expect(titles(await items(true), 'ok')).toContain('Merge commits allowed, for the release pull requests');
+  expect((await items(undefined)).some((item) => item.title.includes('Merge commits'))).toBe(false);
+});
+
+test('warns when Nightwatch is on and the app does not require its agent', async () => {
+  const warns = async (answers, overrides) =>
+    titles(
+      await run(
+        { ...(await stateFor(answers)), health: { laravel: true, route: '/up', databaseCheck: true }, ...overrides },
+        {
+          relayLookup: async () => true,
+        },
+      ),
+      'warn',
+    );
+  const warning = 'composer.json does not require laravel/nightwatch, so nothing reaches Nightwatch';
+  expect(await warns({ deploy: 'none', solo: true, incidents: true }, { nightwatch: false })).toContain(warning);
+  expect(await warns({ deploy: 'none', solo: true, incidents: true }, { nightwatch: true })).not.toContain(warning);
+  expect(await warns({ deploy: 'none', solo: true, incidents: false }, { nightwatch: false })).not.toContain(warning);
 });

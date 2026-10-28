@@ -2,11 +2,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
-import { bold, clack, dim, orExit, question } from '../../lib/ui.js';
+import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from './cloud.js';
 import {
   forgeApi,
   forgeDeployHook,
+  forgeNightwatchTask,
   forgeSites,
   forgeSiteTask,
   STANDARD_SNIPPET,
@@ -29,6 +30,15 @@ async function readLocale(root) {
     return null;
   }
   return /^APP_LOCALE\s*=\s*["']?([^"'\s#]+)/m.exec(env)?.[1] ?? null;
+}
+
+/** Whether composer.json requires Nightwatch's agent, without which no problem or deploy reaches Nightwatch. */
+async function requiresNightwatch(root) {
+  try {
+    return 'laravel/nightwatch' in (JSON.parse(await readFile(join(root, 'composer.json'), 'utf8')).require ?? {});
+  } catch {
+    return false;
+  }
 }
 
 /** Whether to make the health check fail when the database is down, when it does not yet. */
@@ -76,12 +86,13 @@ const PROVIDERS = {
     name: 'Forge',
     kind: 'site',
     tokenHint:
-      'with the site:manage-deploys permission; turns off Push to deploy, fixes the deploy script and reads the deploy hooks',
+      'with site:manage-deploys and, for Nightwatch, server:view and site:manage-environment; turns off Push to deploy, fixes the deploy script, reads the deploy hooks and sets NIGHTWATCH_TOKEN',
     api: forgeApi,
     find: forgeSites,
     hook: forgeDeployHook,
     label: (site) => site.name,
     task: forgeSiteTask,
+    nightwatchTask: forgeNightwatchTask,
   },
   cloud: {
     name: 'Laravel Cloud',
@@ -92,6 +103,7 @@ const PROVIDERS = {
     hook: null,
     label: (environment) => `${environment.application} · ${environment.name}`,
     task: cloudEnvironmentTask,
+    nightwatchTask: null,
   },
 };
 
@@ -201,9 +213,51 @@ function deploySiteTasks(answers, { state }) {
   const api = provider.api(answers.deployToken.trim());
   return environmentsOf(answers)
     .filter((environment) => answers[`${environment}Site`])
-    .map((environment) =>
-      provider.task(api, answers[`${environment}Site`], environment, cloudBranch(answers, environment, state)),
+    .flatMap((environment) => {
+      const site = answers[`${environment}Site`];
+      return [
+        provider.task(api, site, environment, cloudBranch(answers, environment, state)),
+        ...(usesNightwatch(answers) && provider.nightwatchTask
+          ? [provider.nightwatchTask(api, site, environment, answers[`${environment}MonitoringToken`]?.trim())]
+          : []),
+      ];
+    });
+}
+
+// Problems become issues, or deploys are marked: both need Nightwatch's agent in the app, with its token
+const usesNightwatch = (a) => Boolean(a.incidents || a.monitoringMarkers);
+
+/** What Nightwatch needs in the app and its servers that setup did not do: the agent, and each environment's token. */
+function nightwatchNextSteps(answers, { state, results = [] }) {
+  if (!usesNightwatch(answers)) return [];
+  const steps = [];
+  if (!state.nightwatch) {
+    steps.push(
+      `Install Nightwatch's agent in the app, or nothing reaches Nightwatch: ${cyan('composer require laravel/nightwatch')}`,
     );
+  }
+  const resultOf = (environment) => results.find((result) => result.id === `nightwatchEnv:${environment}`);
+  const left = deploys(answers)
+    ? environmentsOf(answers).filter((environment) => !resultOf(environment)?.ok || resultOf(environment).data?.missing)
+    : [];
+  const problems = left
+    .filter((environment) => resultOf(environment) && !resultOf(environment).ok)
+    .map((environment) => `${environment}: ${resultOf(environment).detail}`);
+  const where =
+    answers.deploy === 'forge'
+      ? 'the Forge site'
+      : answers.deploy === 'cloud'
+        ? 'the Laravel Cloud environment'
+        : 'the server';
+  if (!deploys(answers) || left.length) {
+    steps.push(
+      [
+        `Set ${bold('NIGHTWATCH_TOKEN')} (the application's token in Nightwatch) in the environment of ${where}${left.length ? ` of ${left.map((environment) => bold(environment)).join(' and ')}` : ''}, if it is not there yet.`,
+        ...(problems.length ? [dim(`  Setup could not do it through the API (${problems.join('; ')}).`)] : []),
+      ].join('\n'),
+    );
+  }
+  return steps;
 }
 
 /** The branch a Cloud environment must track: both with two branches, staging otherwise (Forge gets it in the hook). */
@@ -269,6 +323,18 @@ function evaluateDeploy({ ok, warn }, state) {
   if (state.health.route && state.health.databaseCheck) ok(`Health check ${state.health.route} checks the database`);
 }
 
+/** Whether Nightwatch's agent is in the app, when Nightwatch is on. */
+function evaluateMonitoring({ ok, warn }, state) {
+  // composer.json is read from the folder: without the app, nothing to say
+  if (!state.health.laravel) return;
+  if (state.nightwatch) ok('laravel/nightwatch in composer.json');
+  else
+    warn(
+      'composer.json does not require laravel/nightwatch, so nothing reaches Nightwatch',
+      'composer require laravel/nightwatch',
+    );
+}
+
 export default projectKind({
   deployTargets: [
     { value: 'forge', label: 'Laravel Forge' },
@@ -284,11 +350,12 @@ export default projectKind({
     // Deploy markers need the Nightwatch token of a Forge site
     markers: (answers) => answers.deploy === 'forge',
   },
-  empty: { health: { laravel: false, route: null, databaseCheck: false }, tools: NO_TOOLS },
+  empty: { health: { laravel: false, route: null, databaseCheck: false }, tools: NO_TOOLS, nightwatch: false },
   /** What collectState reads from the folder for a Laravel app: its health check, its locale and its tools. */
   inspect: async (root) => ({
     health: await inspectHealth(root),
     locale: await readLocale(root),
+    nightwatch: await requiresNightwatch(root),
     tools: await inspectTools(root),
   }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
@@ -300,9 +367,12 @@ export default projectKind({
   ],
   files: { healthCheck: PROVIDER_PATH },
   deployNextSteps,
-  nextSteps: (answers, { state }) =>
-    deploys(answers) && !state.health.laravel
+  nextSteps: (answers, { state, results }) => [
+    ...(deploys(answers) && !state.health.laravel
       ? [`Make ${answers.healthPath} answer 200 only when the app works (${BY_HAND}).`]
-      : [],
+      : []),
+    ...nightwatchNextSteps(answers, { state, results }),
+  ],
   evaluateDeploy,
+  evaluateMonitoring,
 });

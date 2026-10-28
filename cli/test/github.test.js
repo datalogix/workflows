@@ -159,3 +159,11 @@ test('reads and writes the files of an organization repository as base64', async
     sha: 'abc',
   });
 });
+
+test('tells how the Claude GitHub App reaches the repositories, and null when gh cannot see it', async () => {
+  const claudeApp = (result) => createGitHub('datalogix/app', runner(result)).claudeApp();
+
+  expect(await claudeApp({ stdout: 'selected\n' })).toBe('selected');
+  expect(await claudeApp({ stdout: '' })).toBe('none');
+  expect(await claudeApp({ code: 1, stderr: 'gh: Must have admin rights (HTTP 403)' })).toBe(null);
+});

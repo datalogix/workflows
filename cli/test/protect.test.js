@@ -33,6 +33,7 @@ const protectGitHub = ({ rulesets = [], latest = { number: 3, names: ALL }, rele
     latestPullRequestChecks: async () => latest,
     hasRepositorySecret: async (name) => releaseApp && name.startsWith('RELEASE_APP_'),
     hasOrganizationSecret: async () => false,
+    claudeApp: async () => 'all',
     ...methods,
   });
 

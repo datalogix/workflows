@@ -98,3 +98,27 @@ export function forgeSiteTask(api, site, environment) {
     },
   };
 }
+
+/**
+ * Puts the app's Nightwatch token in the site's .env, when it has none: without it Nightwatch receives nothing. With
+ * no token to write ({ data: { missing: true } }), setup lists it as left to do by hand.
+ */
+export function forgeNightwatchTask(api, site, environment, token) {
+  return {
+    id: `nightwatchEnv:${environment}`,
+    title: `NIGHTWATCH_TOKEN of Forge site ${site.name} (${environment})`,
+    run: async () => {
+      const { data } = await api.get(`${sitePath(site)}/environment`);
+      const content = data.attributes.content ?? '';
+      if (/^NIGHTWATCH_TOKEN=[ \t]*["']?[^\s"'#]/m.test(content)) return 'unchanged';
+      if (!token) return { detail: 'not in .env', data: { missing: true } };
+      const line = `NIGHTWATCH_TOKEN=${token}`;
+      const updated = /^NIGHTWATCH_TOKEN=.*$/m.test(content)
+        ? content.replace(/^NIGHTWATCH_TOKEN=.*$/m, () => line)
+        : `${content}${content && !content.endsWith('\n') ? '\n' : ''}${line}\n`;
+      await api.put(`${sitePath(site)}/environment`, { environment: updated });
+      // The deploy script caches the configuration again
+      return 'added to .env, from the next deploy';
+    },
+  };
+}

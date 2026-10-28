@@ -42,6 +42,8 @@ const PROJECT_STATE = {
   releaseApp: false,
   actionsPullRequests: null,
   productionBranchStatus: null,
+  // How the Claude GitHub App reaches the owner's repositories (github.claudeApp); 'all' until it is read
+  claudeApp: 'all',
   // The app's locale (e.g. pt_BR), read by the stack's inspect: the suggested domain ends with .com.br for pt_BR
   locale: null,
 };
@@ -463,7 +465,7 @@ function renderWorkflow(answers, state) {
 }
 
 /** The changes the answers lead to, as tasks for the progress bar. */
-function setupTasks(stack, answers, { github, root, state, relay }) {
+function setupTasks(stack, answers, { github, root, state, relay, probe = healthStatus }) {
   const tasks = [];
   const environments = deploys(answers) ? (answers.staging ? ['production', 'staging'] : ['production']) : [];
   const domains = { production: answers.domain?.trim(), staging: answers.stagingDomain?.trim() };
@@ -697,7 +699,40 @@ function setupTasks(stack, answers, { github, root, state, relay }) {
     });
   }
 
+  // Release pull requests are merged with a merge commit; unknown (undefined) without admin access to the repository
+  if (twoBranches(answers) && state.repo?.allow_merge_commit === false) {
+    tasks.push({
+      id: 'mergeCommits',
+      title: 'Merge commits',
+      run: async () => {
+        await github.allowMergeCommits();
+        return 'allowed, for the release pull requests';
+      },
+    });
+  }
+
   tasks.push(...stack.tasks(answers, { root, state }));
+
+  // Last, after the stack's tasks, which may change the sites: a health URL that does not answer 200 rolls every
+  // deploy back (nextSteps tells what to check)
+  if (environments.length) {
+    tasks.push({
+      id: 'healthUrls',
+      title: 'Health check URLs',
+      run: async () => {
+        const answered = await Promise.all(
+          environments.map(async (environment) => {
+            const url = `https://${domains[environment]}${answers.healthPath}`;
+            return { environment, url, status: await probe(url) };
+          }),
+        );
+        return {
+          detail: answered.map(({ environment, status }) => `${environment} ${status ?? 'no answer'}`).join(', '),
+          data: { failing: answered.filter(({ status }) => status !== 200) },
+        };
+      },
+    });
+  }
 
   return tasks;
 }
@@ -811,7 +846,40 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
     );
   }
 
-  steps.push(...stack.nextSteps(answers, { state }));
+  const health = results.find((result) => result.id === 'healthUrls' && result.ok)?.data;
+  for (const { environment, url, status } of health?.failing ?? []) {
+    steps.push(
+      `${bold(environment)}: ${url} answers ${status ?? 'nothing'}, so every deploy to it is rolled back. Check the domain and its DNS, that the site exists, and leave ${bold(answers.healthPath)} out of basic auth and IP rules.`,
+    );
+  }
+
+  if (
+    twoBranches(answers) &&
+    state.repo?.allow_merge_commit === false &&
+    !results.some((result) => result.id === 'mergeCommits' && result.ok)
+  ) {
+    steps.push(
+      `Allow merge commits in the repository's ${bold('Settings > General > Pull Requests')}: release pull requests are merged with one, and squash makes the branches diverge.`,
+    );
+  }
+
+  const owner = ownerOf(answers.repository);
+  const claudeInstall = cyan('https://github.com/apps/claude/installations/new');
+  if (state.claudeApp === 'none') {
+    steps.push(
+      `Install the Claude GitHub App on ${bold(owner)}, or the Claude workflows (mentions, reviews, fix-ci, incidents) cannot act:\n  ${claudeInstall}`,
+    );
+  } else if (state.claudeApp === 'selected') {
+    steps.push(
+      `The Claude GitHub App reaches only selected repositories of ${bold(owner)}: add ${bold(answers.repository)} in its settings (${bold('Settings > GitHub Apps > Claude > Configure')}), or the Claude workflows cannot act on it.`,
+    );
+  } else if (state.claudeApp === null) {
+    steps.push(
+      `Could not see the GitHub Apps of ${bold(owner)} (it takes an organization admin and ${cyan('gh auth refresh -s admin:org')}): make sure the Claude GitHub App reaches ${bold(answers.repository)}:\n  ${claudeInstall}`,
+    );
+  }
+
+  steps.push(...stack.nextSteps(answers, { state, results }));
 
   if (state.canProtect) {
     steps.push(
@@ -860,26 +928,37 @@ async function readProject(stack, github, read, { current, release }) {
   };
   const releases = release || Boolean(current?.productionBranch);
 
-  const [labels, production, staging, repoToken, orgToken, releaseApp, workflowPermissions, productionBranchStatus] =
-    await Promise.all([
-      read('labels', github.labels()),
-      read('production environment', environment('production')),
-      read('staging environment', environment('staging')),
-      read('secrets', github.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')),
-      // Optional: without access to organization secrets, setup asks for the token
-      github.hasOrganizationSecret('CLAUDE_CODE_OAUTH_TOKEN').catch(() => false),
-      releases ? read('secrets', hasReleaseApp(github)) : false,
-      // Optional: reading it needs admin access
-      releases ? github.workflowPermissions().catch(() => null) : null,
-      current?.productionBranch
-        ? read('branches', github.branch(current.productionBranch)).then((branch) => ({
-            name: current.productionBranch,
-            exists: Boolean(branch),
-            // Its head, so setup can create a branch from it without reading it again
-            sha: branch?.commit?.sha ?? null,
-          }))
-        : null,
-    ]);
+  const [
+    labels,
+    production,
+    staging,
+    repoToken,
+    orgToken,
+    releaseApp,
+    workflowPermissions,
+    productionBranchStatus,
+    claudeApp,
+  ] = await Promise.all([
+    read('labels', github.labels()),
+    read('production environment', environment('production')),
+    read('staging environment', environment('staging')),
+    read('secrets', github.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')),
+    // Optional: without access to organization secrets, setup asks for the token
+    github.hasOrganizationSecret('CLAUDE_CODE_OAUTH_TOKEN').catch(() => false),
+    releases ? read('secrets', hasReleaseApp(github)) : false,
+    // Optional: reading it needs admin access
+    releases ? github.workflowPermissions().catch(() => null) : null,
+    current?.productionBranch
+      ? read('branches', github.branch(current.productionBranch)).then((branch) => ({
+          name: current.productionBranch,
+          exists: Boolean(branch),
+          // Its head, so setup can create a branch from it without reading it again
+          sha: branch?.commit?.sha ?? null,
+        }))
+      : null,
+    // Optional: null when gh cannot see the organization's GitHub Apps
+    github.claudeApp(),
+  ]);
 
   return {
     labels: labels.map((label) => label.name),
@@ -895,6 +974,7 @@ async function readProject(stack, github, read, { current, release }) {
         }
       : null,
     productionBranchStatus,
+    claudeApp,
   };
 }
 
@@ -938,6 +1018,20 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   if (state.claudeToken.repository) ok('CLAUDE_CODE_OAUTH_TOKEN (repository secret)');
   else if (state.claudeToken.organization) ok('CLAUDE_CODE_OAUTH_TOKEN (organization secret)');
   else error('CLAUDE_CODE_OAUTH_TOKEN is not available to this repository', SETUP);
+
+  const claudeInstall = 'https://github.com/apps/claude/installations/new';
+  if (state.claudeApp === 'all') ok('Claude GitHub App (every repository)');
+  else if (state.claudeApp === 'selected')
+    warn(
+      'The Claude GitHub App reaches only selected repositories: without this one, the Claude workflows cannot act',
+      'add it in Settings > GitHub Apps > Claude > Configure',
+    );
+  else if (state.claudeApp === 'none') error('The Claude GitHub App is not installed', claudeInstall);
+  else
+    warn(
+      'Could not see whether the Claude GitHub App reaches this repository',
+      'run check as an organization admin after gh auth refresh -s admin:org',
+    );
 
   const deploy = state.current?.deploy ?? 'none';
   if (deploy !== 'none') {
@@ -1007,10 +1101,21 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
           'run check as a repository admin, or see Settings > Actions > General',
         );
       else ok('Release pull requests opened by GitHub Actions (their checks run only with the release GitHub App)');
+      // Unknown (undefined) without admin access to the repository
+      if (state.repo?.allow_merge_commit === false)
+        error(
+          'Merge commits are off, so release pull requests can only be squashed and the branches diverge',
+          `${SETUP}, or allow them in Settings > General > Pull Requests`,
+        );
+      else if (state.repo?.allow_merge_commit) ok('Merge commits allowed, for the release pull requests');
     }
 
     stack.evaluateDeploy(report, state);
   }
+
+  // Problems as issues (on by default) or deploy markers: the monitoring service's agent must be in the app
+  const markers = Object.values(state.environments).some((environment) => environment.monitoringToken);
+  if (state.current?.incidents !== false || markers) stack.evaluateMonitoring?.(report, state);
 
   // The production branch is protected only when the release GitHub App runs the checks of its release pull requests
   rulesetItems(report, state, {
@@ -1089,7 +1194,7 @@ async function protectedBranch(github, current) {
  * deployTargets ([{ value, label }], 'none' is added), deployHookHint, monitoring ({ id, name, secret, tokenHint,
  * webhookHint, markers(answers) }; id is the relay provider, secret the environment secret of its deploy markers),
  * healthPath(ctx), steps(), tasks(answers, ctx), files ({ task id: path } for the commit), deployNextSteps(answers,
- * { twoBranches, results }), nextSteps(answers, { state }), evaluateDeploy(report, state), and optionally checks
+ * { twoBranches, results }), nextSteps(answers, { state, results }), evaluateDeploy(report, state), and optionally evaluateMonitoring(report, state), checks
  * (PROJECT_CHECKS by default), deploySteps() (questions about the deploy target, asked before the deploy hooks, which
  * they may answer in answers.deployHooks), inspect(root) and empty (its part of the state before it is read).
  */
