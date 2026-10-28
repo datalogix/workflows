@@ -22,7 +22,9 @@ Then it asks one question at a time, with a progress bar showing how many are le
 | Where the app is deployed: Forge, Laravel Cloud or not by the workflows | always |
 | Production domain, whether there is a staging environment, staging domain, health check path | the app is deployed |
 | Whether production deploys from its own branch, and the development and production branch names (`develop` and `main` by default) | there is a staging environment (turning staging off, or choosing not to deploy, removes `production-branch`; setup warns first) |
-| Production and staging deploy hooks (hidden input; keep or replace when already set; empty leaves it for later, when the site does not exist yet, and deploys to that environment fail until setup runs again with it) | the app is deployed |
+| Forge or Laravel Cloud API token (hidden input; optional, used during setup only and never stored; empty leaves [step 2](#step-2-do-what-setup-cannot) to do by hand). Forge needs the `site:manage-deploys` permission | the app is deployed |
+| The Forge site (or Laravel Cloud environment) of production and of staging, from those that deploy the repository; the one on the branch it deploys comes selected, and **None of these** leaves it to do by hand | an API token was given and it found a site (or environment) of the repository |
+| Production and staging deploy hooks (hidden input; keep or replace when already set; empty leaves it for later, when the site does not exist yet, and deploys to that environment fail until setup runs again with it) | the app is deployed and, on Forge, the API did not give it |
 | Whether to mark deploys in Nightwatch, and each environment's Nightwatch token | Forge |
 | Client ID and private key file (`.pem`) of the [release GitHub App](../organization-setup.md#6-create-the-release-github-app); an empty Client ID leaves them for later | production deploys from its own branch and the repository cannot read the App's secrets |
 | Claude token (hidden input) | the repository cannot read one (GitHub Free, see [Organization setup, step 2](../organization-setup.md#2-generate-the-claude-token)) |
@@ -43,6 +45,8 @@ After a summary and your confirmation, it applies the changes with a progress ba
 - writes the `/.github/` line of `.github/CODEOWNERS`, keeping its other lines;
 - creates the labels `claude`, `claude-plan`, `no-review` and `rollback`, plus `env:production` and `env:staging` for the environments it deploys, in the project's language, and translates the descriptions still left with the default text of the other language (descriptions written by hand are kept);
 - creates the `production` environment (and `staging`, when used) with the `DEPLOY_HOOK` secret and the `HEALTH_URL` variable, plus `NIGHTWATCH_TOKEN` on Forge when deploys are marked in Nightwatch;
+- with a Forge API token, makes the deploy script of each chosen site check out the commit the workflow asks for (the snippets of [step 2](#step-2-do-what-setup-cannot); a script that already uses `FORGE_VAR_COMMIT` is left as it is, and one with neither line fails that task) and turns off its **Push to deploy**;
+- with a Laravel Cloud API token, turns off **Push to deploy** of each chosen environment and sets the branch it deploys (as step 2 says); Cloud applies the change at the next deploy;
 - stores the Claude token, and the release GitHub App's secrets, when the repository needs its own;
 - with a production branch and without the App, turns on the repository's **Allow GitHub Actions to create and approve pull requests** ([Production branch](../deploy.md#production-branch));
 - with a production branch and the App's secrets, adds the production branch to the existing `datalogix` ruleset ([step 5](#step-5-protect-the-default-branch)); without them it stays unprotected;
@@ -55,7 +59,7 @@ Each question can also be answered with an option, which skips it (`--deploy for
 
 ## Step 2: Do what setup cannot
 
-Setup ends with this list, adjusted to your answers:
+Setup ends with this list, adjusted to your answers (with an API token, items 2 and 3 only for the sites and environments it could not set up, with the reason: a refused token, no site of the repository, **None of these** or a change the API refused):
 
 1. **Commit and push** the workflow file and `.github/CODEOWNERS` (and `AppServiceProvider.php`, if it added the database check). When setup created a branch or changed the default branch, open a pull request to the development branch instead (setup prints the command), then work on the development branch: the file reaches the production branch through the release pull request, and pushing it there directly would deploy production. When the default branch is already protected (setup run again after `protect`), open a pull request to it: the ruleset rejects a push (setup prints that command too).
    When a project leaves the two branches, merge what is only on the former development branch into the production branch through a pull request (setup prints the command), since pushes to it no longer deploy; when the former production branch no longer exists, setup says the default branch now deploys production.
@@ -81,7 +85,7 @@ Setup ends with this list, adjusted to your answers:
 6. **Monitoring relay**: if setup says it is not set up, an organization admin runs `org` first ([Organization setup, step 4](../organization-setup.md#4-deploy-the-monitoring-relay-only-for-production-errors)). On Windows, setup cannot store the signing secret: store it by hand as in [Manual setup](app-manual-setup.md#relay).
 7. **Health check**: if setup could not read `bootstrap/app.php`, make the health path answer `200` only when the app works ([Manual setup](app-manual-setup.md#health-check)).
 
-**Why:** with push to deploy on, every push would deploy before the tests and staging ran. Forge's hook always deploys the branch head; the snippet makes it deploy the commit in `FORGE_VAR_COMMIT`, which is what lets a rollback deploy the previous commit. Forge, Cloud and Nightwatch have no API for these settings that setup could use.
+**Why:** with push to deploy on, every push would deploy before the tests and staging ran. Forge's hook always deploys the branch head; the snippet makes it deploy the commit in `FORGE_VAR_COMMIT`, which is what lets a rollback deploy the previous commit. Setup does items 2 and 3 through the Forge and Laravel Cloud APIs when you give it a token; Nightwatch has no API for its settings.
 
 **Check:** `curl -I https://<domain>/up` answers `200`. If staging is protected by HTTP basic auth or an IP allow list, exclude `/up`, or every deploy will be rolled back.
 

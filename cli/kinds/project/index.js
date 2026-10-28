@@ -274,10 +274,12 @@ function setupSteps(stack) {
         );
       },
     },
+    // The stack's questions about the deploy target, which may read the deploy hooks (answers.deployHooks)
+    ...(stack.deploySteps?.() ?? []),
     ...secretSteps('productionHook', {
       label: 'Production deploy hook',
       hint: stack.deployHookHint,
-      when: deploys,
+      when: (a) => deploys(a) && !a.deployHooks?.production,
       exists: (ctx) => ctx.state.environments.production.deployHook,
       validate: validUrl,
       // The site may not exist yet: its deploys fail until the hook is set
@@ -286,7 +288,7 @@ function setupSteps(stack) {
     ...secretSteps('stagingHook', {
       label: 'Staging deploy hook',
       hint: stack.deployHookHint,
-      when: staging,
+      when: (a) => staging(a) && !a.deployHooks?.staging,
       exists: (ctx) => ctx.state.environments.staging.deployHook,
       validate: validUrl,
       optional: true,
@@ -465,7 +467,10 @@ function setupTasks(stack, answers, { github, root, state, relay }) {
   const tasks = [];
   const environments = deploys(answers) ? (answers.staging ? ['production', 'staging'] : ['production']) : [];
   const domains = { production: answers.domain?.trim(), staging: answers.stagingDomain?.trim() };
-  const hooks = { production: answers.productionHook, staging: answers.stagingHook };
+  const hooks = {
+    production: answers.deployHooks?.production ?? answers.productionHook,
+    staging: answers.deployHooks?.staging ?? answers.stagingHook,
+  };
   const tokens = { production: answers.productionMonitoringToken, staging: answers.stagingMonitoringToken };
   const productionBranch = twoBranches(answers) ? answers.productionBranch : null;
   const formerProduction = formerProductionBranch(answers, state);
@@ -766,6 +771,7 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
       deploys(answers) &&
       (environment === 'production' || answers.staging) &&
       !answers[`${environment}Hook`]?.trim() &&
+      !answers.deployHooks?.[environment] &&
       !state.environments[environment].deployHook,
   );
   if (missingHooks.length) {
@@ -774,7 +780,7 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
     );
   }
 
-  steps.push(...stack.deployNextSteps(answers, { twoBranches: twoBranches(answers) }));
+  steps.push(...stack.deployNextSteps(answers, { twoBranches: twoBranches(answers), results }));
 
   if (answers.incidents) {
     if (!relay.configured) {
@@ -1083,8 +1089,9 @@ async function protectedBranch(github, current) {
  * deployTargets ([{ value, label }], 'none' is added), deployHookHint, monitoring ({ id, name, secret, tokenHint,
  * webhookHint, markers(answers) }; id is the relay provider, secret the environment secret of its deploy markers),
  * healthPath(ctx), steps(), tasks(answers, ctx), files ({ task id: path } for the commit), deployNextSteps(answers,
- * { twoBranches }), nextSteps(answers, { state }), evaluateDeploy(report, state), and optionally checks (PROJECT_CHECKS
- * by default), inspect(root) and empty (its part of the state before it is read).
+ * { twoBranches, results }), nextSteps(answers, { state }), evaluateDeploy(report, state), and optionally checks
+ * (PROJECT_CHECKS by default), deploySteps() (questions about the deploy target, asked before the deploy hooks, which
+ * they may answer in answers.deployHooks), inspect(root) and empty (its part of the state before it is read).
  */
 export function projectKind(stack) {
   const checks = stack.checks ?? PROJECT_CHECKS;

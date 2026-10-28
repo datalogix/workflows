@@ -3,20 +3,20 @@ import { join } from 'node:path';
 import { deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, dim, orExit, question } from '../../lib/ui.js';
+import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from './cloud.js';
+import {
+  forgeApi,
+  forgeDeployHook,
+  forgeSites,
+  forgeSiteTask,
+  STANDARD_SNIPPET,
+  ZERO_DOWNTIME_SNIPPET,
+} from './forge.js';
 import { addDatabaseCheck, inspectHealth, PROVIDER_PATH } from './health.js';
 import { inspectTools, NO_TOOLS, toolSteps } from './tools.js';
 
 // What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch, the
 // health check of bootstrap/app.php and the lint and test tools
-
-const FORGE_SNIPPET = `if [ -n "$FORGE_VAR_COMMIT" ]; then
-    git fetch --quiet origin "$FORGE_VAR_COMMIT"
-    git checkout --quiet --detach "$FORGE_VAR_COMMIT"
-fi`;
-
-// Standard sites (without zero-downtime) pull the branch in place: the checkout replaces their git pull
-const FORGE_STANDARD_SNIPPET = `git fetch --quiet origin
-git checkout --quiet --force --detach "\${FORGE_VAR_COMMIT:-origin/$FORGE_SITE_BRANCH}"`;
 
 const BY_HAND = 'see docs/laravel/app-manual-setup.md in datalogix/workflows';
 
@@ -70,21 +70,189 @@ function healthCheckTask(root) {
   };
 }
 
-/** What Forge or Laravel Cloud need by hand, so they deploy only what the workflows ask for. */
-function deployNextSteps(answers, { twoBranches }) {
+// What setup can do through each target's API with a token of the user's (used during setup only, never stored)
+const PROVIDERS = {
+  forge: {
+    name: 'Forge',
+    kind: 'site',
+    tokenHint:
+      'with the site:manage-deploys permission; turns off Push to deploy, fixes the deploy script and reads the deploy hooks',
+    api: forgeApi,
+    find: forgeSites,
+    hook: forgeDeployHook,
+    label: (site) => site.name,
+    task: forgeSiteTask,
+  },
+  cloud: {
+    name: 'Laravel Cloud',
+    kind: 'environment',
+    tokenHint: 'turns off Push to deploy and sets the branch of each environment',
+    api: cloudApi,
+    find: cloudEnvironments,
+    hook: null,
+    label: (environment) => `${environment.application} · ${environment.name}`,
+    task: cloudEnvironmentTask,
+  },
+};
+
+const withToken = (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]) && Boolean(a.deployToken?.trim());
+const environmentsOf = (a) => (a.staging ? ['production', 'staging'] : ['production']);
+
+/**
+ * The branch an environment deploys: with two branches, the development one to staging and the production one to
+ * production; otherwise the default branch (null: whatever the site has).
+ */
+function branchOf(a, environment, state) {
+  if (a.branches && a.productionBranch) return environment === 'staging' ? a.developmentBranch : a.productionBranch;
+  return state.defaultBranch ?? null;
+}
+
+/** The API token of the deploy target, then the sites (or environments) it finds for the repository. */
+const deployTokenStep = {
+  id: 'deployToken',
+  when: (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]),
+  ask: async ({ header, answers }) => {
+    const provider = PROVIDERS[answers.deploy];
+    return orExit(
+      await clack.password({
+        message: question(
+          header,
+          `${provider.name} API token${dim(`  optional: ${provider.tokenHint}; empty to do it by hand`)}`,
+        ),
+      }),
+    );
+  },
+  then: async (answers, ctx) => {
+    ctx.deployTargets = [];
+    if (!withToken(answers)) return;
+    const provider = PROVIDERS[answers.deploy];
+    const spinner = clack.spinner();
+    spinner.start(`Looking for the ${provider.name} ${provider.kind}s of ${answers.repository}`);
+    try {
+      ctx.deployTargets = await provider.find(provider.api(answers.deployToken.trim()), answers.repository);
+    } catch (error) {
+      // Setup goes on: what the token would do is left to do by hand, with the reason (deployNextSteps)
+      spinner.error(error.message);
+      answers.deployToken = '';
+      answers.deployProblem = error.message;
+      return;
+    }
+    if (ctx.deployTargets.length) {
+      spinner.stop(`Found ${ctx.deployTargets.length} ${provider.name} ${provider.kind}(s) of ${answers.repository}`);
+    } else {
+      answers.deployProblem = `no ${provider.name} ${provider.kind} deploys ${answers.repository}`;
+      spinner.error(`${answers.deployProblem}: set it up by hand`);
+      answers.deployToken = '';
+    }
+  },
+};
+
+/** Which site (or environment) of the target an environment deploys to; with Forge, its deploy hook comes along. */
+function deploySiteStep(environment) {
+  return {
+    id: `${environment}Site`,
+    when: (a, ctx) => withToken(a) && environmentsOf(a).includes(environment) && Boolean(ctx.deployTargets?.length),
+    ask: async ({ header, answers, ctx }) => {
+      const provider = PROVIDERS[answers.deploy];
+      const taken = environment === 'staging' ? answers.productionSite : null;
+      const targets = ctx.deployTargets.filter((target) => target !== taken);
+      const branch = branchOf(answers, environment, ctx.state);
+      const initial =
+        targets.find((target) => target.branch === branch && target.name.toLowerCase().includes(environment)) ??
+        targets.find((target) => target.branch === branch) ??
+        targets.find((target) => target.name.toLowerCase().includes(environment));
+      const index = orExit(
+        await clack.select({
+          message: question(header, `${provider.name} ${provider.kind} of ${environment}`),
+          initialValue: initial ? targets.indexOf(initial) : -1,
+          options: [
+            ...targets.map((target, i) => ({
+              value: i,
+              label: provider.label(target),
+              hint: target.branch ? `branch ${target.branch}` : undefined,
+            })),
+            { value: -1, label: 'None of these', hint: 'set it up by hand' },
+          ],
+        }),
+      );
+      return index === -1 ? null : targets[index];
+    },
+    then: async (answers) => {
+      const provider = PROVIDERS[answers.deploy];
+      const site = answers[`${environment}Site`];
+      if (!site || !provider.hook) return;
+      try {
+        answers.deployHooks = {
+          ...answers.deployHooks,
+          [environment]: await provider.hook(provider.api(answers.deployToken.trim()), site),
+        };
+      } catch (error) {
+        // The hook question asks for it instead
+        clack.log.warn(`Could not read the deploy hook of ${site.name}: ${error.message}`);
+      }
+    },
+  };
+}
+
+/** The changes in the deploy target the chosen sites (or environments) need. */
+function deploySiteTasks(answers, { state }) {
+  if (!withToken(answers)) return [];
+  const provider = PROVIDERS[answers.deploy];
+  const api = provider.api(answers.deployToken.trim());
+  return environmentsOf(answers)
+    .filter((environment) => answers[`${environment}Site`])
+    .map((environment) =>
+      provider.task(api, answers[`${environment}Site`], environment, cloudBranch(answers, environment, state)),
+    );
+}
+
+/** The branch a Cloud environment must track: both with two branches, staging otherwise (Forge gets it in the hook). */
+function cloudBranch(answers, environment, state) {
+  if (answers.branches && answers.productionBranch) return branchOf(answers, environment, state);
+  return environment === 'staging' ? branchOf(answers, environment, state) : null;
+}
+
+/** What Forge or Laravel Cloud need by hand, so they deploy only what the workflows ask for: what setup did not do. */
+function deployNextSteps(answers, { twoBranches, results = [] }) {
+  const resultOf = (environment) => results.find((result) => result.id === `deploySite:${environment}`);
+  const left = environmentsOf(answers).filter((environment) => !resultOf(environment)?.ok);
+  if (!left.length) return [];
+  // Why the API did not do it: the token or the search failed, or the task of that environment did
+  const problems = [
+    answers.deployProblem,
+    ...left
+      .filter((environment) => resultOf(environment))
+      .map((environment) => `${environment}: ${resultOf(environment).detail}`),
+  ].filter(Boolean);
+  const why = problems.length ? [dim(`  Setup could not do it through the API (${problems.join('; ')}).`)] : [];
+  // Staging first, each with the branch it deploys; only read with two branches
+  const branchesOf = (phrase) =>
+    ['staging', 'production']
+      .filter((environment) => left.includes(environment))
+      .map((environment) =>
+        phrase(environment, bold(environment === 'staging' ? answers.developmentBranch : answers.productionBranch)),
+      );
+  const which = (kind) =>
+    left.length === 2 ? `both ${kind}s` : answers.staging ? `the ${left[0]} ${kind}` : `the ${kind}`;
   if (answers.deploy === 'forge') {
+    const branches = () => branchesOf((environment, branch) => `${environment} site on ${branch}`).join(', ');
     return [
       [
-        `In Forge, for ${answers.staging ? 'both sites' : 'the site'}: turn off ${bold('Push to deploy')}${twoBranches ? ` (staging site on ${bold(answers.developmentBranch)}, production site on ${bold(answers.productionBranch)})` : ''}, and in the deploy script, on zero-downtime sites, add right after ${bold('cd $FORGE_RELEASE_DIRECTORY')}:`,
-        dim(FORGE_SNIPPET.replace(/^/gm, '  ')),
+        `In Forge, for ${which('site')}: turn off ${bold('Push to deploy')}${twoBranches ? ` (${branches()})` : ''}, and in the deploy script, on zero-downtime sites, add right after ${bold('cd $FORGE_RELEASE_DIRECTORY')}:`,
+        dim(ZERO_DOWNTIME_SNIPPET.replace(/^/gm, '  ')),
         `  On standard sites, replace ${bold('git pull origin $FORGE_SITE_BRANCH')} with:`,
-        dim(FORGE_STANDARD_SNIPPET.replace(/^/gm, '  ')),
+        dim(STANDARD_SNIPPET.replace(/^/gm, '  ')),
+        ...why,
       ].join('\n'),
     ];
   }
   if (answers.deploy === 'cloud') {
+    const branches = () => branchesOf((environment, branch) => `${environment} track ${branch}`).join(' and ');
     return [
-      `In Laravel Cloud, for ${answers.staging ? 'both environments' : 'the environment'}: turn off ${bold('Push to deploy')}${twoBranches ? `, make staging track ${bold(answers.developmentBranch)} and production track ${bold(answers.productionBranch)}` : answers.staging ? ', and make staging track the default branch' : ''}.`,
+      [
+        `In Laravel Cloud, for ${which('environment')}: turn off ${bold('Push to deploy')}${twoBranches ? `, make ${branches()}` : left.includes('staging') ? ', and make staging track the default branch' : ''}.`,
+        ...why,
+      ].join('\n'),
     ];
   }
   return [];
@@ -124,8 +292,12 @@ export default projectKind({
     tools: await inspectTools(root),
   }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
+  deploySteps: () => [deployTokenStep, deploySiteStep('production'), deploySiteStep('staging')],
   steps: () => [databaseCheckStep, ...toolSteps('project')],
-  tasks: (answers, { root }) => (answers.databaseCheck ? [healthCheckTask(root)] : []),
+  tasks: (answers, { root, state }) => [
+    ...deploySiteTasks(answers, { state }),
+    ...(answers.databaseCheck ? [healthCheckTask(root)] : []),
+  ],
   files: { healthCheck: PROVIDER_PATH },
   deployNextSteps,
   nextSteps: (answers, { state }) =>
