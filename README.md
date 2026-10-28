@@ -11,25 +11,31 @@ A Laravel project adds **one workflow file** and gets:
 
 Packages call a single `package` workflow, today the test matrix. Only public Composer packages are supported: the workflows pass no Composer credentials.
 
+## Requirements
+
+- [Node.js](https://nodejs.org) 22.12 or newer. The commands run with `npx` straight from this repository at the `v2` tag; `--allow-git=root` lets npm 12 or newer install it from git (it refuses git packages by default) without allowing git for its dependencies.
+- The [GitHub CLI](https://cli.github.com), logged in with `gh auth login`: every command acts as you.
+- Only for Nightwatch problems as issues: a Cloudflare account, where `org` deploys the monitoring relay (it logs `wrangler` in for you), and macOS or Linux to deploy it and to store each project's webhook secret.
+
 ## Quick start
 
-1. **Once per organization**, follow the [organization setup](docs/organization-setup.md): install the Claude GitHub App and generate the Claude token. For the shared issue forms and for Nightwatch problems as issues, an organization admin also runs `org`, before the projects (setup reads the monitoring relay it deploys):
+1. **Once per organization** ([organization setup](docs/organization-setup.md)):
+   - Required: install the [Claude GitHub App](https://github.com/apps/claude) and generate the Claude token with `claude setup-token`.
+   - Optional, as an organization admin and before the projects: run `org` for the shared issue forms and for Nightwatch problems as issues (setup reads the monitoring relay it deploys). Without it, everything else works.
+2. **For each project**, from its folder, run `setup`, then the others when the table says.
 
-   ```bash
-   npx --allow-git=root github:datalogix/workflows#v2 org       # optional: issue forms, monitoring relay
-   ```
+All commands run as `npx --allow-git=root github:datalogix/workflows#v2 <command>`:
 
-2. **For each project**, from its folder:
+| Command | When | What it changes |
+| --- | --- | --- |
+| `org` | Once per organization, optional | The organization's public `.github` repository (issue forms, relay settings) and the relay on Cloudflare |
+| `setup` | First for each project, and again whenever you want to change an answer | The workflow file and `CODEOWNERS` in the folder (you commit them), and the repository's labels, environments, secrets and branches on GitHub |
+| `check` | Any time | Nothing: it lists what is missing or different |
+| `protect` | After the first pull request shows its checks | The branch ruleset that requires those checks |
 
-   ```bash
-   npx --allow-git=root github:datalogix/workflows#v2 setup     # asks a few questions and sets the project up
-   npx --allow-git=root github:datalogix/workflows#v2 check     # lists what is missing, without changing anything
-   npx --allow-git=root github:datalogix/workflows#v2 protect   # protects the default branch, after the first pull request
-   ```
+A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md) or [Adding a Laravel package](docs/laravel/package.md).
 
-Without `org`, everything else works: tests, reviews, the risk gate and deploys. A project set up before `org` ran misses only the relay: run `setup` again afterwards.
-
-The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md) or [Adding a Laravel package](docs/laravel/package.md).
+> **GitHub Free:** private repositories have no rulesets, so `protect` changes nothing (the checks still run on every pull request, but do not block the merge), and they cannot read organization secrets, so `setup` asks for the Claude token in each project.
 
 v1 stays at the `v1` tag and is no longer supported. To move a repository to v2, run `setup` and delete the workflow files that call `@v1`.
 
@@ -58,7 +64,7 @@ The [documentation index](docs/README.md) lists every guide. The main ones:
 
 | Guide | What it covers |
 | --- | --- |
-| [Organization setup](docs/organization-setup.md) | Done once: the Claude GitHub App, the Claude token, shared issue forms, the monitoring relay, the task manager and release GitHub Apps |
+| [Organization setup](docs/organization-setup.md) | Done once: the Claude GitHub App and token (required), then the `org` command for the shared issue forms and the monitoring relay, and the task manager and release GitHub Apps |
 | [Adding a Laravel app](docs/laravel/app.md) | For each app: the setup command, what is left to do by hand, the first pull request and deploy, protecting the branch, `check`; [by hand](docs/laravel/app-manual-setup.md) without it |
 | [Laravel app tests](docs/laravel/app-tests.md) | What the tests job runs, the project's test scripts, its inputs |
 | [Adding a Laravel package](docs/laravel/package.md) | For each package: the setup command, protecting the branch |
