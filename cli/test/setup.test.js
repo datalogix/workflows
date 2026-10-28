@@ -6,6 +6,7 @@ import { dropsProductionBranch } from '../kinds/project/index.js';
 import { hasSecret } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
+import { EMPTY_STATE } from '../lib/state.js';
 import { askSteps } from '../lib/ui.js';
 import { parseInputs } from '../lib/workflow-file.js';
 import app from '../stacks/laravel/app.js';
@@ -33,6 +34,7 @@ vi.mock('@clack/prompts', async (importOriginal) => ({
   confirm: reply,
   password: reply,
   select: reply,
+  text: reply,
   progress: () => ({ start() {}, message() {}, advance() {}, stop() {} }),
   log: { info() {}, warn() {}, error() {}, success() {}, message() {} },
   note() {},
@@ -1121,6 +1123,14 @@ test('runs setup without questions and fails when a task fails', async (t) => {
     },
   });
   expect(await setup(ctx(failing))).toBe(1);
+});
+
+test('asks for the repository starting from the empty state main gives it', async (t) => {
+  const root = await folder(t, { artisan: '' }, 'setup-');
+  const { repo, ...flags } = setupFlags;
+  prompts.answer = repo;
+  expect(await setup({ ...setupContext(root, setupGitHub(), flags), state: EMPTY_STATE })).toBe(0);
+  expect(prompts.asked.map((options) => options.message)).toStrictEqual([expect.stringContaining('GitHub repository')]);
 });
 
 test('changes nothing when the changes are not confirmed', async (t) => {

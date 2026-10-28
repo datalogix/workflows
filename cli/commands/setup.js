@@ -42,6 +42,8 @@ export async function setup(ctx) {
   ctx.detected = await chooseStack(ctx);
   const { label, module } = ctx.detected;
   clack.log.info(`Setting up a ${label}`);
+  // The steps' conditions read the kind's state before the repository step reads it
+  ctx.state = { ...ctx.state, ...module.empty };
   await module.prepare?.(ctx);
   const answers = await askSteps(module.setup.steps(), ctx);
 
