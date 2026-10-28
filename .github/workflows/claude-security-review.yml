@@ -124,13 +124,14 @@ jobs:
 
           # Read-only: Claude can only read the code and the PR, and write the findings file (// starts an absolute
           # path): any other file it could write (the findings of a forged review, $GITHUB_ENV) would be read by the
-          # steps after it. Reads stay in the workspace (not /proc or the runner's files) and git's --output, which
-          # writes a file, is denied
+          # steps after it. Edit rules cover every tool that writes files (Write rules never match) and an edit no rule
+          # allows is denied, so Edit stays off the denied list. Reads stay in the workspace (not /proc or the runner's
+          # files) and git's --output, which writes a file, is denied
           claude_args: |
             --max-turns ${{ inputs.max-turns }}
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
-            --allowed-tools "Read(./**),Grep(./**),Glob(./**),Write(/${{ runner.temp }}/security-findings.json),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(ls:*)"
-            --disallowed-tools "Edit,MultiEdit,Bash(git * --output*),Bash(git push:*),Bash(git commit:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh api:*)"
+            --allowed-tools "Read(./**),Grep(./**),Glob(./**),Edit(/${{ runner.temp }}/security-findings.json),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(ls:*)"
+            --disallowed-tools "Bash(git * --output*),Bash(git push:*),Bash(git commit:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh api:*)"
             --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only end your turn once the findings file has been written. Load the laravel:conventions skill before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
 
       # Also after a failed review (max-turns, an error of the action), so the PR comment does not keep the result of an
