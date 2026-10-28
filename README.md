@@ -4,7 +4,7 @@ Claude-powered CI/CD for Datalogix Laravel projects: one workflow file gives eve
 
 What each project gets:
 
-- **Claude on issues and pull requests**: it plans and implements issues, answers `@claude` and fixes failed checks (tests, Pint, PHPStan, `composer audit`) on its own pull requests.
+- **Claude on issues and pull requests**: it plans and implements issues, answers `@claude` and fixes failed checks (tests, Pint, PHPStan, `composer audit`, the Node audit) on its own pull requests.
 - **Checks on every pull request**: tests, a Claude code review (once per pull request), a security review and a risk gate that asks for your approval when the change is risky.
 - **Safe deploys**: every merge goes to staging, then production, each watched after the deploy and rolled back automatically if it goes down.
 - **Production errors as issues**: problems detected by Nightwatch become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.

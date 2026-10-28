@@ -63,7 +63,7 @@ Before opening a PR or pushing to one, run on what you changed and fix what your
 2. PHPStan on the changed PHP files.
 3. The tests related to the change (PHP, and JavaScript/TypeScript through the `test` script of `package.json` when you changed frontend code).
 4. The `typecheck` and `lint` scripts of `package.json`, when they are defined and you changed frontend code.
-5. `composer audit --locked` if you changed `composer.lock`.
+5. `composer audit --locked` if you changed `composer.lock`, and the audit of the Node lockfile you changed (`npm audit --audit-level=high`, `pnpm audit --audit-level high`, `yarn audit --level high` or `yarn npm audit --recursive --severity high`).
 
 Never open a PR while one of these fails because of your change without saying so in **Observações**. Never skip, disable or weaken a check (lower a PHPStan level, add ignores, mark tests as skipped) to make it pass.
 

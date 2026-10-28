@@ -18,7 +18,7 @@ on:
       tests:
         type: boolean
         default: true
-        description: Run Pint, PHPStan, the lint command, composer audit, the test suite and the typecheck, lint and test scripts of package.json
+        description: Run Pint, PHPStan, the lint command, composer and Node audits, the test suite and the typecheck, lint and test scripts of package.json
       review:
         type: boolean
         default: true

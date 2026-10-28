@@ -26,7 +26,7 @@ on:
       audit:
         type: boolean
         default: true
-        description: Run composer audit on schedule and manual runs, and on PRs that change composer.lock
+        description: Run composer audit and the Node audit (high and critical) on schedule and manual runs, and on PRs that change their lockfile
       test-command:
         type: string
         default: ""
@@ -163,3 +163,39 @@ jobs:
           fi
 
           composer audit --locked --abandoned=report --no-interaction
+
+      # Same events as composer audit; fails on high and critical advisories only, as npm reports many low ones.
+      # Dev dependencies are included: Vite and the frontend libraries end up in the bundle
+      - name: Node audit
+        if: inputs.audit && hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            lockfile=pnpm-lock.yaml
+          elif [ -f yarn.lock ]; then
+            lockfile=yarn.lock
+          else
+            lockfile=package-lock.json
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && git diff --quiet "origin/$BASE...HEAD" -- "$lockfile"; then
+            echo "$lockfile did not change, skipping"
+            exit 0
+          fi
+
+          case "$lockfile" in
+            pnpm-lock.yaml) pnpm audit --audit-level high ;;
+            package-lock.json) npm audit --audit-level=high ;;
+            yarn.lock)
+              if [ "$(yarn --version | cut -d. -f1)" = 1 ]; then
+                # Yarn 1 exits with a bit mask of the severities found: 8 is high, 16 critical
+                status=0
+                yarn audit --level high || status=$?
+                [ "$status" -lt 8 ]
+              else
+                yarn npm audit --recursive --severity high
+              fi
+              ;;
+          esac

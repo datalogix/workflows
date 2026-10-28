@@ -38,7 +38,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `merge_group`                                            | `tests`, `security`, `gate`                                              |
 | `push` to the default branch, `workflow_dispatch`        | `tests`, then `staging` and `production` when `deploy` is set (`production` on push only with `production: auto`); with `production-branch`, `staging` and, on push, `release` |
 | `push` to the `production-branch`, `workflow_dispatch` on it | `tests`, then `production` (on push only with `production: auto`); on push, `release` |
-| `schedule`                                               | `tests` (weekly, with `composer audit`)                                  |
+| `schedule`                                               | `tests` (weekly, with `composer audit` and the Node audit)              |
 | `repository_dispatch` (`incident`)                       | `incident`                                                               |
 
 `fix-ci` runs in the same workflow run as the tests, right after them, so the project needs no `workflow_run` trigger.
@@ -113,7 +113,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 | --------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
 | `model`                           | `opus`                                 | Review model                                                                        |
 | `fail-on`                         | `high`                                 | Lowest severity that fails the check: `high`, `medium`, `low` or `none`             |
-| `ignored-authors`                 | `["dependabot[bot]", "renovate[bot]"]` | Authors that are not reviewed (JSON), unless someone else pushed the commits; dependencies are covered by `composer audit` |
+| `ignored-authors`                 | `["dependabot[bot]", "renovate[bot]"]` | Authors that are not reviewed (JSON), unless someone else pushed the commits; dependencies are covered by `composer audit` and the Node audit |
 | `allowed-bots`                    | `*`                                    | Bots whose pull requests are reviewed                                               |
 | `max-turns` / `timeout-minutes`   | `40` / `30`                            | Limits                                                                              |
 | `plugin-marketplaces` / `plugins` | same as `claude`                       | Claude Code plugins to install                                                      |

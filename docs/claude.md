@@ -7,7 +7,7 @@ Claude follows the rules in the `laravel` plugin ([`plugins/laravel`](../plugins
 - Everything Claude writes for the team (commits, pull requests, comments) is in the project's `language` input, Brazilian Portuguese (`pt-BR`) by default; commits use Conventional Commits with English types, e.g. `feat: adiciona autenticação via OAuth`. The fixed texts of the workflows (deploy, incident and release issues and pull requests, security review summary, labels) exist in `pt-BR` and `en` only: any value starting with `en` gets English, any other language gets Portuguese.
 - Implements only what is needed and reuses the existing architecture.
 - Creates tests only if the project already has real tests beyond Laravel's scaffold.
-- Runs Pint, PHPStan, the related tests and, for frontend changes, the `typecheck` and `lint` scripts, and `composer audit --locked` when `composer.lock` changes, before opening or updating a pull request; does not fix pre-existing failures and stops after 2 attempts on the same failure.
+- Runs Pint, PHPStan, the related tests and, for frontend changes, the `typecheck` and `lint` scripts, and `composer audit --locked` or the Node audit when `composer.lock` or the Node lockfile changes, before opening or updating a pull request; does not fix pre-existing failures and stops after 2 attempts on the same failure.
 - Puts new user-facing behavior behind a Pennant flag in projects that use Pennant, and keeps migrations compatible with the previous release.
 - Never approves pull requests, and stops after 3 rounds of requested changes.
 - Pull request descriptions contain _Resumo_, _Motivação_, _Plano de Testes_ and _Observações_ (translated in another team language).
