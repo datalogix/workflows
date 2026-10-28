@@ -1340,3 +1340,17 @@ test('tells to run protect again when the layers change what the ruleset should 
     ),
   ).toContain('does not require pipeline / security / security yet');
 });
+
+test('says the pull request of the workflow file fails the security review', async () => {
+  const { rulesetBody } = await import('../lib/ruleset.js');
+  const state = { ...APP_STATE, ruleset: rulesetBody(['pipeline / security / security']) };
+  const results = [done('workflowFile', 'updated')];
+  const pr = (answers) =>
+    nextSteps({ ...branchAnswers, branches: false, ...answers }, { relay, results, state }).find((step) =>
+      step.includes('open a pull request'),
+    );
+  expect(pr({})).toContain(
+    'the security review fails: have a person review it, then an admin merges it past the check',
+  );
+  expect(pr({ securityReview: false })).not.toContain('security review fails');
+});

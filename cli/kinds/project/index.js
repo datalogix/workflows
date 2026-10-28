@@ -889,8 +889,20 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
     // a push too
     if (branchesChanged || state.ruleset) {
       const base = branchesChanged ? answers.developmentBranch : state.defaultBranch;
+      // Claude only runs with the default branch's copy of the workflow file: on this pull request the reviews skip
+      // Claude and the security review fails, so a required check needs an admin to merge past it
+      const reviewFails = changed.includes(WORKFLOW_PATH) && answers.securityReview !== false;
       steps.push(
-        `Commit and open a pull request to ${bold(base)}:\n  ${cyan(`git switch -c ci/datalogix-workflows && ${commit} && git push -u origin HEAD && gh pr create --base ${base} --fill`)}`,
+        [
+          `Commit and open a pull request to ${bold(base)}:\n  ${cyan(`git switch -c ci/datalogix-workflows && ${commit} && git push -u origin HEAD && gh pr create --base ${base} --fill`)}`,
+          ...(reviewFails
+            ? [
+                dim(
+                  `  It changes ${WORKFLOW_PATH}, so Claude does not review it and the security review fails: have a person review it, then ${state.ruleset ? 'an admin merges it past the check' : 'merge it'}.`,
+                ),
+              ]
+            : []),
+        ].join('\n'),
       );
     } else {
       steps.push(`Commit and push:\n  ${cyan(`${commit} && git push`)}`);
