@@ -40,6 +40,7 @@ jobs:
     #   deploy: forge
     #   production-branch: main   # also add the default branch to push.branches, e.g. [develop, main]
     #   count-author: true
+    #   github-deployments: false   # no record in the repository's Deployments
     #   security-fail-on: medium
     #   extra-instructions: This project uses Livewire; prefer Livewire components over controllers.
     #   language: en   # what is written for the team; pt-BR by default

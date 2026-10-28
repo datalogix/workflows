@@ -13,6 +13,7 @@ Setup is covered in [Adding a Laravel app](laravel/app.md): the setup command cr
 - `production: manual` stops automatic production deploys: production is deployed only from **Actions > datalogix > Run workflow**, after staging.
 - Environment protection rules apply too. Where your plan offers them, required reviewers or a wait timer on `production` make each production deploy wait for an approval or a delay.
 - `staging: false` deploys straight to production (not recommended).
+- `github-deployments: false` stops recording each deploy and rollback in the repository's **Deployments** (and the environment link on pull requests and commits); the jobs still use the environments, with their secrets, variables and required reviewers. The [release history](#release-history) does not depend on it, so rollbacks keep working.
 
 ## Production branch
 

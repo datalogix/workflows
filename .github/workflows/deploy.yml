@@ -43,6 +43,10 @@ on:
         type: boolean
         default: true
         description: Redeploy the last good release of this environment when the health checks fail
+      github-deployments:
+        type: boolean
+        default: true
+        description: Record each deploy and rollback in the repository's Deployments; false only reads the environment's secrets and variables
       timeout-minutes:
         type: number
         default: 60
@@ -56,8 +60,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    # The environment holds the DEPLOY_HOOK secret, the HEALTH_URL variable and any protection rules (required reviewers, wait timer)
-    environment: ${{ inputs.environment }}
+    # The environment holds the DEPLOY_HOOK secret, the HEALTH_URL variable and any protection rules (required reviewers, wait timer).
+    # deployment: false keeps them (required reviewers still apply) without a record in Deployments; custom protection
+    # rules (GitHub Apps) need the record, so with them that job fails
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: ${{ inputs.github-deployments }}
 
     # One deploy per environment at a time; a running one is never cancelled. GitHub keeps only one pending run per group:
     # a newer one replaces it (see docs/troubleshooting.md, "The `rollback` label does nothing")

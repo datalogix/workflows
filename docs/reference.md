@@ -26,6 +26,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
 | `production-branch`                                               | empty                          | Branch deployed to production (e.g. `main`); the default branch then deploys only staging. List both branches in `push.branches` (e.g. `[develop, main]`; setup does). See [Production branch](deploy.md#production-branch) |
 | `watch-minutes`                                                   | `10`                           | Minutes each environment is watched after a deploy                       |
+| `github-deployments`                                              | `true`                         | Record each deploy and rollback in the repository's **Deployments**; `false` still uses the environments' secrets, variables and required reviewers |
 | `incidents`                                                       | `true`                         | Turn monitoring problems into GitHub issues analyzed by Claude           |
 | `incident-environments`                                           | `["production", "staging"]`    | Monitoring environments whose problems become GitHub issues (JSON)       |
 | `incident-types`                                                  | `["exception", "performance"]` | Problem types that become GitHub issues (JSON)                           |
@@ -173,6 +174,7 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | `watch-minutes`   | `10`      | Minutes to watch the health URL                                                                 |
 | `max-failures`    | `3`       | Consecutive failed checks (every 30 seconds) that trigger the rollback                          |
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |
+| `github-deployments` | `true` | Record the deploy in the repository's **Deployments**; `false` still uses the environment (custom deployment protection rules need the record: with them, `false` fails the job) |
 | `timeout-minutes` | `60`      | Job timeout                                                                                     |
 | `language`        | `pt-BR`   | Language of the issues and comments: `en` for a value starting with `en`, otherwise `pt-BR`     |
 

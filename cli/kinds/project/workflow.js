@@ -20,6 +20,7 @@ const MANAGED = [
   'staging',
   'production-branch',
   'count-author',
+  'github-deployments',
   'incidents',
   'incident-environments',
   'incident-types',
@@ -37,6 +38,7 @@ export function projectAnswers(inputs) {
     staging: flagOf(inputs.staging),
     productionBranch: scalar(inputs['production-branch']) || null,
     solo: scalar(inputs['count-author'])?.toLowerCase() === 'true',
+    githubDeployments: flagOf(inputs['github-deployments']),
     incidents: flagOf(inputs.incidents),
     incidentStaging: environments ? environments.includes('staging') : undefined,
     incidentPerformance: types ? types.includes('performance') : undefined,
@@ -60,6 +62,7 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
     managed.deploy = answers.deploy;
     if (answers.staging === false) managed.staging = 'false';
     else if (answers.productionBranch) managed['production-branch'] = answers.productionBranch;
+    if (answers.githubDeployments === false) managed['github-deployments'] = 'false';
   }
   if (answers.solo) managed['count-author'] = 'true';
   const current = parseInputs(existing);

@@ -1,7 +1,7 @@
 import { isRepository } from './project.js';
 
 // The options it accepts, each listed in HELP
-export const BOOLEAN = ['staging', 'branches', 'incidents', 'solo', 'yes', 'help'];
+export const BOOLEAN = ['staging', 'branches', 'github-deployments', 'incidents', 'solo', 'yes', 'help'];
 export const VALUE = [
   'repo',
   'deploy',
@@ -98,6 +98,7 @@ Options (each one skips its question in setup)
   --development-branch develop  Development branch, made the default branch
   --production-branch main    Production branch
   --health-path /up           Health check path
+  --github-deployments / --no-github-deployments  Record each deploy in the repository's Deployments
   --incidents / --no-incidents  Turn problems of the monitoring service (laravel: Nightwatch) into GitHub issues
   --solo / --no-solo          You work alone on the project (protect: on the package)
   --code-owners "@user"       Who must approve changes to .github/ (users or @org/teams)

@@ -57,6 +57,10 @@ on:
         type: number
         default: 10
         description: Minutes each environment is watched after a deploy before it counts as successful. The deploy job stops after 60 minutes, waits included (settle, watch and a rollback), so keep it well below that
+      github-deployments:
+        type: boolean
+        default: true
+        description: Record each deploy and rollback in the repository's Deployments (deploy); false still uses the environments
 
       # Incidents
       incidents:
@@ -283,6 +287,7 @@ jobs:
       environment: staging
       provider: ${{ inputs.deploy }}
       watch-minutes: ${{ inputs.watch-minutes }}
+      github-deployments: ${{ inputs.github-deployments }}
       language: ${{ inputs.language }}
 
   production:
@@ -303,6 +308,7 @@ jobs:
       provider: ${{ inputs.deploy }}
       branch: ${{ inputs.production-branch }}
       watch-minutes: ${{ inputs.watch-minutes }}
+      github-deployments: ${{ inputs.github-deployments }}
       language: ${{ inputs.language }}
 
   release:
@@ -355,6 +361,7 @@ jobs:
       mode: rollback
       issue: ${{ github.event.issue.number }}
       watch-minutes: 5
+      github-deployments: ${{ inputs.github-deployments }}
       language: ${{ inputs.language }}
 
   # The rollback label on a staging issue with staging off: no environment to roll back, so the issue says why and

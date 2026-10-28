@@ -261,6 +261,21 @@ function setupSteps(stack) {
       },
     },
     {
+      id: 'githubDeployments',
+      flag: 'github-deployments',
+      when: deploys,
+      ask: async ({ header, ctx }) =>
+        orExit(
+          await clack.confirm({
+            message: question(
+              header,
+              `Record each deploy in the repository's Deployments?${dim('  no: the deploys still use the environments')}`,
+            ),
+            initialValue: ctx.state.current?.githubDeployments ?? true,
+          }),
+        ),
+    },
+    {
       id: 'healthPath',
       flag: 'health-path',
       validate: validPath,

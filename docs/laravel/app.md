@@ -22,6 +22,7 @@ Then it asks one question at a time, with a progress bar showing how many are le
 | Where the app is deployed: Forge, Laravel Cloud or not by the workflows | always |
 | Production domain, whether there is a staging environment, staging domain, health check path | the app is deployed |
 | Whether production deploys from its own branch, and the development and production branch names (`develop` and `main` by default) | there is a staging environment (turning staging off, or choosing not to deploy, removes `production-branch`; setup warns first) |
+| Whether to record each deploy in the repository's Deployments (`github-deployments`, on by default) | the app is deployed |
 | Forge or Laravel Cloud API token (hidden input; optional, used during setup only and never stored; empty leaves [step 2](#step-2-do-what-setup-cannot) to do by hand). Forge needs the `site:manage-deploys` permission, plus `server:view` and `site:manage-environment` with Nightwatch | the app is deployed |
 | The Forge site (or Laravel Cloud environment) of production and of staging, from those that deploy the repository; the one on the branch it deploys comes selected, and **None of these** leaves it to do by hand | an API token was given and it found a site (or environment) of the repository |
 | Production and staging deploy hooks (hidden input; keep or replace when already set; empty leaves it for later, when the site does not exist yet, and deploys to that environment fail until setup runs again with it) | the app is deployed and, on Forge, the API did not give it |

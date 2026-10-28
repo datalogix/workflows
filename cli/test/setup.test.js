@@ -1298,3 +1298,8 @@ test('tells when the Claude GitHub App may not reach the repository', () => {
   expect(step('selected')).toContain('add datalogix/app in its settings');
   expect(step(null)).toContain('gh auth refresh -s admin:org');
 });
+
+test('asks whether to record deploys in GitHub only when the app deploys', () => {
+  expect(askedSteps(setupSteps(), { ...branchAnswers })).toContain('githubDeployments');
+  expect(askedSteps(setupSteps(), { ...branchAnswers, deploy: 'none' })).not.toContain('githubDeployments');
+});

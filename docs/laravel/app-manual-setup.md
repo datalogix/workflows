@@ -14,6 +14,7 @@ jobs:
     with:
       deploy: forge        # forge or cloud; remove the line to disable deploys
       count-author: true   # you work alone: your own pull requests count as reviewed by you
+      github-deployments: false   # no record in the repository's Deployments; remove the line to keep them
       language: en         # pt-BR by default; remove the line to keep it
       phpstan: false       # Pint and PHPStan run when installed; false turns each off
       test-command: php artisan test   # when composer test also runs Pint or PHPStan; none turns the suite off

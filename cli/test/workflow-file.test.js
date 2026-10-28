@@ -57,6 +57,7 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     staging: false,
     productionBranch: null,
     solo: true,
+    githubDeployments: undefined,
     incidents: false,
     incidentStaging: undefined,
     incidentPerformance: undefined,
@@ -338,4 +339,18 @@ test('reads edge cases of the workflow file as nothing set', () => {
   expect(listOf('\'{"a": 1}\'')).toBe(null);
   expect(scalar('"a b" # comment')).toBe('a b');
   expect(scalar('main # deploys')).toBe('main');
+});
+
+test('writes github-deployments only when it is off and the app deploys, and reads it back', async () => {
+  const off = await renderProjectWorkflow({ deploy: 'forge', staging: true, githubDeployments: false });
+  expect(parseInputs(off)['github-deployments']).toBe('false');
+  expect(projectAnswers(parseInputs(off)).githubDeployments).toBe(false);
+
+  const on = await renderProjectWorkflow({ deploy: 'forge', staging: true, githubDeployments: true }, off);
+  expect(parseInputs(on)).not.toHaveProperty('github-deployments');
+  expect(projectAnswers(parseInputs(on)).githubDeployments).toBeUndefined();
+  // Without deploys there is nothing to record: the input goes away
+  expect(
+    parseInputs(await renderProjectWorkflow({ deploy: 'none', githubDeployments: false }, off)),
+  ).not.toHaveProperty('github-deployments');
 });
