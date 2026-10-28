@@ -951,6 +951,7 @@ test('stops setup with an error when the repository is missing, before other que
     folderRepository: 'datalogix/app',
     flags: { repo: 'datalogix/app' },
     root: '/nowhere',
+    relay,
     createGitHub: () => ({
       repository: 'datalogix/app',
       repo: async () => state,
