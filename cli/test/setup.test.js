@@ -1056,6 +1056,9 @@ test('checks deploy hooks, the health check path and the release App key file', 
   const validate = (id) => setupSteps().find((step) => step.id === id).validate;
   expect(validate('productionHook')('https://forge.laravel.com/hook/1')).toBe(undefined);
   expect(validate('productionHook')('forge.laravel.com/hook/1')).toBe('Paste the full https:// URL');
+  // A deploy hook may be left empty, while the site does not exist yet
+  expect(validate('productionHook')('')).toBe(undefined);
+  expect(validate('stagingHook')('  ')).toBe(undefined);
   expect(validate('healthPath')('/up')).toBe(undefined);
   expect(validate('healthPath')('up')).toBe('Start with /, e.g. /up');
 
@@ -1065,6 +1068,37 @@ test('checks deploy hooks, the health check path and the release App key file', 
   expect(validate('releaseAppKey')(join(root, 'missing.pem'))).toBe('Cannot read that file');
   // ~ is the home folder
   expect(validate('releaseAppKey')('~/datalogix-no-such-key.pem')).toBe('Cannot read that file');
+});
+
+test('creates the environments without the deploy hooks left empty and says deploys fail until they are set', async (t) => {
+  const root = await tempRoot(t, 'setup-');
+  const github = fakeGitHub();
+  const answers = {
+    repository: 'datalogix/app',
+    deploy: 'forge',
+    domain: 'example.com',
+    staging: true,
+    stagingDomain: 'dev.example.com',
+    healthPath: '/up',
+    productionHook: '',
+    stagingHook: 'https://forge.laravel.com/hook/2',
+    monitoringMarkers: false,
+    solo: true,
+    codeOwners: '@ana',
+  };
+
+  for (const task of setupTasks(answers, { github, root, state: APP_STATE, relay })) await task.run();
+  expect(github.calls.filter(([name]) => name === 'secret')).toStrictEqual([
+    ['secret', 'DEPLOY_HOOK', 'https://forge.laravel.com/hook/2', 'staging'],
+  ]);
+
+  const hookStep = (state) =>
+    nextSteps(answers, { relay, results: [], state }).find((step) => step.includes('until the deploy hook is set'));
+  expect(hookStep(APP_STATE)).toContain('production');
+  expect(hookStep(APP_STATE)).not.toContain('staging');
+  // A hook already set stays as it is
+  const environments = { ...APP_STATE.environments, production: { exists: true, deployHook: true } };
+  expect(hookStep({ ...APP_STATE, environments })).toBe(undefined);
 });
 
 test('refuses the same branch for development and production', async () => {

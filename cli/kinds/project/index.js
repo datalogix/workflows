@@ -89,8 +89,13 @@ const relayHint = (registered) =>
       : '  empty to set it later';
 const validUrl = (value) => (/^https:\/\/\S+$/.test(value?.trim() ?? '') ? undefined : 'Paste the full https:// URL');
 
-/** A secret question: keep the current value or type a new one, one question at a time. */
-function secretSteps(id, { label, exists, when, validate = notEmpty, hint }) {
+/**
+ * A secret question: keep the current value or type a new one, one question at a time. An optional secret may be left
+ * empty, to set it later.
+ */
+function secretSteps(id, { label, exists, when, validate: validValue = notEmpty, hint, optional = false }) {
+  const validate = optional ? (value) => (value?.trim() ? validValue(value) : undefined) : validValue;
+  const hints = [hint, optional && 'empty to set it later'].filter(Boolean).join(' · ');
   return [
     {
       id: `${id}Keep`,
@@ -112,7 +117,7 @@ function secretSteps(id, { label, exists, when, validate = notEmpty, hint }) {
       when: (a, ctx) => when(a, ctx) && (!exists(ctx) || a[`${id}Keep`] === false),
       ask: async ({ header }) =>
         orExit(
-          await clack.password({ message: question(header, `${label}${hint ? dim(`  ${hint}`) : ''}`), validate }),
+          await clack.password({ message: question(header, `${label}${hints ? dim(`  ${hints}`) : ''}`), validate }),
         ),
     },
   ];
@@ -262,6 +267,8 @@ function setupSteps(stack) {
       when: deploys,
       exists: (ctx) => ctx.state.environments.production.deployHook,
       validate: validUrl,
+      // The site may not exist yet: its deploys fail until the hook is set
+      optional: true,
     }),
     ...secretSteps('stagingHook', {
       label: 'Staging deploy hook',
@@ -269,6 +276,7 @@ function setupSteps(stack) {
       when: staging,
       exists: (ctx) => ctx.state.environments.staging.deployHook,
       validate: validUrl,
+      optional: true,
     }),
     {
       id: 'monitoringMarkers',
@@ -736,6 +744,20 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
   if (twoBranches(answers) && !state.releaseApp && !appStored && state.canProtect) {
     steps.push(
       `Release pull requests are opened by GitHub Actions and run no checks, so ${bold(answers.productionBranch)} stays unprotected. To protect it, make the release GitHub App's secrets available to this repository (docs/organization-setup.md in datalogix/workflows) or run setup again to store them.`,
+    );
+  }
+
+  // Deploy hooks left empty: every deploy to that environment fails until they are set
+  const missingHooks = ['production', 'staging'].filter(
+    (environment) =>
+      deploys(answers) &&
+      (environment === 'production' || answers.staging) &&
+      !answers[`${environment}Hook`]?.trim() &&
+      !state.environments[environment].deployHook,
+  );
+  if (missingHooks.length) {
+    steps.push(
+      `Deploys to ${missingHooks.map((environment) => bold(environment)).join(' and ')} fail until the deploy hook is set: once the site exists, run setup again:\n  ${cyan(SETUP)}`,
     );
   }
 

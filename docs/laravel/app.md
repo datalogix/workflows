@@ -22,7 +22,7 @@ Then it asks one question at a time, with a progress bar showing how many are le
 | Where the app is deployed: Forge, Laravel Cloud or not by the workflows | always |
 | Production domain, whether there is a staging environment, staging domain, health check path | the app is deployed |
 | Whether production deploys from its own branch, and the development and production branch names (`develop` and `main` by default) | there is a staging environment (turning staging off, or choosing not to deploy, removes `production-branch`; setup warns first) |
-| Production and staging deploy hooks (hidden input; keep or replace when already set) | the app is deployed |
+| Production and staging deploy hooks (hidden input; keep or replace when already set; empty leaves it for later, when the site does not exist yet, and deploys to that environment fail until setup runs again with it) | the app is deployed |
 | Whether to mark deploys in Nightwatch, and each environment's Nightwatch token | Forge |
 | Client ID and private key file (`.pem`) of the [release GitHub App](../organization-setup.md#6-create-the-release-github-app); an empty Client ID leaves them for later | production deploys from its own branch and the repository cannot read the App's secrets |
 | Claude token (hidden input) | the repository cannot read one (GitHub Free, see [Organization setup, step 2](../organization-setup.md#2-generate-the-claude-token)) |
