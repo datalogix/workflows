@@ -77,7 +77,14 @@ jobs:
         id: plugins
         uses: datalogix/workflows/.github/actions/plugins@v2
 
+      # A pull request that changes the workflow file cannot run Claude: the job only warns (it has no permission to
+      # comment), and the security review's comment explains it on the pull request
+      - name: Check the workflow file
+        id: workflow
+        uses: datalogix/workflows/.github/actions/workflow-file@v2
+
       - name: Run Claude Code Review
+        if: steps.workflow.outputs.changed != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

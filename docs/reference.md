@@ -123,6 +123,8 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every push, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
 
+A pull request that changes the calling workflow file (`.github/workflows/datalogix.yml`) is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until the default branch has the same file. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
+
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ## `risk-gate`

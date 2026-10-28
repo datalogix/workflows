@@ -109,7 +109,14 @@ jobs:
         id: plugins
         uses: datalogix/workflows/.github/actions/plugins@v2
 
+      # A pull request that changes the workflow file cannot run Claude (claude-code-action requires the default
+      # branch's copy): Publish findings says so, and the check fails, so changing the workflow never skips the review
+      - name: Check the workflow file
+        id: workflow
+        uses: datalogix/workflows/.github/actions/workflow-file@v2
+
       - name: Review security with Claude Code
+        if: steps.workflow.outputs.changed != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -147,6 +154,8 @@ jobs:
           FAIL_ON: ${{ inputs.fail-on }}
           ENGLISH: ${{ steps.language.outputs.english }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_CHANGED: ${{ steps.workflow.outputs.changed }}
+          WORKFLOW_FILE: ${{ steps.workflow.outputs.path }}
         run: |
           marker="<!-- claude-security-review -->"
           # A single comment per PR, updated on every push. Every page is read and the first id kept in bash: a pipe
@@ -162,6 +171,23 @@ jobs:
               gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$1"
             fi
           }
+
+          # Running it again does not help: the workflow change has to reach the default branch first
+          if [ "$WORKFLOW_CHANGED" = true ]; then
+            echo "::error::This pull request changes $WORKFLOW_FILE, so Claude cannot review it"
+            if [ "$ENGLISH" = true ]; then
+              publish "$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' "## Security review" \
+                "This pull request changes \`$WORKFLOW_FILE\`, so Claude does not review it: Claude only runs with the default branch's copy of the workflow file, so neither this security review nor the code review ran. This check fails until the default branch has the same workflow file." \
+                "Move the workflow change to a pull request of its own, reviewed by a person (an admin merges it past this check), then push to this pull request or re-run this job." \
+                "[View run]($RUN_URL)" "$marker")"
+            else
+              publish "$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' "## Revisão de segurança" \
+                "Este PR altera \`$WORKFLOW_FILE\`, então o Claude não o revisa: ele só roda com a cópia do arquivo de workflow do branch padrão, e nem esta revisão de segurança nem o code review rodaram. Este check falha até o branch padrão ter o mesmo arquivo de workflow." \
+                "Leve a mudança do workflow para um PR só com ela, revisado por uma pessoa (um admin faz o merge passando por este check), e depois envie um commit para este PR ou rode este job de novo." \
+                "[Ver execução]($RUN_URL)" "$marker")"
+            fi
+            exit 1
+          fi
 
           if ! jq -e '.findings | type == "array" and all(type == "object")' "$FINDINGS" >/dev/null 2>&1; then
             echo "::error::The security review did not produce a valid findings file"

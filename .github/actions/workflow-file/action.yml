@@ -1,0 +1,38 @@
+name: Datalogix workflow file
+description: Whether a pull request changes the workflow file the run started from, in which case claude-code-action refuses to run
+
+outputs:
+  changed:
+    description: true when the pull request's copy of the workflow file differs from the default branch's
+    value: ${{ steps.file.outputs.changed }}
+  path:
+    description: Path of the workflow file the run started from (e.g. .github/workflows/datalogix.yml)
+    value: ${{ steps.file.outputs.path }}
+
+runs:
+  using: composite
+
+  steps:
+    # claude-code-action only gets its GitHub App token when the workflow file is identical to the default branch's.
+    # Its blob in both places tells, without a checkout; a failed read says unchanged, leaving the decision to the action
+    - id: file
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        # In a reusable workflow GITHUB_WORKFLOW_REF is the caller's: owner/repo/.github/workflows/<file>@<ref>
+        path=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY"/}
+        path=${path%%@*}
+        echo "path=$path" >> "$GITHUB_OUTPUT"
+
+        changed=false
+        if [ -n "$HEAD_SHA" ] &&
+          head=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$HEAD_SHA" --jq .sha) &&
+          base=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$DEFAULT_BRANCH" --jq .sha) &&
+          [ "$head" != "$base" ]; then
+          changed=true
+          echo "::warning::This pull request changes $path: Claude only runs with the default branch's copy of it"
+        fi
+        echo "changed=$changed" >> "$GITHUB_OUTPUT"
