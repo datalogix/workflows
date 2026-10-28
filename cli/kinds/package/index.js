@@ -1,6 +1,7 @@
 import { codeOwnerItems, createReport, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
 import { checksOn } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
+import { NO_TESTS } from '../../lib/tools.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
 import { clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { PACKAGE_REF, packageAnswers, packageTemplate, renderPackageWorkflow } from './workflow.js';
@@ -18,9 +19,10 @@ export const PACKAGE_CHECKS = {
 const PACKAGE_STATE = { codecovToken: false };
 
 /** Whether the package uploads a coverage report, so it needs a Codecov token: tests and coverage on. */
-const uploadsCoverage = ({ current }) => current?.tests !== false && current?.coverage !== false;
+const uploadsCoverage = ({ current }) =>
+  current?.tests !== false && current?.coverage !== false && current?.testCommand !== NO_TESTS;
 
-function setupSteps() {
+function setupSteps(stack) {
   return [
     repositoryStep(),
     {
@@ -36,6 +38,7 @@ function setupSteps() {
           }),
         ),
     },
+    ...(stack.steps?.() ?? []),
     soloStep({ subject: 'package' }),
     codeOwnersStep(),
   ];
@@ -44,7 +47,7 @@ function setupSteps() {
 /** The changes the answers lead to, as tasks for the progress bar. */
 function setupTasks(answers, { github, root, state }) {
   const tasks = [
-    workflowFileTask(() => renderPackageWorkflow(state.workflow ?? '', state.defaultBranch), { root, state }),
+    workflowFileTask(() => renderPackageWorkflow(state.workflow ?? '', state.defaultBranch, answers), { root, state }),
     codeOwnersTask(answers, { root, state }),
   ];
   if (answers.codecovToken?.trim()) {
@@ -65,7 +68,7 @@ async function setupWarnings(answers, ctx) {
   return workflowWarnings(
     ctx.state,
     await packageTemplate(defaultBranch),
-    await renderPackageWorkflow(workflow ?? '', defaultBranch),
+    await renderPackageWorkflow(workflow ?? '', defaultBranch, answers),
   );
 }
 
@@ -109,7 +112,8 @@ async function evaluate(checks, state) {
 
 /**
  * The module of a stack's package (package.yml): what every package needs, with the stack's part. `stack` gives
- * optionally checks (PACKAGE_CHECKS by default), inspect(root) and empty (its part of the state before it is read).
+ * optionally checks (PACKAGE_CHECKS by default), steps() (its own questions), inspect(root) and empty (its part of
+ * the state before it is read).
  */
 export function packageKind(stack) {
   const checks = stack.checks ?? PACKAGE_CHECKS;
@@ -126,7 +130,7 @@ export function packageKind(stack) {
         (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false)),
     }),
     setup: {
-      steps: setupSteps,
+      steps: () => setupSteps(stack),
       tasks: setupTasks,
       warnings: setupWarnings,
       nextSteps,

@@ -12,7 +12,7 @@
 | Wrong PHP version                          | Add a `.php-version` file or pass `php-version`                                                                                              |
 | `composer install` fails on a private package | Not supported: the workflows pass no Composer credentials (`COMPOSER_AUTH`), so only public packages can be installed |
 | Views fail with "Vite manifest not found"  | Check the warning of the _Build frontend assets_ step in `setup-laravel`                                                                     |
-| Pint fails with an unknown `--diff` option | Update `laravel/pint` to 1.20+, or remove it from an app (apps have no `pint` input); packages can pass `pint: false`                    |
+| Pint fails with an unknown `--diff` option | Update `laravel/pint` to 1.20+, or turn it off with `pint: false` (setup: uncheck Laravel Pint)                    |
 | A pull request waits for a check forever   | The required check name matches `<calling job> / <job> / <job>` (e.g. `pipeline / tests / tests`), and the calling workflow has no `paths` filter and has the `merge_group` trigger; the layer of that check is on (`check` reports a required check whose layer is off) |
 | `risk-gate` fails after an approval        | The approval was given on an older commit with other changes (a push that changed the diff, a merge or rebase that moved the pull request's lines, or changes GitHub cannot compare): approve the current commit. Or the approver has no write access to the repository |
 | `release` fails with "Cannot compare … check that both branches exist" | The default branch and the `production-branch` both exist on GitHub: `check` reports a missing production branch, and setup creates the missing one |

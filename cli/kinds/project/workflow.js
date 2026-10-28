@@ -8,6 +8,7 @@ import {
   templateBase,
   withInputs,
 } from '../../lib/workflow-file.js';
+import { TOOL_INPUTS, toolAnswers, toolInputs } from '../../lib/tools.js';
 
 export const PROJECT_REF = 'datalogix/workflows/.github/workflows/project.yml@v2';
 // Default of the language input of project.yml
@@ -23,6 +24,7 @@ const MANAGED = [
   'incident-environments',
   'incident-types',
   'language',
+  ...TOOL_INPUTS,
 ];
 
 /** Answers implied by a project's workflow file, used as defaults when setup runs again. */
@@ -42,6 +44,7 @@ export function projectAnswers(inputs) {
     securityReview: flagOf(inputs['security-review']),
     riskGate: flagOf(inputs['risk-gate']),
     language: scalar(inputs.language) || DEFAULT_LANGUAGE,
+    ...toolAnswers(inputs),
   };
 }
 
@@ -79,6 +82,7 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
   } else if (answers.language.trim() !== DEFAULT_LANGUAGE) {
     managed.language = answers.language.trim();
   }
+  Object.assign(managed, toolInputs(answers, current));
 
   const kept = Object.entries(current).filter(([key]) => !MANAGED.includes(key));
   const base = await templateBase(branch, managed['production-branch'], 'project.yml');

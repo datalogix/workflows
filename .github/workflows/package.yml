@@ -15,7 +15,7 @@ on:
       tests:
         type: boolean
         default: true
-        description: Run the test suite across the matrix (laravel-package-tests)
+        description: Run the test suite across the matrix, Pint, PHPStan and the lint command (laravel-package-tests)
 
       # Passed to laravel-package-tests, with the same defaults
       os:
@@ -44,7 +44,7 @@ on:
       test-command:
         type: string
         default: ""
-        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit
+        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit; none skips the test suite
       coverage:
         type: boolean
         default: true
@@ -60,6 +60,14 @@ on:
         type: boolean
         default: true
         description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+ in require-dev)
+      phpstan:
+        type: boolean
+        default: true
+        description: Run PHPStan once, on the highest PHP version of the matrix, when composer.json requires it (phpstan/phpstan or Larastan)
+      lint-command:
+        type: string
+        default: ""
+        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check); empty runs none
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -100,3 +108,5 @@ jobs:
       coverage-driver: ${{ inputs.coverage-driver }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
       pint: ${{ inputs.pint }}
+      phpstan: ${{ inputs.phpstan }}
+      lint-command: ${{ inputs.lint-command }}

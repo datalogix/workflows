@@ -64,6 +64,10 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     securityReview: undefined,
     riskGate: undefined,
     language: 'pt-BR',
+    pint: undefined,
+    phpstan: undefined,
+    lintCommand: null,
+    testCommand: null,
   });
   expect(
     projectAnswers({ tests: 'false', 'security-review': 'true', 'risk-gate': 'false # no approvals' }),
@@ -276,10 +280,14 @@ test('finds the input comments the rendered file drops', () => {
 });
 
 test('reads only what a package workflow file can say', () => {
-  expect(packageAnswers({ stack: 'laravel', coverage: 'false # no codecov' })).toStrictEqual({
+  expect(packageAnswers({ stack: 'laravel', coverage: 'false # no codecov', 'test-command': 'none' })).toStrictEqual({
     stack: 'laravel',
     tests: undefined,
     coverage: false,
+    pint: undefined,
+    phpstan: undefined,
+    lintCommand: null,
+    testCommand: 'none',
   });
 });
 

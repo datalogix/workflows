@@ -23,10 +23,11 @@ export function orExit(value, message = 'Cancelled. Nothing was changed.') {
 }
 
 /**
- * Asks the active steps one at a time. A step is { id, when?(answers, ctx), flag?, validate?(value),
+ * Asks the active steps one at a time. A step is { id, when?(answers, ctx), flag?, validate?(value), parse?(value),
  * ask({ header, answers, ctx }), then?(answers, ctx) }; `then` runs right after the answer (e.g. to load what later
- * questions need). Steps answered by a command-line flag are skipped, after checking the value with `validate`. The
- * total is recomputed after every answer, because answers decide which later steps apply.
+ * questions need). Steps answered by a command-line flag are skipped, after checking the value with `validate`, and
+ * `parse` turns the flag's text into the answer the question gives. The total is recomputed after every answer,
+ * because answers decide which later steps apply.
  */
 export async function askSteps(steps, ctx, answers = {}) {
   const applies = (step) => (step.when ? step.when(answers, ctx) : true);
@@ -37,7 +38,7 @@ export async function askSteps(steps, ctx, answers = {}) {
     if (fromFlag(step)) {
       const problem = step.validate?.(ctx.flags[step.flag]);
       if (problem) throw new Error(`--${step.flag}: ${problem}`);
-      answers[step.id] = ctx.flags[step.flag];
+      answers[step.id] = step.parse ? step.parse(ctx.flags[step.flag]) : ctx.flags[step.flag];
     } else {
       const active = steps.filter((candidate) => applies(candidate) && !fromFlag(candidate));
       const header = stepBar(active.indexOf(step) + 1, active.length);

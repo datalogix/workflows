@@ -34,6 +34,7 @@ vi.mock('@clack/prompts', async (importOriginal) => ({
   confirm: reply,
   password: reply,
   select: reply,
+  multiselect: reply,
   text: reply,
   progress: () => ({ start() {}, message() {}, advance() {}, stop() {} }),
   log: { info() {}, warn() {}, error() {}, success() {}, message() {} },
@@ -1155,6 +1156,8 @@ const setupFlags = {
   deploy: 'none',
   incidents: false,
   language: 'pt-BR',
+  lint: 'none',
+  'test-command': 'none',
   solo: true,
   'code-owners': '@ana',
 };

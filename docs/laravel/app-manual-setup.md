@@ -15,7 +15,11 @@ jobs:
       deploy: forge        # forge or cloud; remove the line to disable deploys
       count-author: true   # you work alone: your own pull requests count as reviewed by you
       language: en         # pt-BR by default; remove the line to keep it
+      phpstan: false       # Pint and PHPStan run when installed; false turns each off
+      test-command: php artisan test   # when composer test also runs Pint or PHPStan; none turns the suite off
 ```
+
+See [Lint and test suite](app-tests.md#lint-and-test-suite) for `lint-command` and what setup suggests.
 
 ## Labels
 

@@ -29,7 +29,7 @@ on:
       test-command:
         type: string
         default: ""
-        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit
+        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit; none skips the test suite
       coverage:
         type: boolean
         default: true
@@ -45,12 +45,22 @@ on:
         type: boolean
         default: true
         description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+ in require-dev)
+      phpstan:
+        type: boolean
+        default: true
+        description: Run PHPStan once, on the highest PHP version of the matrix, when composer.json requires it (phpstan/phpstan or Larastan)
+      lint-command:
+        type: string
+        default: ""
+        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check); empty runs none
     secrets:
       CODECOV_TOKEN:
         required: false
 
 jobs:
   tests:
+    if: inputs.test-command != 'none'
+
     runs-on: ${{ matrix.os }}
 
     permissions:
@@ -183,9 +193,9 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # Code style does not depend on the matrix, so it runs once, next to the tests
-  pint:
-    if: inputs.pint && github.event_name == 'pull_request'
+  # Lint does not depend on the matrix, so it runs once, next to the tests
+  lint:
+    if: (inputs.pint && github.event_name == 'pull_request') || inputs.phpstan || inputs.lint-command != ''
 
     runs-on: ubuntu-latest
 
@@ -195,8 +205,8 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
 
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-pint
-      cancel-in-progress: true
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-lint
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
       - name: Checkout code
@@ -204,61 +214,99 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check for Pint
-        id: pint
+      - name: Check for lint tools
+        id: lint
         shell: bash
         env:
           PHP: ${{ inputs.php }}
+          PINT: ${{ inputs.pint && github.event_name == 'pull_request' }}
+          PHPSTAN: ${{ inputs.phpstan }}
+          LINT_COMMAND: ${{ inputs.lint-command }}
         run: |
-          if jq -e '.["require-dev"]["laravel/pint"] // .require["laravel/pint"]' composer.json >/dev/null; then
+          requires() {
+            jq -e --arg name "$1" '(.["require-dev"] // {}) + (.require // {}) | has($name)' composer.json >/dev/null
+          }
+
+          enabled=
+          if [ "$PINT" = true ]; then
+            if requires laravel/pint; then
+              echo "pint=true" >> "$GITHUB_OUTPUT"
+              enabled=true
+            else
+              echo "laravel/pint is not required by composer.json, skipping Pint"
+            fi
+          fi
+          if [ "$PHPSTAN" = true ]; then
+            if requires phpstan/phpstan || requires larastan/larastan || requires nunomaduro/larastan; then
+              echo "phpstan=true" >> "$GITHUB_OUTPUT"
+              enabled=true
+            else
+              echo "PHPStan is not required by composer.json, skipping PHPStan"
+            fi
+          fi
+          [ -n "$LINT_COMMAND" ] && enabled=true
+
+          if [ -n "$enabled" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
             # Highest PHP version of the matrix, which the package is known to support (given as strings or numbers)
             newest='map(tostring) | max_by(gsub("[^0-9.]"; "") | split(".") | map(select(. != "") | tonumber))'
             echo "php=$(jq -r "$newest" <<< "$PHP")" >> "$GITHUB_OUTPUT"
-          else
-            echo "laravel/pint is not required by composer.json, skipping"
           fi
 
       - name: Setup PHP
-        if: steps.pint.outputs.enabled
+        if: steps.lint.outputs.enabled
         uses: shivammathur/setup-php@v2
         with:
-          php-version: ${{ steps.pint.outputs.php }}
+          php-version: ${{ steps.lint.outputs.php }}
           extensions: ${{ inputs.extensions }}
           coverage: none
 
       - name: Get Composer cache directory
         id: composer-cache
-        if: steps.pint.outputs.enabled
+        if: steps.lint.outputs.enabled
         shell: bash
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
       - name: Cache dependencies
-        if: steps.pint.outputs.enabled
+        if: steps.lint.outputs.enabled
         uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: composer-pint-${{ runner.os }}-${{ hashFiles('composer.json') }}
-          restore-keys: composer-pint-${{ runner.os }}-
+          key: composer-lint-${{ runner.os }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-lint-${{ runner.os }}-
 
       - name: Install dependencies
-        if: steps.pint.outputs.enabled
+        if: steps.lint.outputs.enabled
         shell: bash
         run: composer update --prefer-stable --prefer-dist --no-interaction
 
       # Only the files changed by the PR, so existing style issues do not fail the build
       - name: Laravel Pint
-        if: steps.pint.outputs.enabled
+        if: steps.lint.outputs.pint
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
         run: vendor/bin/pint --test --diff="origin/$BASE"
 
+      - name: PHPStan
+        if: steps.lint.outputs.phpstan
+        shell: bash
+        run: vendor/bin/phpstan analyse --no-progress --error-format=github --memory-limit=2G
+
+      - name: Lint command
+        if: inputs.lint-command != ''
+        shell: bash
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+          # Composer stops scripts after 300 seconds by default
+          COMPOSER_PROCESS_TIMEOUT: 0
+        run: eval "$LINT_COMMAND"
+
   # Single status check for branch protection and merge queues, so it does not depend on the matrix job names
   all-checks:
     if: always()
 
-    needs: [tests, pint]
+    needs: [tests, lint]
 
     runs-on: ubuntu-latest
 
@@ -272,6 +320,6 @@ jobs:
         run: |
           echo "Results: $RESULTS"
           for result in $RESULTS; do
-            # pint is skipped outside pull requests or when disabled
+            # tests is skipped with test-command none, lint when it has nothing to run
             [ "$result" = success ] || [ "$result" = skipped ] || exit 1
           done

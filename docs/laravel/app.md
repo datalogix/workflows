@@ -29,6 +29,8 @@ Then it asks one question at a time, with a progress bar showing how many are le
 | Whether Nightwatch problems become issues, from staging too (with a staging environment), performance problems too | always |
 | Nightwatch signing secret, after showing the webhook URL to set in Nightwatch (empty keeps the secret already registered, or leaves it for later; when setup cannot read the relay it says so, and empty changes nothing) | problems become issues and the relay is configured (not on Windows) |
 | Whether `/up` should check the database (edits `AppServiceProvider`) | the app is deployed, setup can read `bootstrap/app.php` and `/up` does not check it yet |
+| Lint checks: Laravel Pint, PHPStan (the installed ones come checked) and another command, with its command (the `composer.json` scripts that only check are suggested) | always (another command: when checked) |
+| Test suite: the suggested command (`composer test`, or `php artisan test` when that script also runs Pint or PHPStan), another command or off | always (another command: when chosen) |
 | Language of what is written for the team (`pt-BR` by default; written to the workflow file only when it is another) | always |
 | Whether you work alone on the project | always |
 | Who must approve changes to `.github/` (your `gh` login by default; users or `@org/team`) | always |

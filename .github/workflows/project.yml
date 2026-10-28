@@ -18,7 +18,7 @@ on:
       tests:
         type: boolean
         default: true
-        description: Run Pint, PHPStan, composer audit, the test suite and the typecheck, lint and test scripts of package.json
+        description: Run Pint, PHPStan, the lint command, composer audit, the test suite and the typecheck, lint and test scripts of package.json
       review:
         type: boolean
         default: true
@@ -81,10 +81,22 @@ on:
         type: string
         default: ""
         description: Empty reads .nvmrc or .node-version, otherwise the current LTS
+      pint:
+        type: boolean
+        default: true
+        description: Run Laravel Pint on the files changed by the pull request, when it is installed
+      phpstan:
+        type: boolean
+        default: true
+        description: Run PHPStan when it is installed
+      lint-command:
+        type: string
+        default: ""
+        description: Extra lint command run after Pint and PHPStan (e.g. composer lint:check); empty runs none
       test-command:
         type: string
         default: ""
-        description: Empty runs composer test when composer.json defines it, otherwise php artisan test
+        description: Empty runs composer test when composer.json defines it, otherwise php artisan test; none skips the test suite
       js:
         type: boolean
         default: true
@@ -178,6 +190,9 @@ jobs:
     with:
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
+      pint: ${{ inputs.pint }}
+      phpstan: ${{ inputs.phpstan }}
+      lint-command: ${{ inputs.lint-command }}
       test-command: ${{ inputs.test-command }}
       js: ${{ inputs.js }}
 

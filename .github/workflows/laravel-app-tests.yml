@@ -19,6 +19,10 @@ on:
         type: boolean
         default: true
         description: Run PHPStan when it is installed
+      lint-command:
+        type: string
+        default: ""
+        description: Extra lint command run after Pint and PHPStan (e.g. composer lint:check); empty runs none
       audit:
         type: boolean
         default: true
@@ -26,7 +30,7 @@ on:
       test-command:
         type: string
         default: ""
-        description: Empty runs composer test when composer.json defines it, otherwise php artisan test
+        description: Empty runs composer test when composer.json defines it, otherwise php artisan test; none skips the test suite
       js:
         type: boolean
         default: true
@@ -75,7 +79,17 @@ jobs:
         shell: bash
         run: vendor/bin/phpstan analyse --no-progress --error-format=github --memory-limit=2G
 
+      - name: Lint command
+        if: inputs.lint-command != ''
+        shell: bash
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+          # Composer stops scripts after 300 seconds by default
+          COMPOSER_PROCESS_TIMEOUT: 0
+        run: eval "$LINT_COMMAND"
+
       - name: Tests
+        if: inputs.test-command != 'none'
         shell: bash
         env:
           TEST_COMMAND: ${{ inputs.test-command }}

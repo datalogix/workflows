@@ -4,9 +4,10 @@ import { deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, dim, orExit, question } from '../../lib/ui.js';
 import { addDatabaseCheck, inspectHealth, PROVIDER_PATH } from './health.js';
+import { inspectTools, NO_TOOLS, toolSteps } from './tools.js';
 
-// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch and the
-// health check of bootstrap/app.php
+// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch, the
+// health check of bootstrap/app.php and the lint and test tools
 
 const FORGE_SNIPPET = `if [ -n "$FORGE_VAR_COMMIT" ]; then
     git fetch --quiet origin "$FORGE_VAR_COMMIT"
@@ -110,11 +111,15 @@ export default projectKind({
     // Deploy markers need the Nightwatch token of a Forge site
     markers: (answers) => answers.deploy === 'forge',
   },
-  empty: { health: { laravel: false, route: null, databaseCheck: false } },
-  /** What collectState reads from the folder for a Laravel app: its health check and its locale. */
-  inspect: async (root) => ({ health: await inspectHealth(root), locale: await readLocale(root) }),
+  empty: { health: { laravel: false, route: null, databaseCheck: false }, tools: NO_TOOLS },
+  /** What collectState reads from the folder for a Laravel app: its health check, its locale and its tools. */
+  inspect: async (root) => ({
+    health: await inspectHealth(root),
+    locale: await readLocale(root),
+    tools: await inspectTools(root),
+  }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
-  steps: () => [databaseCheckStep],
+  steps: () => [databaseCheckStep, ...toolSteps('project')],
   tasks: (answers, { root }) => (answers.databaseCheck ? [healthCheckTask(root)] : []),
   files: { healthCheck: PROVIDER_PATH },
   deployNextSteps,
