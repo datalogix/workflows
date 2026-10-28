@@ -146,6 +146,16 @@ test('high-risk paths match without surrounding spaces or a Windows line ending'
   expect(result.summary).toMatch(/### Risk: high/);
 });
 
+test("the project's extra high-risk paths add to the defaults", async () => {
+  const env = { EXTRA_HIGH_PATHS: 'app/Services/Payment/*\n' };
+  const payment = await gate({ env, files: [['app/Services/Payment/Charge.php', 5]] });
+  expect(payment.summary).toMatch(/### Risk: high/);
+  expect(payment.summary).toMatch(/`app\/Services\/Payment\/Charge.php` is a high-risk path/);
+  // The defaults still apply
+  const migration = await gate({ env, files: [['database/migrations/2026_10_01_create_orders.php', 20]] });
+  expect(migration.summary).toMatch(/### Risk: high/);
+});
+
 test('only the latest human decision counts, and bots never count', async () => {
   const files = [['app/Models/User.php', 10]];
   const changed = [

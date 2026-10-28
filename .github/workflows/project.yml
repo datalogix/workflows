@@ -145,6 +145,10 @@ on:
         type: boolean
         default: false
         description: Count a human PR author with write access as one approval (solo maintainers)
+      extra-high-risk-paths:
+        type: string
+        default: ""
+        description: More patterns (one per line, * also matches /) that make a PR high risk, added to the risk gate's defaults (e.g. app/Services/Payment/*)
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -249,6 +253,7 @@ jobs:
       approvals-medium: ${{ inputs.approvals-medium }}
       approvals-high: ${{ inputs.approvals-high }}
       count-author: ${{ inputs.count-author }}
+      extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
       language: ${{ inputs.language }}
 
   # In the same run as the tests, so no separate workflow_run trigger is needed

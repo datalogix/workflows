@@ -8,6 +8,9 @@ inputs:
   high-risk-paths:
     description: Patterns (one per line, * also matches /) that make a pull request high risk
     required: true
+  extra-high-risk-paths:
+    description: More patterns that make a pull request high risk, added to high-risk-paths
+    default: ""
   low-risk-paths:
     description: Patterns of files that are low risk; a pull request touching only these is low risk
     required: true
@@ -49,6 +52,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         PR: ${{ inputs.pull-request }}
         HIGH_PATHS: ${{ inputs.high-risk-paths }}
+        EXTRA_HIGH_PATHS: ${{ inputs.extra-high-risk-paths }}
         LOW_PATHS: ${{ inputs.low-risk-paths }}
         IGNORED_PATHS: ${{ inputs.ignored-paths }}
         HIGH_LINES: ${{ inputs.high-risk-lines }}

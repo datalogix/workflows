@@ -9,6 +9,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/github.sh"
 # shellcheck source=SCRIPTDIR/../lib/language.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/language.sh"
 
+# The project's own high-risk paths add to the defaults, so none of them is dropped by accident
+HIGH_PATHS+=$'\n'"${EXTRA_HIGH_PATHS:-}"
+
 # A decimal would be read as false by test and let the pull request pass
 whole_number high-risk-lines "$HIGH_LINES" 1
 whole_number approvals-low "$APPROVALS_LOW" 0

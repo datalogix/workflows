@@ -20,6 +20,10 @@ on:
           package.json
           .github/*
         description: Patterns (one per line, * also matches /) that make a PR high risk
+      extra-high-risk-paths:
+        type: string
+        default: ""
+        description: More patterns (one per line) that make a PR high risk, added to high-risk-paths (e.g. the project's payment code)
       low-risk-paths:
         type: string
         default: |
@@ -94,6 +98,7 @@ jobs:
         with:
           pull-request: ${{ github.event.pull_request.number }}
           high-risk-paths: ${{ inputs.high-risk-paths }}
+          extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
           low-risk-paths: ${{ inputs.low-risk-paths }}
           ignored-paths: ${{ inputs.ignored-paths }}
           high-risk-lines: ${{ inputs.high-risk-lines }}
