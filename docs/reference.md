@@ -26,8 +26,8 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `staging`                                                         | `true`                         | Deploy and watch `staging` before `production`                           |
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
 | `production-branch`                                               | empty                          | Branch deployed to production (e.g. `main`); the default branch then deploys only staging. List both branches in `push.branches` (e.g. `[develop, main]`; setup does). See [Production branch](deploy.md#production-branch) |
-| `watch-minutes`                                                   | `10`                           | Minutes each environment is watched after a deploy                       |
-| `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `5`); `0` uses `watch-minutes` |
+| `watch-minutes`                                                   | `5`                            | Minutes each environment is watched after a deploy                       |
+| `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `3`); `0` uses `watch-minutes` |
 | `github-deployments`                                              | `true`                         | Record each deploy and rollback in the repository's **Deployments**; `false` still uses the environments' secrets, variables and required reviewers |
 | `incidents`                                                       | `true`                         | Turn monitoring problems into GitHub issues analyzed by Claude           |
 | `incident-environments`                                           | `["production", "staging"]`    | Monitoring environments whose problems become GitHub issues (JSON)       |
@@ -178,7 +178,7 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | `issue`           | `0`       | Issue that asked for the rollback; gets the result as a comment and loses the `rollback` label  |
 | `rollback-label`  | `rollback`| Label removed from that issue after a rollback                                                  |
 | `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud |
-| `watch-minutes`   | `10`      | Minutes to watch the health URL                                                                 |
+| `watch-minutes`   | `5`       | Minutes to watch the health URL                                                                 |
 | `max-failures`    | `3`       | Consecutive failed checks (every 30 seconds) that trigger the rollback                          |
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |
 | `github-deployments` | `true` | Record the deploy in the repository's **Deployments**; `false` still uses the environment (custom deployment protection rules need the record: with them, `false` fails the job) |
