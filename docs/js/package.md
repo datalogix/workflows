@@ -2,7 +2,7 @@
 
 JavaScript and TypeScript libraries call `package`, the same entry point as Laravel packages, with `stack: js`. Today it runs `node-package-tests`: the `test` script of `package.json` on every Node version of the matrix, and the `typecheck`, `lint` and `build` scripts and the dependency audit once. New layers are added to `package`, so libraries get them without changing their workflow file.
 
-Apps (Next, Nuxt) are not supported yet: setup, check and protect stop on them.
+Next and Nuxt apps call `project` instead: see [Adding a Next or Nuxt app](app.md).
 
 ## Setup
 

@@ -8,13 +8,14 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 
 | Input                                                             | Default                        | Description                                                              |
 | ----------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------ |
-| `stack`                                                           | `laravel`                      | Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugins (`core@datalogix` and `laravel@datalogix`); only `laravel` is supported (another one fails the run) |
+| `stack`                                                           | `laravel`                      | Stack of the project, `laravel` or [`js`](js/app.md) (Next, Nuxt; another one fails the run), which picks its tests, the environment prepared for Claude, the Claude plugins (`core@datalogix` with `laravel@datalogix` or `js@datalogix`) and the default high-risk paths. Deploys need `laravel` |
 | `tests` / `review` / `security-review` / `risk-gate` / `fix-ci`   | `true`                         | Turn each layer on or off; `tests`, `security-review` and `risk-gate` have required checks, so run `protect` again after changing them |
 | `php-version` / `node-version`                                    | detected                       | Override the environment versions                                        |
 | `pint` / `phpstan`                                                | `true`                         | Run Pint (on the files changed by the pull request) and PHPStan when they are installed; see [Lint and test suite](laravel/app-tests.md#lint-and-test-suite) |
 | `lint-command`                                                    | empty                          | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check` |
 | `test-command`                                                    | detected                       | Test command, `none` skips the test suite; see [Test scripts](laravel/app-tests.md#test-scripts) |
 | `js`                                                              | `true`                         | Run the `typecheck`, `lint` and `test` scripts of `package.json`         |
+| `e2e`                                                             | `true`                         | `stack: js`: run the `test:e2e` script after the build (see [JavaScript app tests](js/app-tests.md)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
@@ -65,6 +66,10 @@ Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
 ## `laravel-app-tests`
 
 The tests of a Laravel app: see [Laravel app tests](laravel/app-tests.md#inputs).
+
+## `node-app-tests`
+
+The tests of a Next or Nuxt app (`stack: js`): see [JavaScript app tests](js/app-tests.md#inputs).
 
 ## `laravel-package-tests`
 
@@ -141,7 +146,8 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 | Input                                                   | Default                                                                                                                                    | Description                                                                |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `high-risk-paths`                                       | migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
+| `stack`                                                 | `laravel`                                                                                                                                  | Picks the default `high-risk-paths`: Laravel's, or JavaScript's for `js` |
+| `high-risk-paths`                                       | Laravel: migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*`. `js`: `middleware.*`, `server/*`, `app/api/*`, `pages/api/*` (also under `src/`), auth files and folders, `prisma/*`, `drizzle/*`, `migrations/*`, `nuxt.config.*`, `next.config.*`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
 | `extra-high-risk-paths`                                 | empty | More patterns, added to `high-risk-paths`: a project's own sensitive paths without repeating (or dropping) the defaults |
 | `low-risk-paths`                                        | tests, Markdown, `docs/*`, `lang/*.json`, editor and git config                                                                                 | A pull request touching only these is low risk; everything else is medium (`lang/*.php` too: it is PHP the app runs) |
 | `ignored-paths`                                         | lock files, `public/build/*`                                                                                                               | Make it at least medium risk, but not counted in the changed lines         |

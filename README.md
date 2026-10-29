@@ -1,6 +1,6 @@
 # datalogix/workflows
 
-Claude-powered CI/CD for Datalogix Laravel projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
+Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt) projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
 
 What each project gets:
 
