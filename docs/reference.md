@@ -95,7 +95,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ## `claude-review`
 
-Reviews a pull request. `project` calls it once, when the pull request is opened, reopened or marked ready for review; later pushes are not reviewed again (comment `@claude` for another review). The security review still runs on every push, unless the pull request changes only documentation (see [`claude-security-review`](#claude-security-review)). With [`production-branch`](deploy.md#production-branch), `project` skips the release and sync pull requests between the two branches; hotfix pull requests to the production branch are reviewed.
+Reviews a pull request. `project` calls it once, when the pull request is opened, reopened or marked ready for review; later pushes are not reviewed again (comment `@claude` for another review). The security review still runs on every push, unless the pull request changes only documentation or its changes are the same as in the last passing review (see [`claude-security-review`](#claude-security-review)). With [`production-branch`](deploy.md#production-branch), `project` skips the release and sync pull requests between the two branches; hotfix pull requests to the production branch are reviewed.
 
 | Input                             | Default                                | Description                                            |
 | --------------------------------- | -------------------------------------- | ------------------------------------------------------ |
@@ -112,7 +112,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ## `claude-security-review`
 
-Runs on every push to a pull request. A pull request whose changes, taken as a whole, are only Markdown files is not reviewed: the comment says so and the check passes. Markdown under `.github/`, `.claude/` or `resources/`, and any `CLAUDE.md` or `AGENTS.md`, counts as code, as does a deleted or renamed file; a push of documentation on top of code is still reviewed.
+Runs on every push to a pull request. A pull request whose changes, taken as a whole, are only Markdown files is not reviewed: the comment says so and the check passes. Markdown under `.github/`, `.claude/` or `resources/`, and any `CLAUDE.md` or `AGENTS.md`, counts as code, as does a deleted or renamed file; a push of documentation on top of code is still reviewed. A push that leaves the changes of the pull request as they were (updating the branch with the base, a rebase, an empty commit) keeps the last review when it passed with the same `fail-on`; a base change to a file the pull request also changes, and a manual re-run of the job, review again.
 
 | Input                             | Default                                | Description                                                                         |
 | --------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -125,7 +125,7 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 | `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes)                              |
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 
-Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every push, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
+Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every review, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
 
 A pull request that changes the calling workflow file (`.github/workflows/datalogix.yml`) is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until the default branch has the same file. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
 

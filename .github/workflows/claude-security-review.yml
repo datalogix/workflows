@@ -140,8 +140,34 @@ jobs:
           fi
           echo "docs-only=$docs" >> "$GITHUB_OUTPUT"
 
-      - name: Review security with Claude Code
+      # A push that leaves the changes of the pull request as they were (updating the branch with the base, a rebase, an
+      # empty commit) keeps the result of the last review. The digest covers the blob before and after of every changed
+      # file, so a base change to a file the pull request also changes is reviewed again. Only a review that passed with
+      # the same fail-on is kept, and a manual re-run always reviews. The state line lives in the comment, which anyone
+      # who can push a workflow can also write: the same people who can already report this check themselves
+      - name: Check for an earlier review
+        id: earlier
         if: steps.workflow.outputs.changed != 'true' && steps.changes.outputs.docs-only == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+          FAIL_ON: ${{ inputs.fail-on }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          digest=$(git diff --raw --no-abbrev --no-renames "origin/$BASE...HEAD" | sha256sum | cut -d' ' -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          [ "$RUN_ATTEMPT" = 1 ] || exit 0
+
+          state="<!-- claude-security-review-state: diff=$digest fail-on=$FAIL_ON -->"
+          comments=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"<!-- claude-security-review -->\"))) | .body | contains(\"$state\")")
+          if [ "${comments%%$'\n'*}" = true ]; then
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Review security with Claude Code
+        if: steps.workflow.outputs.changed != 'true' && steps.changes.outputs.docs-only == 'false' && steps.earlier.outputs.reused != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -182,6 +208,8 @@ jobs:
           WORKFLOW_CHANGED: ${{ steps.workflow.outputs.changed }}
           WORKFLOW_FILE: ${{ steps.workflow.outputs.path }}
           DOCS_ONLY: ${{ steps.changes.outputs.docs-only }}
+          REUSED: ${{ steps.earlier.outputs.reused }}
+          DIGEST: ${{ steps.earlier.outputs.digest }}
         run: |
           marker="<!-- claude-security-review -->"
           # A single comment per PR, updated on every push. Every page is read and the first id kept in bash: a pipe
@@ -230,6 +258,13 @@ jobs:
             exit 0
           fi
 
+          # The comment already shows the review of these same changes
+          if [ "$REUSED" = true ]; then
+            echo "### Security review" >> "$GITHUB_STEP_SUMMARY"
+            echo "The changes of this pull request are the same as in the last passing review: not reviewed again." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           if ! jq -e '.findings | type == "array" and all(type == "object")' "$FINDINGS" >/dev/null 2>&1; then
             echo "::error::The security review did not produce a valid findings file"
             if [ "$ENGLISH" = true ]; then
@@ -252,7 +287,13 @@ jobs:
           total=$(jq '.findings | length' "$FINDINGS")
           echo "blocking=$blocking" >> "$GITHUB_OUTPUT"
 
-          body=$(jq -r --arg marker "$marker" --arg run "$RUN_URL" --argjson blocking "$blocking" --argjson en "$ENGLISH" '
+          # Read by Check for an earlier review; only a passing review is kept
+          state=
+          if [ "$blocking" -eq 0 ] && [ -n "$DIGEST" ]; then
+            state="<!-- claude-security-review-state: diff=$DIGEST fail-on=$FAIL_ON -->"
+          fi
+
+          body=$(jq -r --arg marker "$marker" --arg state "$state" --arg run "$RUN_URL" --argjson blocking "$blocking" --argjson en "$ENGLISH" '
             def icon: {"high": "🔴", "medium": "🟠", "low": "🟡"}[.] // "⚪";
             [
               (if $en then "## Security review" else "## Revisão de segurança" end),
@@ -272,6 +313,7 @@ jobs:
               "",
               (if $en then "[View run](\($run))" else "[Ver execução](\($run))" end),
               "",
+              (if $state == "" then empty else $state end),
               $marker
             ] | join("\n")
           ' "$FINDINGS")
