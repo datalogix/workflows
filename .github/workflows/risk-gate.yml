@@ -3,23 +3,14 @@ name: risk-gate
 on:
   workflow_call:
     inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the project (laravel or js), whose patterns are the default high-risk-paths
       high-risk-paths:
         type: string
-        default: |
-          database/migrations/*
-          app/Policies/*
-          app/Http/Middleware/*
-          bootstrap/app.php
-          config/auth.php
-          config/session.php
-          config/cors.php
-          config/sanctum.php
-          config/permission.php
-          routes/api.php
-          composer.json
-          package.json
-          .github/*
-        description: Patterns (one per line, * also matches /) that make a PR high risk
+        default: ""
+        description: Patterns (one per line, * also matches /) that make a PR high risk; empty uses those of the stack (see the job's env)
       extra-high-risk-paths:
         type: string
         default: ""
@@ -92,12 +83,52 @@ jobs:
       group: risk-gate-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
 
+    # The default high-risk paths of each stack: authorization, sessions, routes that face the outside, database changes,
+    # dependencies and the workflows
+    env:
+      LARAVEL_HIGH_RISK_PATHS: |
+        database/migrations/*
+        app/Policies/*
+        app/Http/Middleware/*
+        bootstrap/app.php
+        config/auth.php
+        config/session.php
+        config/cors.php
+        config/sanctum.php
+        config/permission.php
+        routes/api.php
+        composer.json
+        package.json
+        .github/*
+      JS_HIGH_RISK_PATHS: |
+        middleware.ts
+        middleware.js
+        src/middleware.ts
+        src/middleware.js
+        server/*
+        app/api/*
+        src/app/api/*
+        pages/api/*
+        src/pages/api/*
+        *auth.ts
+        *auth.js
+        *auth.config.*
+        auth/*
+        */auth/*
+        prisma/*
+        drizzle/*
+        migrations/*
+        nuxt.config.*
+        next.config.*
+        package.json
+        .github/*
+
     steps:
       - name: Classify risk and check approvals
         uses: datalogix/workflows/.github/actions/risk-gate@v2
         with:
           pull-request: ${{ github.event.pull_request.number }}
-          high-risk-paths: ${{ inputs.high-risk-paths }}
+          high-risk-paths: ${{ inputs.high-risk-paths || (inputs.stack == 'js' && env.JS_HIGH_RISK_PATHS || env.LARAVEL_HIGH_RISK_PATHS) }}
           extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
           low-risk-paths: ${{ inputs.low-risk-paths }}
           ignored-paths: ${{ inputs.ignored-paths }}
