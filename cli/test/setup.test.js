@@ -1280,13 +1280,21 @@ test('does not ask the kind when the workflow file leaves a single choice', asyn
 });
 
 test('refuses a folder no stack recognizes, unless --stack or --kind says what it is', async (t) => {
-  const root = await folder(t, { 'package.json': '{}', 'nuxt.config.ts': '' }, 'setup-');
+  const root = await folder(t, { Gemfile: '', Rakefile: '' }, 'setup-');
   for (const flags of [{}, { yes: true }]) {
     await expect(chooseStack({ root, flags })).rejects.toThrow('This folder is not a Laravel app or package');
   }
   expect(prompts.asked).toStrictEqual([]);
   expect((await chooseStack({ root, flags: { kind: 'package' } })).label).toBe('Laravel package');
   expect((await chooseStack({ root, flags: { stack: 'laravel' } })).label).toBe('Laravel app');
+});
+
+test('sets a JavaScript library up as a package without asking, and refuses a Next app', async (t) => {
+  const library = await folder(t, { 'package.json': '{"name": "lib"}' }, 'setup-');
+  expect((await chooseStack({ root: library, flags: {} })).label).toBe('JavaScript package');
+  expect(prompts.asked).toStrictEqual([]);
+  const app = await folder(t, { 'package.json': '{"dependencies": {"next": "^16"}}' }, 'setup-');
+  await expect(chooseStack({ root: app, flags: {} })).rejects.toThrow('JavaScript apps are not supported yet');
 });
 
 test('asks the kind, starting from the detected one, when the folder has no workflow file', async (t) => {

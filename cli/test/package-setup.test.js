@@ -6,6 +6,7 @@ import { rulesetBody } from '../lib/ruleset.js';
 import { collectState } from '../lib/state.js';
 import { parseInputs, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
+import jsPackage from '../stacks/js/package.js';
 import laravelPackage from '../stacks/laravel/package.js';
 import { byTitle, fakeGitHub, folder, PACKAGE_STATE, runResults, tempRoot } from './helpers.js';
 
@@ -129,4 +130,36 @@ test('reads only what a package needs from GitHub', async (t) => {
     },
   });
   expect(unreadable.codecovToken).toBe(false);
+});
+
+test('writes stack: js for a JavaScript library, and asks for no Codecov token', async (t) => {
+  const root = await tempRoot(t, 'package-');
+  const answers = { repository: 'datalogix/lib', solo: true, codeOwners: '@ana' };
+  const results = await runResults(
+    jsPackage.setup.tasks(answers, { github: fakeGitHub(), root, state: PACKAGE_STATE }),
+  );
+  expect(results.every((result) => result.ok)).toBe(true);
+  const workflow = await readFile(join(root, WORKFLOW_PATH), 'utf8');
+  expect(parseInputs(workflow)).toMatchObject({ stack: 'js' });
+  expect(packageAnswers(parseInputs(workflow)).stack).toBe('js');
+
+  // Its questions: no Codecov token and no Laravel lint or test tools
+  const ids = jsPackage.setup.steps().map((step) => step.id);
+  expect(ids).toStrictEqual(['repository', 'codecovToken', 'solo', 'codeOwners']);
+  const codecov = jsPackage.setup.steps().find((step) => step.id === 'codecovToken');
+  expect(codecov.when({}, { state: { codecovToken: false } })).toBe(false);
+  const items = await jsPackage.evaluate({
+    ...PACKAGE_STATE,
+    workflow,
+    current: packageAnswers(parseInputs(workflow)),
+  });
+  expect(items.map((item) => item.title)).not.toContainEqual(expect.stringContaining('CODECOV_TOKEN'));
+});
+
+test('writes no stack input for a Laravel package, and keeps the one of the file when not given', async () => {
+  expect(parseInputs(await renderPackageWorkflow('', 'main', { stack: 'laravel' })).stack).toBe(undefined);
+  const js = await renderPackageWorkflow('', 'main', { stack: 'js' });
+  expect(parseInputs(await renderPackageWorkflow(js, 'main', {})).stack).toBe('js');
+  // Written once, in front of the other inputs
+  expect(parseInputs(await renderPackageWorkflow(js, 'main', { stack: 'js' })).stack).toBe('js');
 });

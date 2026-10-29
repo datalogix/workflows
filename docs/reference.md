@@ -52,11 +52,11 @@ Secrets: `CLAUDE_CODE_OAUTH_TOKEN` (required); `RELEASE_APP_CLIENT_ID` and `RELE
 
 ## `package`
 
-The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Packages](laravel/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, plus:
+The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Laravel packages](laravel/package.md) and [JavaScript libraries](js/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, or with `stack: js` [`node-package-tests`](js/package-tests.md#inputs) (with `node`, `os`, `test-command`, `lint-command` and `timeout-minutes`), plus:
 
 | Input   | Default | Description                                                                                |
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
-| `stack` | `laravel` | Stack of the package, which picks its tests; only `laravel` is supported (another one fails the run) |
+| `stack` | `laravel` | Stack of the package, which picks its tests: `laravel` or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite; it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 
 Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
@@ -69,6 +69,10 @@ The tests of a Laravel app: see [Laravel app tests](laravel/app-tests.md#inputs)
 ## `laravel-package-tests`
 
 The tests of a Laravel package: see [Laravel package tests](laravel/package-tests.md#inputs).
+
+## `node-package-tests`
+
+The tests of a JavaScript or TypeScript library: see [JavaScript library tests](js/package-tests.md#inputs).
 
 ## `claude`
 

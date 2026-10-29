@@ -36,7 +36,8 @@ test('tells whether a stack recognized the folder or its workflow file', async (
   expect(await recognized({ artisan: '' })).toBe(true);
   expect(await recognized({ 'composer.json': LARAVEL_PACKAGE })).toBe(true);
   expect(await recognized({ [WORKFLOW_PATH]: await renderProjectWorkflow({ deploy: 'none' }) })).toBe(true);
-  expect(await recognized({ 'package.json': '{}', 'nuxt.config.ts': '' })).toBe(false);
+  expect(await recognized({ 'package.json': '{}' })).toBe(true);
+  expect(await recognized({ Gemfile: '' })).toBe(false);
   expect(await recognized({})).toBe(false);
 });
 
@@ -93,7 +94,33 @@ test('names the unsupported kind as the commands do: app or package', () => {
 });
 
 test('offers every stack and kind setup supports', () => {
-  expect(setupChoices().map((choice) => choice.label)).toStrictEqual(['Laravel app', 'Laravel package']);
+  expect(setupChoices().map((choice) => choice.label)).toStrictEqual([
+    'Laravel app',
+    'Laravel package',
+    'JavaScript package',
+  ]);
+});
+
+test('tells a JavaScript library from a Next or Nuxt app, and a PHP project from both', async (t) => {
+  const manifest = (json) => JSON.stringify(json);
+  expect(await detect(t, { 'package.json': manifest({ devDependencies: { typescript: '^5' } }) })).toStrictEqual([
+    'js',
+    'package',
+    'JavaScript package',
+  ]);
+  // Apps come later: their detection stops setup, check and protect with a clear message
+  for (const files of [
+    { 'package.json': manifest({ dependencies: { next: '^16' } }) },
+    { 'package.json': manifest({ devDependencies: { nuxt: '^4' } }) },
+    { 'package.json': '{}', 'nuxt.config.ts': '' },
+  ]) {
+    await expect(detectStack(await folder(t, files, 'stacks-'))).rejects.toThrow(
+      'JavaScript apps are not supported yet',
+    );
+  }
+  // composer.json makes it a PHP project, with frontend scripts
+  expect(await detect(t, { 'package.json': '{}', 'composer.json': '{}' })).toStrictEqual(APP);
+  expect(await detect(t, { 'package.json': '{ not json' })).toStrictEqual(APP);
 });
 
 test('takes the stack and kind from the flags, app being the project kind', () => {
