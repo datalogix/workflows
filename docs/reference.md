@@ -94,6 +94,7 @@ The tests of a JavaScript or TypeScript library: see [JavaScript library tests](
 | `allowed-tools`                           | `Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*`                              | Tools Claude may use                                                      |
 | `disallowed-tools`                        | force push, branch deletion, `gh pr merge`, `gh pr review`, `gh release`, `gh repo`, `gh secret` | Tools Claude may never use                                                |
 | `plugin-marketplaces` / `plugins`         | empty / `core@datalogix` and `laravel@datalogix`                                                 | Extra marketplaces, besides this repository's at the workflows' version (always added), and plugins to install |
+| `stack`                                   | `laravel`                                                                                        | `laravel` or `js`: the environment prepared for Claude (`setup-laravel` or `setup-js`) and the commands and conventions skill of its plugin (`<stack>@datalogix`, which `plugins` must list). The other Claude workflows and `incident` take it too |
 | `show-full-output`                        | `false`                                                                                          | Print Claude's full output in the logs (may expose secrets)               |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).

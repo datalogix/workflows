@@ -3,6 +3,10 @@ name: claude-fix-ci
 on:
   workflow_call:
     inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the project (laravel or js), which picks the environment prepared for Claude and the commands and conventions skill of its plugin (<stack>@datalogix, listed in plugins)
       php-version:
         type: string
         default: ""
@@ -140,11 +144,17 @@ jobs:
           fi
 
       - name: Setup Laravel
+        if: steps.check.outputs.skip != 'true' && inputs.stack == 'laravel'
         id: setup
-        if: steps.check.outputs.skip != 'true'
         uses: datalogix/workflows/.github/actions/setup-laravel@v2
         with:
           php-version: ${{ inputs.php-version }}
+          node-version: ${{ inputs.node-version }}
+
+      - name: Setup JavaScript
+        if: steps.check.outputs.skip != 'true' && inputs.stack == 'js'
+        uses: datalogix/workflows/.github/actions/setup-js@v2
+        with:
           node-version: ${{ inputs.node-version }}
 
       - name: Locate the Datalogix plugins
@@ -171,7 +181,7 @@ jobs:
           additional_permissions: |
             actions: read
 
-          prompt: /laravel:fix-ci ${{ env.RUN_ID }} ${{ env.PR_NUMBER }}
+          prompt: /${{ inputs.stack }}:fix-ci ${{ env.RUN_ID }} ${{ env.PR_NUMBER }}
 
           claude_args: |
             --max-turns ${{ inputs.max-turns }}
@@ -179,4 +189,4 @@ jobs:
             ${{ steps.setup.outputs.mcp-config != '' && format('--mcp-config {0}', steps.setup.outputs.mcp-config) || '' }}
             --allowed-tools "${{ inputs.allowed-tools }}"
             --disallowed-tools "${{ inputs.disallowed-tools }}"
-            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Do everything synchronously and only end your turn when the task is complete. Before starting, load the core:conventions and laravel:conventions skills and follow all of their rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Do everything synchronously and only end your turn when the task is complete. Before starting, load the core:conventions and ${{ inputs.stack }}:conventions skills and follow all of their rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"

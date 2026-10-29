@@ -24,7 +24,7 @@ To use the same conventions in your local Claude Code:
 
 ## Environment
 
-`claude`, `claude-fix-ci` and `laravel-app-tests` prepare the project with the [`setup-laravel`](../.github/actions/setup-laravel/action.yml) action:
+`claude` and `claude-fix-ci` prepare a JavaScript project (`stack: js`) with the [`setup-js`](../.github/actions/setup-js/action.yml) action: Node from `.nvmrc` or `.node-version` (the current LTS otherwise) and the dependencies, installed with pnpm, yarn or npm according to the lockfile. A Laravel project, and `laravel-app-tests`, use the [`setup-laravel`](../.github/actions/setup-laravel/action.yml) action:
 
 | Step          | Details                                                                                                                                                                                                                      |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -3,6 +3,10 @@ name: incident
 on:
   workflow_call:
     inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the project (laravel or js), which picks the environment prepared for Claude and the commands and conventions skill of its plugin (<stack>@datalogix, listed in plugins)
       environments:
         type: string
         default: '["production", "staging"]'
@@ -101,7 +105,7 @@ jobs:
             ${{ inputs.plugin-marketplaces }}
           plugins: ${{ inputs.plugins }}
 
-          prompt: /laravel:incident ${{ steps.sync.outputs.number }} ${{ steps.sync.outputs.live || '-' }} ${{ steps.sync.outputs.previous || '-' }}
+          prompt: /${{ inputs.stack }}:incident ${{ steps.sync.outputs.number }} ${{ steps.sync.outputs.live || '-' }} ${{ steps.sync.outputs.previous || '-' }}
 
           # Read-only: Claude reads the code and the history and comments on the issue. The issue holds text from
           # production errors, which anyone can cause: reads stay in the workspace (not /proc or the runner's files)
@@ -111,4 +115,4 @@ jobs:
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
             --allowed-tools "Read(./**),Grep(./**),Glob(./**),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(ls:*)"
             --disallowed-tools "Write,Edit,MultiEdit,Bash(git * --output*),Bash(git push:*),Bash(git commit:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh api:*)"
-            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only finish once the analysis has been posted on the issue. Load the core:conventions and laravel:conventions skills before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only finish once the analysis has been posted on the issue. Load the core:conventions and ${{ inputs.stack }}:conventions skills before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"

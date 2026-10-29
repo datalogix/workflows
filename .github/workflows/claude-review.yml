@@ -3,6 +3,10 @@ name: claude-review
 on:
   workflow_call:
     inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the project (laravel or js), which picks the environment prepared for Claude and the commands and conventions skill of its plugin (<stack>@datalogix, listed in plugins)
       model:
         type: string
         default: opus

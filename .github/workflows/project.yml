@@ -163,8 +163,8 @@ on:
 
 jobs:
   # Fails the run for an unsupported stack; the other jobs check inputs.stack in their condition, so no runner starts
-  # just to check it on every event. GitHub compares strings ignoring case, so the jobs name the laravel plugin as it
-  # is written in the marketplace, not as the input is spelled
+  # just to check it on every event. GitHub compares strings ignoring case, so the jobs pass the stack and name its
+  # plugin as they are written in the marketplace (laravel, js), not as the input is spelled
   stack:
     if: inputs.stack != 'laravel'
     runs-on: ubuntu-latest
@@ -190,9 +190,10 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude.yml@v2
     secrets: inherit
     with:
+      stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
       plugins: |
         core@datalogix
-        laravel@datalogix
+        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
       model: ${{ inputs.model }}
@@ -231,9 +232,10 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude-review.yml@v2
     secrets: inherit
     with:
+      stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
       plugins: |
         core@datalogix
-        laravel@datalogix
+        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       model: ${{ inputs.model }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
@@ -248,9 +250,10 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude-security-review.yml@v2
     secrets: inherit
     with:
+      stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
       plugins: |
         core@datalogix
-        laravel@datalogix
+        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       model: ${{ inputs.model }}
       fail-on: ${{ inputs.security-fail-on }}
       extra-instructions: ${{ inputs.extra-instructions }}
@@ -283,9 +286,10 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude-fix-ci.yml@v2
     secrets: inherit
     with:
+      stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
       plugins: |
         core@datalogix
-        laravel@datalogix
+        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
       model: ${{ inputs.fix-ci-model }}
@@ -358,9 +362,10 @@ jobs:
     uses: datalogix/workflows/.github/workflows/incident.yml@v2
     secrets: inherit
     with:
+      stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
       plugins: |
         core@datalogix
-        laravel@datalogix
+        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       environments: ${{ inputs.incident-environments }}
       types: ${{ inputs.incident-types }}
       model: ${{ inputs.model }}
