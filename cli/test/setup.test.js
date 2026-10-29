@@ -1409,11 +1409,11 @@ test('says the pull request of the workflow file fails the security review', asy
   expect(pr({ securityReview: false })).not.toContain('security review fails');
 });
 
-test('sets a Next app up with stack js and Sentry, without deploy questions', async (t) => {
+test('sets a Next app up with stack js and Sentry, not deployed by the workflows', async (t) => {
   const manifest = { dependencies: { next: '^16' }, scripts: { 'test:e2e': 'playwright test' } };
   const root = await folder(t, { 'package.json': JSON.stringify(manifest) }, 'setup-');
-  const { deploy, monitoring, ...flags } = setupFlags;
-  expect([deploy, monitoring]).toStrictEqual(['none', 'nightwatch']);
+  const { monitoring, ...flags } = setupFlags;
+  expect([flags.deploy, monitoring]).toStrictEqual(['none', 'nightwatch']);
   prompts.answer = false;
   // Only the end-to-end tests question is left without a flag
   expect(

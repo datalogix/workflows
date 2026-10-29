@@ -553,3 +553,32 @@ test("checks a JavaScript app: Sentry's SDK and the relay, nothing of Laravel or
   expect(titles).toContainEqual('package.json does not require @sentry/nextjs, so nothing reaches Sentry');
   expect(titles.join('\n')).not.toMatch(/nightwatch|DEPLOY_HOOK|HEALTH_URL|bootstrap\/app\.php/i);
 });
+
+test('checks the Vercel token and project of a JavaScript app that deploys, not a deploy hook', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'vercel',
+    staging: true,
+    monitoring: 'none',
+    incidents: false,
+  });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'next',
+    healthFile: 'app/api/health/route.ts',
+    healthRoute: false,
+    environments: {
+      production: environment({ deployHook: false, variables: { VERCEL_PROJECT: 'prj_1' } }),
+      staging: environment({ variables: { VERCEL_PROJECT: null } }),
+    },
+  };
+  const items = await run(state, { repository: 'datalogix/app', probe: async () => 200 });
+  const errors = titles(items, 'error');
+  expect(errors).toContainEqual('Environment production has no VERCEL_TOKEN secret');
+  expect(errors).toContainEqual('Environment staging has no VERCEL_PROJECT variable');
+  expect(errors.join('\n')).not.toContain('DEPLOY_HOOK');
+  expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('No health route at app/api/health/route.ts'));
+});

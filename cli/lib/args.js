@@ -95,7 +95,7 @@ Options (each one skips its question in setup)
   --kind app|package          An app or a package (default: detected)
   --org <organization>        Organization of org (default: the owner of the git remote)
   --repo owner/repo           Repository (default: from the git remote)
-  --deploy <target>           Where the app is deployed (laravel: forge, cloud or none)
+  --deploy <target>           Where the app is deployed (laravel: forge, cloud or none; js: vercel or none)
   --domain app.example.com    Production domain
   --staging / --no-staging    Deploy to staging before production
   --staging-domain <domain>   Staging domain

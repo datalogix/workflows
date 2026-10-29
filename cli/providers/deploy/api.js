@@ -1,5 +1,5 @@
-// A small client for the JSON:API of Forge and Laravel Cloud. The token goes only in the Authorization header, and
-// only to the API's own origin: a next-page link elsewhere is refused
+// A small client for the JSON APIs of Forge, Laravel Cloud and Vercel. The token goes only in the Authorization header,
+// and only to the API's own origin: a next-page link elsewhere is refused
 
 const TIMEOUT = 15_000;
 // A list longer than this is a loop of next links, not a real account
@@ -52,6 +52,7 @@ export function apiClient(base, token, name) {
   return {
     all,
     get: (path) => request('GET', path),
+    post: (path, body) => request('POST', path, body),
     put: (path, body) => request('PUT', path, body),
     patch: (path, body) => request('PATCH', path, body),
     delete: (path) => request('DELETE', path),
