@@ -167,3 +167,26 @@ test('tells how the Claude GitHub App reaches the repositories, and null when gh
   expect(await claudeApp({ stdout: '' })).toBe('none');
   expect(await claudeApp({ code: 1, stderr: 'gh: Must have admin rights (HTTP 403)' })).toBe(null);
 });
+
+test('reads the repository secrets once, again after storing one, and fails when they cannot be read', async () => {
+  const path = 'repos/datalogix/app/actions/secrets?per_page=100';
+  const runner = recorder({ [path]: { stdout: '{"name":"CLAUDE_CODE_OAUTH_TOKEN"}\n' } });
+  const github = createGitHub('datalogix/app', runner);
+  expect(await github.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')).toBe(true);
+  expect(await github.hasRepositorySecret('RELEASE_APP_CLIENT_ID')).toBe(false);
+  const lists = () => runner.calls.filter(([, args]) => args.includes(path)).length;
+  expect(lists()).toBe(1);
+
+  // An environment secret leaves the repository's as read
+  await github.setSecret('DEPLOY_HOOK', 'https://hook', 'production');
+  await github.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN');
+  expect(lists()).toBe(1);
+  await github.setSecret('RELEASE_APP_CLIENT_ID', 'id');
+  await github.hasRepositorySecret('RELEASE_APP_CLIENT_ID');
+  expect(lists()).toBe(2);
+
+  const forbidden = createGitHub('datalogix/app', recorder({ [path]: { code: 1, stderr: 'HTTP 403' } }));
+  await expect(forbidden.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')).rejects.toThrow('HTTP 403');
+  const missing = createGitHub('datalogix/app', recorder({ [path]: { code: 1, stderr: 'HTTP 404' } }));
+  expect(await missing.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')).toBe(false);
+});

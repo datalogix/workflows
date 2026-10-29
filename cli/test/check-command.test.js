@@ -112,6 +112,9 @@ test('looks up the relay with the spelling GitHub gives the repository', async (
     login: async () => 'ana',
     labels: async () => [],
     environment: async () => null,
+    // Read along with the environment: a missing one answers none
+    hasEnvironmentSecret: async () => false,
+    environmentVariable: async () => null,
     hasRepositorySecret: async () => true,
     hasOrganizationSecret: async () => false,
     claudeApp: async () => 'all',

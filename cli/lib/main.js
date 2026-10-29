@@ -32,7 +32,8 @@ export async function main(argv) {
 
   clack.intro(` datalogix · ${command} `);
 
-  const gh = await run('gh', ['auth', 'status']);
+  // Only github.com: without --hostname, a broken login on another host (GitHub Enterprise) fails the check
+  const gh = await run('gh', ['auth', 'status', '--hostname', 'github.com']);
   if (gh.code === 127) {
     clack.cancel(`The GitHub CLI is not installed: ${cyan('https://cli.github.com')}`);
     return 1;

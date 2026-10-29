@@ -83,33 +83,11 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
 
     steps:
-      # Before the review: a typo in fail-on would otherwise cost a whole review and fail the check
-      - name: Check settings
-        id: settings
-        shell: bash
-        env:
-          FAIL_ON: ${{ inputs.fail-on }}
-        run: |
-          case "$FAIL_ON" in
-            high) levels='["high"]' ;;
-            medium) levels='["high", "medium"]' ;;
-            low) levels='["high", "medium", "low"]' ;;
-            none) levels='[]' ;;
-            *) echo "::error::Invalid fail-on value: $FAIL_ON (use high, medium, low or none)"; exit 1 ;;
-          esac
-          echo "levels=$levels" >> "$GITHUB_OUTPUT"
-
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Read the team language
-        id: language
-        uses: datalogix/workflows/.github/actions/language@v2
-        with:
-          language: ${{ inputs.language }}
 
       - name: Locate the Datalogix plugins
         id: plugins
@@ -121,33 +99,18 @@ jobs:
         id: workflow
         uses: datalogix/workflows/.github/actions/workflow-file@v2
 
-      # A pull request that changes only documentation has nothing to review. The whole pull request counts, not the
-      # last push: a push of documentation on top of code (or on top of a blocking finding) is still reviewed. Markdown
-      # read as instructions (.github/, .claude/, CLAUDE.md, AGENTS.md) or that the app may render (resources/) counts
-      # as code, and so does a deleted or renamed file (--no-renames lists its old name). A failed git diff fails this
-      # step, so the review never skips by accident
-      - name: Check for code changes
-        id: changes
-        shell: bash
-        env:
-          BASE: ${{ github.base_ref }}
-        run: |
-          files=$(git diff --name-only --no-renames "origin/$BASE...HEAD")
-          docs=false
-          if [ -n "$files" ]; then
-            docs=true
-            while IFS= read -r file; do
-              case "$file" in
-                .github/* | .claude/* | */.claude/* | resources/* | CLAUDE.md | */CLAUDE.md | AGENTS.md | */AGENTS.md) docs=false ;;
-                *.md) ;;
-                *) docs=false ;;
-              esac
-            done <<< "$files"
-          fi
-          echo "docs-only=$docs" >> "$GITHUB_OUTPUT"
+      # Validates fail-on, then skips the review of a pull request that changes the workflow file or only documentation,
+      # or whose changes are the same as in the last passing review (see check.sh)
+      - name: Check the pull request
+        id: check
+        uses: datalogix/workflows/.github/actions/security-review@v2
+        with:
+          step: check
+          fail-on: ${{ inputs.fail-on }}
+          workflow-changed: ${{ steps.workflow.outputs.changed }}
 
       - name: Review security with Claude Code
-        if: steps.workflow.outputs.changed != 'true' && steps.changes.outputs.docs-only == 'false'
+        if: steps.check.outputs.review == 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -173,124 +136,19 @@ jobs:
             --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only end your turn once the findings file has been written. Load the core:conventions and ${{ inputs.stack }}:conventions skills before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
 
       # Also after a failed review (max-turns, an error of the action), so the PR comment does not keep the result of an
-      # earlier commit; not when cancelled, since a newer run replaces this one
+      # earlier commit; not when cancelled, since a newer run replaces this one, nor when fail-on is invalid
       - name: Publish findings
         id: findings
-        if: ${{ !cancelled() && steps.language.outcome == 'success' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FINDINGS: ${{ runner.temp }}/security-findings.json
-          LEVELS: ${{ steps.settings.outputs.levels }}
-          FAIL_ON: ${{ inputs.fail-on }}
-          ENGLISH: ${{ steps.language.outputs.english }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          WORKFLOW_CHANGED: ${{ steps.workflow.outputs.changed }}
-          WORKFLOW_FILE: ${{ steps.workflow.outputs.path }}
-          DOCS_ONLY: ${{ steps.changes.outputs.docs-only }}
-        run: |
-          marker="<!-- claude-security-review -->"
-          # A single comment per PR, updated on every push. Every page is read and the first id kept in bash: a pipe
-          # into head could end gh with SIGPIPE, which pipefail turns into a failed step
-          publish() {
-            local comments comment
-            comments=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-              --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
-            comment=${comments%%$'\n'*}
-            if [ -n "$comment" ]; then
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment" -f body="$1" >/dev/null
-            else
-              gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$1"
-            fi
-          }
-
-          # Running it again does not help: the workflow change has to reach the default branch first
-          if [ "$WORKFLOW_CHANGED" = true ]; then
-            echo "::error::This pull request changes $WORKFLOW_FILE, so Claude cannot review it"
-            if [ "$ENGLISH" = true ]; then
-              publish "$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' "## Security review" \
-                "This pull request changes \`$WORKFLOW_FILE\`, so Claude does not review it: Claude only runs with the default branch's copy of the workflow file, so neither this security review nor the code review ran. This check fails until the default branch has the same workflow file." \
-                "Move the workflow change to a pull request of its own, reviewed by a person (an admin merges it past this check), then push to this pull request or re-run this job." \
-                "[View run]($RUN_URL)" "$marker")"
-            else
-              publish "$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' "## Revisão de segurança" \
-                "Este PR altera \`$WORKFLOW_FILE\`, então o Claude não o revisa: ele só roda com a cópia do arquivo de workflow do branch padrão, e nem esta revisão de segurança nem o code review rodaram. Este check falha até o branch padrão ter o mesmo arquivo de workflow." \
-                "Leve a mudança do workflow para um PR só com ela, revisado por uma pessoa (um admin faz o merge passando por este check), e depois envie um commit para este PR ou rode este job de novo." \
-                "[Ver execução]($RUN_URL)" "$marker")"
-            fi
-            exit 1
-          fi
-
-          if [ "$DOCS_ONLY" = true ]; then
-            if [ "$ENGLISH" = true ]; then
-              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Security review" \
-                "This pull request changes only documentation (Markdown files), so Claude did not review it. A change to any other file brings the review back." \
-                "[View run]($RUN_URL)" "$marker")"
-            else
-              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Revisão de segurança" \
-                "Este PR altera só documentação (arquivos Markdown), então o Claude não o revisou. Uma mudança em qualquer outro arquivo traz a revisão de volta." \
-                "[Ver execução]($RUN_URL)" "$marker")"
-            fi
-            echo "### Security review" >> "$GITHUB_STEP_SUMMARY"
-            echo "Only documentation changed: not reviewed." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          if ! jq -e '.findings | type == "array" and all(type == "object")' "$FINDINGS" >/dev/null 2>&1; then
-            echo "::error::The security review did not produce a valid findings file"
-            if [ "$ENGLISH" = true ]; then
-              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Security review" \
-                "The security review did not finish; this check fails until it runs again (push a commit or re-run the job)." \
-                "[View run]($RUN_URL)" "$marker")"
-            else
-              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Revisão de segurança" \
-                "A revisão de segurança não terminou; este check falha até ela rodar de novo (envie um commit ou rode o job de novo)." \
-                "[Ver execução]($RUN_URL)" "$marker")"
-            fi
-            exit 1
-          fi
-          # Severities spelled otherwise (High, critical) or unknown count as high, so they never pass unseen
-          jq '.findings |= map(.severity = ((.severity // "") | tostring | ascii_downcase
-            | if IN("medium", "low") then . else "high" end))' "$FINDINGS" > "$FINDINGS.normalized"
-          mv "$FINDINGS.normalized" "$FINDINGS"
-
-          blocking=$(jq --argjson levels "$LEVELS" '[.findings[] | select(.severity as $s | $levels | index($s))] | length' "$FINDINGS")
-          total=$(jq '.findings | length' "$FINDINGS")
-          echo "blocking=$blocking" >> "$GITHUB_OUTPUT"
-
-          body=$(jq -r --arg marker "$marker" --arg run "$RUN_URL" --argjson blocking "$blocking" --argjson en "$ENGLISH" '
-            def icon: {"high": "🔴", "medium": "🟠", "low": "🟡"}[.] // "⚪";
-            [
-              (if $en then "## Security review" else "## Revisão de segurança" end),
-              "",
-              .summary,
-              "",
-              (if (.findings | length) == 0 then
-                 (if $en then "No security problems found in the changes of this PR." else "Nenhum problema de segurança encontrado nas mudanças deste PR." end)
-               else
-                 (.findings | sort_by({"high": 0, "medium": 1, "low": 2}[.severity] // 3)[] |
-                   "### \(.severity | icon) \(.title)\n\n`\(.file)\(if .line then ":\(.line)" else "" end)` · \(.severity) · \(.category)\n\n\(.description)\n\n**\(if $en then "Recommendation" else "Recomendação" end):** \(.recommendation)\n")
-               end),
-              "",
-              (if $blocking == 0 then empty
-               elif $en then "This PR is blocked until the problems above are fixed. Ask `@claude fix the security problems`; if one is a false positive, record it in `.github/security-review.md`."
-               else "Este PR está bloqueado até que os problemas acima sejam corrigidos. Peça `@claude corrija os problemas de segurança`; se for um falso positivo, registre-o em `.github/security-review.md`." end),
-              "",
-              (if $en then "[View run](\($run))" else "[Ver execução](\($run))" end),
-              "",
-              $marker
-            ] | join("\n")
-          ' "$FINDINGS")
-
-          publish "$body"
-
-          {
-            echo "### Security review"
-            echo
-            echo "$total finding(s), $blocking at or above \`$FAIL_ON\`."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$blocking" -gt 0 ]; then
-            echo "::error::$blocking security finding(s) at or above $FAIL_ON"
-            exit 1
-          fi
+        if: ${{ !cancelled() && steps.check.outputs.levels != '' }}
+        uses: datalogix/workflows/.github/actions/security-review@v2
+        with:
+          step: publish
+          fail-on: ${{ inputs.fail-on }}
+          levels: ${{ steps.check.outputs.levels }}
+          workflow-changed: ${{ steps.workflow.outputs.changed }}
+          workflow-file: ${{ steps.workflow.outputs.path }}
+          docs-only: ${{ steps.check.outputs.docs-only }}
+          reused: ${{ steps.check.outputs.reused }}
+          digest: ${{ steps.check.outputs.digest }}
+          findings: ${{ runner.temp }}/security-findings.json
+          language: ${{ inputs.language }}

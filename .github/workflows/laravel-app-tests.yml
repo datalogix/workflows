@@ -58,7 +58,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          # Pint compares with the base branch, which needs the history; it only runs on pull requests
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
 
       # Each check below runs even when an earlier one failed, so a run reports every failure at once; none runs
       # without the dependencies
@@ -77,10 +78,32 @@ jobs:
           BASE: ${{ github.base_ref }}
         run: vendor/bin/pint --test --diff="origin/$BASE"
 
+      # PHPStan's default tmpDir; a project that sets another one just runs without the result cache. One cache per pull
+      # request, saved by its first run (later runs start from it), and one per commit elsewhere, which a new pull
+      # request starts from
+      - name: Restore PHPStan cache
+        id: phpstan-cache
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.phpstan && hashFiles('vendor/bin/phpstan') != '' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: /tmp/phpstan
+          key: phpstan-${{ runner.os }}-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+          restore-keys: phpstan-${{ runner.os }}-
+
       - name: PHPStan
+        id: phpstan
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.phpstan && hashFiles('vendor/bin/phpstan') != '' }}
         shell: bash
         run: vendor/bin/phpstan analyse --no-progress --error-format=github --memory-limit=2G
+
+      # Also after errors: the result cache still holds every file analysed. Not in the merge queue, whose temporary
+      # branches no other run can read
+      - name: Save PHPStan cache
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && steps.phpstan-cache.outputs.cache-hit != 'true' && (steps.phpstan.outcome == 'success' || steps.phpstan.outcome == 'failure') }}
+        uses: actions/cache/save@v6
+        with:
+          path: /tmp/phpstan
+          key: phpstan-${{ runner.os }}-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.sha }}
 
       - name: Lint command
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.lint-command != '' }}

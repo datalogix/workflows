@@ -55,7 +55,7 @@ on:
         description: Branch deployed to production (e.g. main); the default branch then deploys only staging. Empty deploys the default branch to both. The release pull requests run their checks only with the RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY secrets
       watch-minutes:
         type: number
-        default: 10
+        default: 5
         description: Minutes each environment is watched after a deploy before it counts as successful. The deploy job stops after 60 minutes, waits included (settle, watch and a rollback), so keep it well below that
       staging-watch-minutes:
         type: number

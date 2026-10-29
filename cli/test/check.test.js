@@ -582,3 +582,31 @@ test('checks the Vercel token and project of a JavaScript app that deploys, not 
   expect(errors.join('\n')).not.toContain('DEPLOY_HOOK');
   expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('No health route at app/api/health/route.ts'));
 });
+
+test('probes every health URL and looks up the relay together, reporting them in order', async () => {
+  const state = await stateFor({ ...PRODUCTION, incidents: true }, READY);
+  const started = [];
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const slow = (name, value) => async () => {
+    started.push(name);
+    await gate;
+    return value;
+  };
+  const evaluated = run(state, {
+    repository: 'datalogix/app',
+    probe: async (url) => slow(url, url.includes('staging') ? null : 200)(),
+    relayLookup: slow('relay', true),
+  });
+  // Every slow read started before any of them answered
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(started).toStrictEqual(['https://app.example.com/up', 'https://staging.app.example.com/up', 'relay']);
+  release();
+
+  const items = (await evaluated).map((item) => item.title);
+  const production = items.indexOf('production: https://app.example.com/up answers 200');
+  const staging = items.findIndex((title) => title.startsWith('staging: https://staging.app.example.com/up answers'));
+  expect(production).toBeGreaterThan(-1);
+  expect(staging).toBeGreaterThan(production);
+  expect(items.indexOf('Registered in the monitoring relay')).toBeGreaterThan(staging);
+});

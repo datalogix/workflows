@@ -27,8 +27,8 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `staging`                                                         | `true`                         | Deploy and watch `staging` before `production`                           |
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
 | `production-branch`                                               | empty                          | Branch deployed to production (e.g. `main`); the default branch then deploys only staging. List both branches in `push.branches` (e.g. `[develop, main]`; setup does). See [Production branch](deploy.md#production-branch) |
-| `watch-minutes`                                                   | `10`                           | Minutes each environment is watched after a deploy                       |
-| `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `5`); `0` uses `watch-minutes` |
+| `watch-minutes`                                                   | `5`                            | Minutes each environment is watched after a deploy                       |
+| `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `3`); `0` uses `watch-minutes` |
 | `github-deployments`                                              | `true`                         | Record each deploy and rollback in the repository's **Deployments**; `false` still uses the environments' secrets, variables and required reviewers |
 | `monitoring`                                                      | `nightwatch`                   | Monitoring service of the app: `nightwatch`, `sentry` or `none`. Its problems become issues (with `incidents`), the issue of a failed deploy names it, and Nightwatch marks each deploy on Forge. See [Production errors](production-errors.md) |
 | `incidents`                                                       | `true`                         | Turn monitoring problems into GitHub issues analyzed by Claude           |
@@ -106,7 +106,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ## `claude-review`
 
-Reviews a pull request. `project` calls it once, when the pull request is opened, reopened or marked ready for review; later pushes are not reviewed again (comment `@claude` for another review). The security review still runs on every push, unless the pull request changes only documentation (see [`claude-security-review`](#claude-security-review)). With [`production-branch`](deploy.md#production-branch), `project` skips the release and sync pull requests between the two branches; hotfix pull requests to the production branch are reviewed.
+Reviews a pull request. `project` calls it once, when the pull request is opened, reopened or marked ready for review; later pushes are not reviewed again (comment `@claude` for another review). The security review still runs on every push, unless the pull request changes only documentation or its changes are the same as in the last passing review (see [`claude-security-review`](#claude-security-review)). With [`production-branch`](deploy.md#production-branch), `project` skips the release and sync pull requests between the two branches; hotfix pull requests to the production branch are reviewed.
 
 | Input                             | Default                                | Description                                            |
 | --------------------------------- | -------------------------------------- | ------------------------------------------------------ |
@@ -123,7 +123,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ## `claude-security-review`
 
-Runs on every push to a pull request. A pull request whose changes, taken as a whole, are only Markdown files is not reviewed: the comment says so and the check passes. Markdown under `.github/`, `.claude/` or `resources/`, and any `CLAUDE.md` or `AGENTS.md`, counts as code, as does a deleted or renamed file; a push of documentation on top of code is still reviewed.
+Runs on every push to a pull request. A pull request whose changes, taken as a whole, are only Markdown files is not reviewed: the comment says so and the check passes. Markdown under `.github/`, `.claude/` or `resources/`, and any `CLAUDE.md` or `AGENTS.md`, counts as code, as does a deleted or renamed file; a push of documentation on top of code is still reviewed. A push that leaves the changes of the pull request as they were (updating the branch with the base, a rebase, an empty commit) keeps the last review when it passed with the same `fail-on`; a base change to a file the pull request also changes, and a manual re-run of the job, review again.
 
 | Input                             | Default                                | Description                                                                         |
 | --------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -136,7 +136,7 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 | `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes)                              |
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 
-Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every push, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
+Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every review, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
 
 A pull request that changes the calling workflow file (`.github/workflows/datalogix.yml`) is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until the default branch has the same file. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
 
@@ -190,7 +190,7 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | `issue`           | `0`       | Issue that asked for the rollback; gets the result as a comment and loses the `rollback` label  |
 | `rollback-label`  | `rollback`| Label removed from that issue after a rollback                                                  |
 | `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud. Vercel follows the build until it is ready, for at most this (`0`: 900) |
-| `watch-minutes`   | `10`      | Minutes to watch the health URL                                                                 |
+| `watch-minutes`   | `5`       | Minutes to watch the health URL                                                                 |
 | `max-failures`    | `3`       | Consecutive failed checks (every 30 seconds) that trigger the rollback                          |
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |
 | `github-deployments` | `true` | Record the deploy in the repository's **Deployments**; `false` still uses the environment (custom deployment protection rules need the record: with them, `false` fails the job) |
