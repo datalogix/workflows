@@ -40,7 +40,7 @@ on:
       deploy:
         type: string
         default: none
-        description: Deploy the default branch after its tests pass, with forge or cloud (none disables)
+        description: Deploy the default branch after its tests pass, with forge, cloud or vercel (none disables)
       staging:
         type: boolean
         default: true
@@ -56,7 +56,7 @@ on:
       settle-seconds:
         type: number
         default: 0
-        description: Seconds to wait after triggering a deploy or rollback before watching; 0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first
+        description: Seconds to wait after triggering a deploy or rollback before watching; 0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first; on Vercel, the most the wait follows the build until it is ready (0 uses 900)
       watch-minutes:
         type: number
         default: 3
@@ -71,6 +71,10 @@ on:
         description: Record each deploy and rollback in the repository's Deployments (deploy); false still uses the environments
 
       # Incidents
+      monitoring:
+        type: string
+        default: nightwatch
+        description: Monitoring service of the app (nightwatch, sentry, inspector or none), whose problems become issues; deploys name it, and mark themselves in it when it has deploy markers
       incidents:
         type: boolean
         default: true
@@ -303,6 +307,7 @@ jobs:
       # 0 is falsy in expressions, so it falls back to watch-minutes
       watch-minutes: ${{ inputs.staging-watch-minutes || inputs.watch-minutes }}
       github-deployments: ${{ inputs.github-deployments }}
+      monitoring: ${{ inputs.monitoring }}
       language: ${{ inputs.language }}
 
   production:
@@ -325,6 +330,7 @@ jobs:
       branch: ${{ inputs.production-branch }}
       watch-minutes: ${{ inputs.watch-minutes }}
       github-deployments: ${{ inputs.github-deployments }}
+      monitoring: ${{ inputs.monitoring }}
       language: ${{ inputs.language }}
 
   release:
@@ -379,6 +385,7 @@ jobs:
       issue: ${{ github.event.issue.number }}
       watch-minutes: 5
       github-deployments: ${{ inputs.github-deployments }}
+      monitoring: ${{ inputs.monitoring }}
       language: ${{ inputs.language }}
 
   # The rollback label on a staging issue with staging off: no environment to roll back, so the issue says why and

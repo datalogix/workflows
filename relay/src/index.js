@@ -13,6 +13,7 @@
  *   ALLOWED_OWNER  (var)       GitHub owner whose repositories may be targeted, e.g. datalogix (in any case)
  *   GITHUB_TOKEN   (secret)    Fine-grained token with Contents: read and write on the project repositories
  *   SECRETS        (KV)        One entry per repository and provider: "<provider>:<owner>/<repo>" (lowercase) => secret.
+ *                              (Inspector's is a JSON object of keys by environment, see providers/inspector.js.)
  *                              Kept in KV, not in a single secret, so one project can be added or changed
  *                              (by the setup command) without rewriting the others. Also holds, for a while, the
  *                              events already delivered ("delivery:<provider>:<owner>/<repo>:<sha256 of the body>").
@@ -104,7 +105,7 @@ export default {
       return new Response('Invalid JSON', { status: 400 });
     }
 
-    const incident = provider.normalize(webhook);
+    const incident = await provider.normalize(webhook, verified);
     if (!incident) {
       // An event the provider sends but the incident flow does not use: acknowledge so it is not retried
       return new Response(null, { status: 204 });

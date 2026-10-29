@@ -14,6 +14,32 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/github.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/inputs.sh"
 # shellcheck source=SCRIPTDIR/../lib/releases.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/releases.sh"
+
+# The deploy provider (providers/<id>.sh) defines provider_settle_seconds (prints the seconds a deploy usually takes, or
+# the most provider_wait <seconds> follows it, when the provider can tell it finished), provider_check and
+# provider_trigger <sha>,
+# which returns non-zero, with an ::error::, when the provider did not accept the deploy. The name is checked before it
+# becomes a path
+providers_dir="$(dirname "${BASH_SOURCE[0]}")/providers"
+if [[ ! "${PROVIDER:-}" =~ ^[a-z][a-z0-9-]*$ ]] || [ ! -f "$providers_dir/$PROVIDER.sh" ]; then
+  known=""
+  for file in "$providers_dir"/*.sh; do known+="${known:+, }$(basename "$file" .sh)"; done
+  echo "::error::provider must be one of $known, got '${PROVIDER:-}'"
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "$providers_dir/$PROVIDER.sh"
+
+# The monitoring service (monitoring/<id>.sh) defines monitoring_name and, with deploy markers, mark_<id> <sha> <name>,
+# which marks a deploy when the environment has its token and only warns when it cannot. none, or a service without a
+# script, has neither
+monitoring=${MONITORING:-nightwatch}
+monitoring_file="$(dirname "${BASH_SOURCE[0]}")/monitoring/$monitoring.sh"
+if [[ "$monitoring" =~ ^[a-z][a-z0-9-]*$ ]] && [ -f "$monitoring_file" ]; then
+  # shellcheck source=/dev/null
+  source "$monitoring_file"
+fi
+
 history=$(history_ref "$environment_key")
 rejected=$(rolled_back_ref "$environment_key")
 live_path=$(live_ref "$environment_key")
@@ -49,23 +75,28 @@ mark_rolled_back() {
   gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/$rejected/$1" -f "sha=$1" >/dev/null 2>&1 || true
 }
 
-trigger() {
-  local sha=$1 code
-  if [ "$PROVIDER" = cloud ]; then
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X POST --get --data-urlencode "commit_hash=$sha" "$DEPLOY_HOOK" || true)
-  else
-    # Forge deploys the branch head; the commit variable makes the deploy script check out this exact commit
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X POST --get \
-      --data-urlencode "forge_deploy_branch=$BRANCH" \
-      --data-urlencode "forge_deploy_commit=$sha" \
-      --data-urlencode "commit=$sha" \
-      "$DEPLOY_HOOK" || true)
+# For providers deployed by a hook: the DEPLOY_HOOK secret is required
+require_deploy_hook() {
+  if [ -z "${DEPLOY_HOOK:-}" ]; then
+    echo "::error::Add the DEPLOY_HOOK secret to the $ENVIRONMENT environment (Settings > Environments)"
+    exit 1
   fi
-  # No retries: a hook that answered late may have deployed already
+}
+
+# POSTs to the deploy hook with the given query parameters (curl --data-urlencode ...). No retries: a hook that
+# answered late may have deployed already
+post_hook() {
+  local code
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X POST --get "$@" "$DEPLOY_HOOK" || true)
   if [ "${code:0:1}" != 2 ]; then
     echo "::error::The deploy hook answered HTTP ${code:-000}"
     return 1
   fi
+}
+
+trigger() {
+  local sha=$1
+  provider_trigger "$sha" || return 1
   set_live "$sha"
   echo "Deploy of $sha to $ENVIRONMENT triggered"
 }
@@ -73,7 +104,13 @@ trigger() {
 settle() {
   local seconds=${1:-0}
   if [ "$seconds" -eq 0 ]; then
-    if [ "$PROVIDER" = cloud ]; then seconds=300; else seconds=120; fi
+    seconds=$(provider_settle_seconds)
+  fi
+  # A provider that can tell when the deploy finished follows it, for at most those seconds
+  if declare -F provider_wait >/dev/null; then
+    echo "Waiting up to $seconds seconds for $PROVIDER to finish the deploy"
+    provider_wait "$seconds"
+    return
   fi
   echo "Waiting $seconds seconds for $PROVIDER to finish the deploy"
   sleep "$seconds"
@@ -103,30 +140,17 @@ watch_health() {
   done
 }
 
-# Laravel Cloud already reports its deploys to Nightwatch
-report_nightwatch() {
-  local sha=$1 name=$2
-  [ "$PROVIDER" = forge ] && [ -n "${NIGHTWATCH_TOKEN:-}" ] || return 0
-  # The token goes through a header file, never in the command line
-  jq -n --arg deploy "$sha" --arg ref "$sha" --arg name "$name" --arg url "$RUN_URL" '{deploy: $deploy, ref: $ref, name: $name, url: $url}' |
-    curl -sS --fail --max-time 30 -o /dev/null -X POST https://nightwatch.laravel.com/api/deployments \
-      -H @<(printf 'Authorization: Bearer %s\n' "$NIGHTWATCH_TOKEN") -H 'Content-Type: application/json' --data @- ||
-    echo "::warning::Could not report the deploy to Nightwatch"
+# Marks the deploy in the monitoring service, when it has deploy markers
+report_markers() {
+  if declare -F "mark_$monitoring" >/dev/null; then "mark_$monitoring" "$1" "$2"; fi
 }
 
 check() {
-  case "$PROVIDER" in
-    forge | cloud) ;;
-    *) echo "::error::provider must be forge or cloud, got '$PROVIDER'"; exit 1 ;;
-  esac
   case "$MODE" in
     deploy | rollback) ;;
     *) echo "::error::mode must be deploy or rollback, got '$MODE'"; exit 1 ;;
   esac
-  if [ -z "$DEPLOY_HOOK" ]; then
-    echo "::error::Add the DEPLOY_HOOK secret to the $ENVIRONMENT environment (Settings > Environments)"
-    exit 1
-  fi
+  provider_check
   if [ -z "$HEALTH_URL" ]; then
     echo "::error::Add the HEALTH_URL variable to the $ENVIRONMENT environment, e.g. https://example.com/up"
     exit 1
@@ -191,7 +215,7 @@ deploy() {
   else
     name="$ENVIRONMENT ${SHA:0:7}"
   fi
-  report_nightwatch "$SHA" "$name"
+  report_markers "$SHA" "$name"
 }
 
 watch() {
@@ -226,7 +250,7 @@ rollback() {
   # Only now that the environment changed, as in a rollback by label: a release recorded as good before (deployed
   # again with Re-run jobs) is never a rollback target after failing
   mark_rolled_back "$GITHUB_SHA"
-  report_nightwatch "$target" "$ENVIRONMENT rollback to ${target:0:7}"
+  report_markers "$target" "$ENVIRONMENT rollback to ${target:0:7}"
 
   settle "${SETTLE:-0}"
   if watch_health 3; then
@@ -235,6 +259,20 @@ rollback() {
   else
     echo "::error::$ENVIRONMENT is still failing after the rollback to ${target:0:7}"
     exit 1
+  fi
+}
+
+# Where to look after a failed deploy: the monitoring service's errors, when there is one, and the provider's logs
+errors_hint() {
+  local rerun_en="To redeploy this commit after the fix, use **Re-run jobs** on this run: $RUN_URL"
+  local rerun_pt="Para redeployar este commit depois da correção, use **Re-run jobs** nesta execução: $RUN_URL"
+  if declare -F monitoring_name >/dev/null; then
+    local name
+    name=$(monitoring_name)
+    t "Check the errors in $name and the deploy logs in $PROVIDER. $rerun_en" \
+      "Verifique os erros no $name e os logs do deploy no $PROVIDER. $rerun_pt"
+  else
+    t "Check the deploy logs in $PROVIDER. $rerun_en" "Verifique os logs do deploy no $PROVIDER. $rerun_pt"
   fi
 }
 
@@ -261,8 +299,7 @@ open_issue() {
     "$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** failed the health checks of \`$HEALTH_URL\`." \
       "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** falhou nos health checks de \`$HEALTH_URL\`.")" \
     "$result" \
-    "$(t "Check the errors in Nightwatch and the deploy logs in $PROVIDER. To redeploy this commit after the fix, use **Re-run jobs** on this run: $RUN_URL" \
-      "Verifique os erros no Nightwatch e os logs do deploy no $PROVIDER. Para redeployar este commit depois da correção, use **Re-run jobs** nesta execução: $RUN_URL")" \
+    "$(errors_hint)" \
     "$(t "To ask Claude to investigate, add the \`claude-plan\` label." \
       "Para pedir ao Claude que investigue, adicione o label \`claude-plan\`.")")
 

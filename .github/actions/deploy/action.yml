@@ -1,5 +1,5 @@
 name: Deploy step
-description: One step of a deploy or rollback to Laravel Forge or Laravel Cloud, with the release history kept in refs/datalogix/*. The deploy workflow sets the environment it reads (MODE, PROVIDER, ENVIRONMENT, DEPLOY_HOOK, HEALTH_URL, LANGUAGE and the step's own values).
+description: One step of a deploy or rollback to a provider in providers/ (Laravel Forge, Laravel Cloud), with the release history kept in refs/datalogix/*. The deploy workflow sets the environment it reads (MODE, PROVIDER, ENVIRONMENT, DEPLOY_HOOK, HEALTH_URL, LANGUAGE and the step's own values).
 
 inputs:
   step:

@@ -3,20 +3,12 @@ import { join } from 'node:path';
 import { deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
-import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from './cloud.js';
-import {
-  forgeApi,
-  forgeDeployHook,
-  forgeNightwatchTask,
-  forgeSites,
-  forgeSiteTask,
-  STANDARD_SNIPPET,
-  ZERO_DOWNTIME_SNIPPET,
-} from './forge.js';
+import { deployProviders } from '../../providers/deploy/index.js';
+import { MONITORING_SERVICES, monitoringServices } from '../../providers/monitoring/index.js';
 import { addDatabaseCheck, inspectHealth, PROVIDER_PATH } from './health.js';
 import { inspectTools, NO_TOOLS, toolSteps } from './tools.js';
 
-// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch, the
+// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch, Sentry or Inspector, the
 // health check of bootstrap/app.php and the lint and test tools
 
 const BY_HAND = 'see docs/laravel/app-manual-setup.md in datalogix/workflows';
@@ -63,10 +55,18 @@ const jsStep = {
     ),
 };
 
-/** Whether composer.json requires Nightwatch's agent, without which no problem or deploy reaches Nightwatch. */
-async function requiresNightwatch(root) {
+// The package each monitoring service needs in the app, without which nothing reaches it
+const AGENTS = {
+  nightwatch: 'laravel/nightwatch',
+  sentry: 'sentry/sentry-laravel',
+  inspector: 'inspector-apm/inspector-laravel',
+};
+const monitoringOf = (a) => a?.monitoring ?? 'nightwatch';
+
+/** Whether composer.json requires the package, e.g. Nightwatch's agent. */
+async function requiresPackage(root, name) {
   try {
-    return 'laravel/nightwatch' in (JSON.parse(await readFile(join(root, 'composer.json'), 'utf8')).require ?? {});
+    return name in (JSON.parse(await readFile(join(root, 'composer.json'), 'utf8')).require ?? {});
   } catch {
     return false;
   }
@@ -112,32 +112,8 @@ function healthCheckTask(root) {
   };
 }
 
-// What setup can do through each target's API with a token of the user's (used during setup only, never stored)
-const PROVIDERS = {
-  forge: {
-    name: 'Forge',
-    kind: 'site',
-    tokenHint:
-      'with site:manage-deploys and, for Nightwatch, server:view and site:manage-environment; turns off Push to deploy, fixes the deploy script, reads the deploy hooks and sets NIGHTWATCH_TOKEN',
-    api: forgeApi,
-    find: forgeSites,
-    hook: forgeDeployHook,
-    label: (site) => site.name,
-    task: forgeSiteTask,
-    nightwatchTask: forgeNightwatchTask,
-  },
-  cloud: {
-    name: 'Laravel Cloud',
-    kind: 'environment',
-    tokenHint: 'turns off Push to deploy and sets the branch of each environment',
-    api: cloudApi,
-    find: cloudEnvironments,
-    hook: null,
-    label: (environment) => `${environment.application} · ${environment.name}`,
-    task: cloudEnvironmentTask,
-    nightwatchTask: null,
-  },
-};
+// The deploy targets of a Laravel app (cli/providers/deploy)
+const PROVIDERS = deployProviders(['forge', 'cloud']);
 
 const withToken = (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]) && Boolean(a.deployToken?.trim());
 const environmentsOf = (a) => (a.staging ? ['production', 'staging'] : ['production']);
@@ -213,7 +189,7 @@ function deploySiteStep(environment) {
           options: [
             ...targets.map((target, i) => ({
               value: i,
-              label: provider.label(target),
+              label: provider.targetLabel(target),
               hint: target.branch ? `branch ${target.branch}` : undefined,
             })),
             { value: -1, label: 'None of these', hint: 'setup lists what to do by hand at the end' },
@@ -258,7 +234,16 @@ function deploySiteTasks(answers, { state }) {
 }
 
 // Problems become issues, or deploys are marked: both need Nightwatch's agent in the app, with its token
-const usesNightwatch = (a) => Boolean(a.incidents || a.monitoringMarkers);
+const usesNightwatch = (a) => monitoringOf(a) === 'nightwatch' && Boolean(a.incidents || a.monitoringMarkers);
+
+/** The SDK of Sentry or Inspector, when its problems become issues and the app does not require it yet. */
+function sdkNextSteps(answers, { state }) {
+  const service = MONITORING_SERVICES[monitoringOf(answers)];
+  if (!['sentry', 'inspector'].includes(service?.id) || !answers.incidents || state[service.id]) return [];
+  return [
+    `Install ${service.name}'s SDK in the app, or nothing reaches ${service.name}: ${cyan(`composer require ${AGENTS[service.id]}`)}`,
+  ];
+}
 
 /** What Nightwatch needs in the app and its servers that setup did not do: the agent, and each environment's token. */
 function nightwatchNextSteps(answers, { state, results = [] }) {
@@ -276,12 +261,7 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
   const problems = left
     .filter((environment) => resultOf(environment) && !resultOf(environment).ok)
     .map((environment) => `${environment}: ${resultOf(environment).detail}`);
-  const where =
-    answers.deploy === 'forge'
-      ? 'the Forge site'
-      : answers.deploy === 'cloud'
-        ? 'the Laravel Cloud environment'
-        : 'the server';
+  const where = PROVIDERS[answers.deploy]?.where ?? 'the server';
   if (!deploys(answers) || left.length) {
     steps.push(
       [
@@ -321,28 +301,7 @@ function deployNextSteps(answers, { twoBranches, results = [] }) {
       );
   const which = (kind) =>
     left.length === 2 ? `both ${kind}s` : answers.staging ? `the ${left[0]} ${kind}` : `the ${kind}`;
-  if (answers.deploy === 'forge') {
-    const branches = () => branchesOf((environment, branch) => `${environment} site on ${branch}`).join(', ');
-    return [
-      [
-        `In Forge, for ${which('site')}: turn off ${bold('Push to deploy')}${twoBranches ? ` (${branches()})` : ''}, and in the deploy script, on zero-downtime sites, add right after ${bold('cd $FORGE_RELEASE_DIRECTORY')}:`,
-        dim(ZERO_DOWNTIME_SNIPPET.replace(/^/gm, '  ')),
-        `  On standard sites, replace ${bold('git pull origin $FORGE_SITE_BRANCH')} with:`,
-        dim(STANDARD_SNIPPET.replace(/^/gm, '  ')),
-        ...why,
-      ].join('\n'),
-    ];
-  }
-  if (answers.deploy === 'cloud') {
-    const branches = () => branchesOf((environment, branch) => `${environment} track ${branch}`).join(' and ');
-    return [
-      [
-        `In Laravel Cloud, for ${which('environment')}: turn off ${bold('Push to deploy')}${twoBranches ? `, make ${branches()}` : left.includes('staging') ? ', and make staging track the default branch' : ''}.`,
-        ...why,
-      ].join('\n'),
-    ];
-  }
-  return [];
+  return PROVIDERS[answers.deploy]?.manualSteps({ which, branchesOf, twoBranches, left, why }) ?? [];
 }
 
 /** The health check items of check, for an app that deploys. */
@@ -356,44 +315,42 @@ function evaluateDeploy({ ok, warn }, state) {
   if (state.health.route && state.health.databaseCheck) ok(`Health check ${state.health.route} checks the database`);
 }
 
-/** Whether Nightwatch's agent is in the app, when Nightwatch is on. */
+/** Whether the monitoring service's package is in the app, when the service is on. */
 function evaluateMonitoring({ ok, warn }, state) {
   // composer.json is read from the folder: without the app, nothing to say
   if (!state.health.laravel) return;
-  if (state.nightwatch) ok('laravel/nightwatch in composer.json');
+  const service = monitoringOf(state.current);
+  const name = AGENTS[service];
+  if (!name) return;
+  if (state[service]) ok(`${name} in composer.json`);
   else
     warn(
-      'composer.json does not require laravel/nightwatch, so nothing reaches Nightwatch',
-      'composer require laravel/nightwatch',
+      `composer.json does not require ${name}, so nothing reaches ${MONITORING_SERVICES[service].name}`,
+      `composer require ${name}`,
     );
 }
 
 export default projectKind({
-  deployTargets: [
-    { value: 'forge', label: 'Laravel Forge' },
-    { value: 'cloud', label: 'Laravel Cloud' },
-  ],
-  deployHookHint: 'Forge: site Settings > Deployments · Cloud: environment Settings > Deployments',
-  monitoring: {
-    id: 'nightwatch',
-    name: 'Nightwatch',
-    secret: 'NIGHTWATCH_TOKEN',
-    tokenHint: "the app's NIGHTWATCH_TOKEN",
-    webhookHint: `In Nightwatch, open the application's ${bold('Issues settings > Webhooks')} and set the URL to:`,
-    // Deploy markers need the Nightwatch token of a Forge site
-    markers: (answers) => answers.deploy === 'forge',
-  },
+  deployTargets: Object.values(PROVIDERS).map((provider) => ({ value: provider.id, label: provider.label })),
+  deployHookHint: Object.values(PROVIDERS)
+    .map((provider) => provider.hookHint)
+    .join(' · '),
+  monitoring: monitoringServices(['nightwatch', 'sentry', 'inspector']),
   empty: {
     health: { laravel: false, route: null, databaseCheck: false },
     tools: NO_TOOLS,
     nightwatch: false,
+    sentry: false,
+    inspector: false,
     nodeScripts: [],
   },
   /** What collectState reads from the folder for a Laravel app: its health check, its locale and its tools. */
   inspect: async (root) => ({
     health: await inspectHealth(root),
     locale: await readLocale(root),
-    nightwatch: await requiresNightwatch(root),
+    nightwatch: await requiresPackage(root, AGENTS.nightwatch),
+    sentry: await requiresPackage(root, AGENTS.sentry),
+    inspector: await requiresPackage(root, AGENTS.inspector),
     nodeScripts: await nodeScripts(root),
     tools: await inspectTools(root),
   }),
@@ -411,6 +368,7 @@ export default projectKind({
       ? [`Make ${answers.healthPath} answer 200 only when the app works (${BY_HAND}).`]
       : []),
     ...nightwatchNextSteps(answers, { state, results }),
+    ...sdkNextSteps(answers, { state }),
   ],
   evaluateDeploy,
   evaluateMonitoring,

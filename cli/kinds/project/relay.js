@@ -104,15 +104,21 @@ export async function registerSecret(relay, provider, repository, secret, runner
   if (result.code !== 0) throw wranglerError(result);
 }
 
-/** Whether the relay has a secret for the repository (null when it cannot be checked). */
-export async function hasSecret(relay, provider, repository, runner = run) {
+/** The repository's secret in the relay: '' when there is none, null when it cannot be read. */
+export async function readSecret(relay, provider, repository, runner = run) {
   if (!relaySupported()) return null;
   const key = secretKey(provider, repository);
   const result = await wrangler(['kv', 'key', 'get', key, '--namespace-id', relay.namespaceId, '--remote'], {
     runner,
   });
-  if (result.code === 0) return result.stdout.trim() !== '' && !/^Value not found/im.test(result.stdout);
-  return /not found/i.test(`${result.stderr}${result.stdout}`) ? false : null;
+  if (result.code === 0) return /^Value not found/im.test(result.stdout) ? '' : result.stdout.trim();
+  return /not found/i.test(`${result.stderr}${result.stdout}`) ? '' : null;
+}
+
+/** Whether the relay has a secret for the repository (null when it cannot be checked). */
+export async function hasSecret(relay, provider, repository, runner = run) {
+  const secret = await readSecret(relay, provider, repository, runner);
+  return secret === null ? null : secret !== '';
 }
 
 /** Whether wrangler is logged in to Cloudflare. */

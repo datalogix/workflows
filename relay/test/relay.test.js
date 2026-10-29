@@ -4,7 +4,10 @@ import relay from '../src/index.js';
 import { secretKey } from '../src/keys.js';
 
 const secret = 'whsec_test';
-const store = new Map([['nightwatch:datalogix/app', secret]]);
+const store = new Map([
+  ['nightwatch:datalogix/app', secret],
+  ['inspector:datalogix/app', JSON.stringify({ production: 'production-key', staging: 'staging-key' })],
+]);
 const delivered = new Map();
 const env = {
   ALLOWED_OWNER: 'datalogix',
@@ -211,6 +214,35 @@ test('dispatches a normalized incident to GitHub', async () => {
   expect(sent.client_payload.issue.id).toBe('7');
   expect(sent.client_payload.environment.name).toBe('production');
   expect(sent.client_payload.issue.details.message).toBe('x'.repeat(2000) + '…');
+});
+
+test('dispatches an Inspector error with the environment of the key that sent it', async () => {
+  const calls = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    calls.push(JSON.parse(init.body));
+    return new Response(null, { status: 204 });
+  });
+  const body = JSON.stringify({
+    event: 'error_group_detected_notification',
+    application: { id: 12345, name: 'App (staging)' },
+    // Years old: Inspector's times are not checked
+    payload: {
+      last_seen_at: '2020-01-01 00:00:00',
+      class: 'ErrorException',
+      message: 'Oops',
+      file: 'app/A.php',
+      line: '17',
+    },
+  });
+  const send = (key) => relay.fetch(post('/inspector/datalogix/app', body, null, { 'X-Inspector-Key': key }), env);
+
+  expect((await send('other')).status).toBe(401);
+  expect((await send('staging-key')).status).toBe(204);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].client_payload.provider).toStrictEqual({ id: 'inspector', name: 'Inspector' });
+  expect(calls[0].client_payload.environment).toStrictEqual({ name: 'staging' });
+  // A Nightwatch secret does not open the Inspector URL
+  expect((await relay.fetch(post('/inspector/datalogix/app', webhook, sign(webhook)), env)).status).toBe(401);
 });
 
 test('truncates long messages without splitting an emoji', async () => {

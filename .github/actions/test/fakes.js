@@ -48,6 +48,7 @@ process.stdout.write(stdout);
 `;
 
 // curl: answers each URL with the next HTTP code of its rule (the last one repeats); "000" is a connection failure.
+// A rule's bodies (strings or JSON, the last one repeats) are written to the -o file, or else to stdout.
 // The content of header files (-H @file) and of the data read from stdin is recorded after the arguments.
 const CURL = `#!/usr/bin/env node
 const { appendFileSync, readFileSync, writeFileSync } = require('node:fs');
@@ -66,6 +67,14 @@ seen[index] = (seen[index] ?? 0) + 1;
 writeFileSync(dir + '/curl-seen.json', JSON.stringify(seen));
 const codes = index === -1 ? ['200'] : rules[index].codes;
 const code = String(codes[Math.min(seen[index], codes.length) - 1]);
+const bodies = index === -1 ? [] : rules[index].bodies ?? [];
+if (bodies.length) {
+  const body = bodies[Math.min(seen[index], bodies.length) - 1];
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  const output = args[args.indexOf('-o') + 1];
+  if (args.includes('-o') && output !== '/dev/null') writeFileSync(output, text);
+  else if (!args.includes('-o')) process.stdout.write(text);
+}
 if (args.includes('-w')) process.stdout.write(code);
 process.exit(code === '000' ? 28 : args.includes('--fail') && Number(code) >= 400 ? 22 : 0);
 `;

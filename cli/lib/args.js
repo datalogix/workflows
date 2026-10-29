@@ -11,6 +11,7 @@ export const VALUE = [
   'production-branch',
   'health-path',
   'production',
+  'monitoring',
   'layers',
   'approvals-medium',
   'approvals-high',
@@ -104,7 +105,8 @@ Options (each one skips its question in setup)
   --health-path /up           Health check path
   --production auto|manual    Deploy production automatically, or only from Run workflow
   --github-deployments / --no-github-deployments  Record each deploy in the repository's Deployments
-  --incidents / --no-incidents  Turn problems of the monitoring service (laravel: Nightwatch) into GitHub issues
+  --monitoring <service>      The app's monitoring service (laravel: nightwatch, sentry, inspector or none)
+  --incidents / --no-incidents  Turn problems of the monitoring service (see --monitoring) into GitHub issues
   --solo / --no-solo          You work alone on the project (protect: on the package)
   --approvals-medium 1        Human approvals a medium-risk pull request needs (team projects)
   --approvals-high 1          Human approvals a high-risk pull request needs (team projects)

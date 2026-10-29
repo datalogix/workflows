@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
 import { dropsProductionBranch } from '../kinds/project/index.js';
-import { hasSecret, loadRelayConfig } from '../kinds/project/relay.js';
+import { hasSecret, loadRelayConfig, readSecret, registerSecret } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
 import { EMPTY_STATE } from '../lib/state.js';
@@ -23,9 +23,14 @@ import {
   tempRoot,
 } from './helpers.js';
 
-// What the prompts showed, and the answer a test gives them
+// What the prompts showed, and the answer a test gives them (or a function of the prompt that gives it)
 const prompts = vi.hoisted(() => ({ stops: [], asked: [], answer: undefined }));
-const reply = vi.hoisted(() => async (options) => (prompts.asked.push(options), prompts.answer));
+const reply = vi.hoisted(
+  () => async (options) => (
+    prompts.asked.push(options),
+    typeof prompts.answer === 'function' ? prompts.answer(options) : prompts.answer
+  ),
+);
 
 // Quiet spinners and progress bars: the tests read the results, not the terminal
 vi.mock('@clack/prompts', async (importOriginal) => ({
@@ -46,13 +51,20 @@ vi.mock('@clack/prompts', async (importOriginal) => ({
 // The relay is read for real unless a test says what it answers
 vi.mock('../kinds/project/relay.js', async (importOriginal) => {
   const original = await importOriginal();
-  return { ...original, hasSecret: vi.fn(original.hasSecret), loadRelayConfig: vi.fn(original.loadRelayConfig) };
+  return {
+    ...original,
+    hasSecret: vi.fn(original.hasSecret),
+    readSecret: vi.fn(original.readSecret),
+    loadRelayConfig: vi.fn(original.loadRelayConfig),
+    registerSecret: vi.fn(original.registerSecret),
+  };
 });
 
 // Each test starts with no prompt shown and the relay read for real
 beforeEach(() => {
   Object.assign(prompts, { stops: [], asked: [], answer: undefined });
   vi.mocked(hasSecret).mockReset();
+  vi.mocked(readSecret).mockReset();
   // No test reaches the network: the health URLs take a probe, Forge and Cloud a fake fetch
   vi.stubGlobal(
     'fetch',
@@ -1026,6 +1038,94 @@ test('registers the signing secret in the relay only with incidents and a secret
   expect(ids({ incidents: false, webhookSecret: 'whsec' })).not.toContain('monitoringRelay');
 });
 
+test('asks about problems as issues only with a monitoring service, and performance only from Nightwatch', () => {
+  const ids = (answers) => askedSteps(setupSteps(), { repository: 'datalogix/app', deploy: 'none', ...answers });
+  expect(ids({ monitoring: 'none' })).not.toContain('incidents');
+  expect(ids({ monitoring: 'nightwatch', incidents: true })).toContain('incidentPerformance');
+  expect(ids({ monitoring: 'sentry', incidents: true })).not.toContain('incidentPerformance');
+  // Deploy markers: Nightwatch on Forge only
+  expect(ids({ deploy: 'forge', monitoring: 'nightwatch' })).toContain('monitoringMarkers');
+  expect(ids({ deploy: 'forge', monitoring: 'sentry' })).not.toContain('monitoringMarkers');
+});
+
+test('turns problems as issues off without a monitoring service', async (t) => {
+  const root = await folder(t, { artisan: '' }, 'setup-');
+  const { incidents, ...flags } = setupFlags;
+  expect(incidents).toBe(false);
+  expect(await setup(setupContext(root, setupGitHub(), { ...flags, monitoring: 'none' }))).toBe(0);
+  const inputs = parseInputs(await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8'));
+  expect([inputs.monitoring, inputs.incidents]).toStrictEqual(['none', 'false']);
+});
+
+test('registers the Sentry signing secret under the sentry provider', async () => {
+  vi.mocked(registerSecret).mockResolvedValueOnce(undefined);
+  const answers = { repository: 'datalogix/app', deploy: 'none', codeOwners: '@ana', monitoring: 'sentry' };
+  const task = setupTasks(
+    { ...answers, incidents: true, webhookSecret: 'client-secret' },
+    { github: fakeGitHub(), root: '', state: APP_STATE, relay },
+  ).find((candidate) => candidate.id === 'monitoringRelay');
+  await task.run();
+  expect(vi.mocked(registerSecret)).toHaveBeenLastCalledWith(relay, 'sentry', 'datalogix/app', 'client-secret');
+});
+
+test('asks for an Inspector key per environment and keeps the stored ones left empty', async () => {
+  const step = setupSteps().find((candidate) => candidate.id === 'webhookSecret');
+  const answers = {
+    repository: 'datalogix/app',
+    deploy: 'forge',
+    staging: true,
+    monitoring: 'inspector',
+    incidents: true,
+    incidentStaging: true,
+  };
+  const ask = async (stored, typed, given = answers) => {
+    Object.assign(prompts, { stops: [], asked: [] });
+    vi.mocked(readSecret).mockResolvedValueOnce(stored);
+    prompts.answer = (options) => typed[/key of (\w+)/.exec(options.message)[1]] ?? '';
+    const ctx = { relay, state: APP_STATE };
+    const value = await step.ask({ header: '', answers: given, ctx });
+    return { value, ctx, messages: prompts.asked.map((options) => options.message) };
+  };
+
+  const first = await ask('', { production: ' p-key ', staging: 's-key' });
+  expect(readSecret).toHaveBeenLastCalledWith(relay, 'inspector', 'datalogix/app');
+  expect(first.messages).toStrictEqual([
+    expect.stringMatching(/Inspector key of production.*empty to set it later/),
+    expect.stringMatching(/Inspector key of staging.*empty to set it later/),
+  ]);
+  expect(JSON.parse(first.value)).toStrictEqual({ production: 'p-key', staging: 's-key' });
+  expect(first.ctx.relayRegistered).toBe(false);
+
+  // Only production typed again: staging keeps its stored key
+  const again = await ask(JSON.stringify({ production: 'old', staging: 's-key' }), { production: 'new' });
+  expect(again.messages[1]).toContain('empty to keep the current one');
+  expect(JSON.parse(again.value)).toStrictEqual({ production: 'new', staging: 's-key' });
+  expect(again.ctx.relayRegistered).toBe(true);
+
+  // Nothing typed stores nothing; without staging problems only production is asked
+  expect((await ask(JSON.stringify({ production: 'old' }), {})).value).toBe('');
+  const production = await ask('', { production: 'p-key' }, { ...answers, incidentStaging: false });
+  expect(production.messages).toHaveLength(1);
+  expect(production.value).toBe(JSON.stringify({ production: 'p-key' }));
+
+  // A relay that cannot be read: unknown, and only the keys typed are stored
+  const unread = await ask(null, { staging: 's-key' });
+  expect(unread.ctx.relayRegistered).toBe(null);
+  expect(unread.value).toBe(JSON.stringify({ staging: 's-key' }));
+});
+
+test('names the Inspector keys in the next steps and does not ask to name its environments', () => {
+  const answers = { repository: 'datalogix/app', deploy: 'none', incidents: true, monitoring: 'inspector' };
+  const steps = nextSteps(answers, { relay, relayRegistered: false, results: [], state: APP_STATE });
+  expect(steps).toContainEqual(expect.stringContaining('/inspector/datalogix/app'));
+  expect(steps).toContainEqual(expect.stringContaining('store its application keys'));
+  expect(steps).not.toContainEqual(expect.stringContaining('name the environments'));
+  expect(steps).toContainEqual(expect.stringContaining('composer require inspector-apm/inspector-laravel'));
+  expect(
+    nextSteps(answers, { relay, relayRegistered: false, results: [], state: { ...APP_STATE, inspector: true } }),
+  ).not.toContainEqual(expect.stringContaining('composer require inspector-apm/inspector-laravel'));
+});
+
 test('tells to store the signing secret by hand on Windows', (t) => {
   onPlatform(t, 'win32');
   expect(askedSteps(setupSteps(), { incidents: true, repository: 'datalogix/app' })).not.toContain('webhookSecret');
@@ -1202,6 +1302,7 @@ const setupFlags = {
   yes: true,
   repo: 'datalogix/app',
   deploy: 'none',
+  monitoring: 'nightwatch',
   incidents: false,
   language: 'pt-BR',
   lint: 'none',

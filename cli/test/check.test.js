@@ -39,6 +39,7 @@ const run = (state, options = {}) =>
     relay,
     probe: async () => expect.unreachable('probe'),
     relayLookup: async () => expect.unreachable('relay'),
+    relayRead: async () => expect.unreachable('relay'),
     ...options,
   });
 
@@ -510,6 +511,72 @@ test('warns when Nightwatch is on and the app does not require its agent', async
   expect(await warns({ deploy: 'none', solo: true, incidents: true }, { nightwatch: false })).toContain(warning);
   expect(await warns({ deploy: 'none', solo: true, incidents: true }, { nightwatch: true })).not.toContain(warning);
   expect(await warns({ deploy: 'none', solo: true, incidents: false }, { nightwatch: false })).not.toContain(warning);
+});
+
+test('reports the Inspector keys missing in the relay, by environment', async () => {
+  const answers = { deploy: 'forge', staging: true, solo: true, monitoring: 'inspector' };
+  const relayTitles = async (secret, overrides = {}) => {
+    const read = [];
+    const items = await run(await stateFor({ ...answers, ...overrides }), {
+      repository: 'datalogix/app',
+      probe: async () => 200,
+      relayLookup: async () => expect.unreachable('hasSecret'),
+      relayRead: async (_relay, provider) => (read.push(provider), secret),
+    });
+    expect(read).toStrictEqual(['inspector']);
+    return items.filter((item) => /monitoring relay/.test(item.title)).map((item) => item.title);
+  };
+
+  const both = JSON.stringify({ production: 'p', staging: 's' });
+  expect(await relayTitles(both)).toStrictEqual(['Registered in the monitoring relay']);
+  expect(await relayTitles(JSON.stringify({ production: 'p' }))).toStrictEqual([
+    'Inspector key of staging missing in the monitoring relay: its problems are rejected',
+  ]);
+  expect(await relayTitles('')).toStrictEqual([
+    'Not registered in the monitoring relay: Inspector problems are rejected',
+  ]);
+  expect(await relayTitles(null)).toStrictEqual(['Could not read the monitoring relay']);
+  // Staging problems off, or no staging: only production needs a key
+  expect(await relayTitles(JSON.stringify({ production: 'p' }), { incidentStaging: false })).toStrictEqual([
+    'Registered in the monitoring relay',
+  ]);
+  expect(await relayTitles(JSON.stringify({ production: 'p' }), { staging: false })).toStrictEqual([
+    'Registered in the monitoring relay',
+  ]);
+});
+
+test('warns when Inspector is on and the app does not require its SDK', async () => {
+  const state = async (overrides) => ({
+    ...(await stateFor({ deploy: 'none', solo: true, monitoring: 'inspector' })),
+    health: { laravel: true, route: '/up', databaseCheck: true },
+    ...overrides,
+  });
+  const warning = 'composer.json does not require inspector-apm/inspector-laravel, so nothing reaches Inspector';
+  const warns = async (overrides) =>
+    titles(await run(await state(overrides), { relayRead: async () => JSON.stringify({ production: 'p' }) }), 'warn');
+  expect(await warns({ inspector: false })).toContain(warning);
+  expect(await warns({ inspector: true })).not.toContain(warning);
+});
+
+test('looks the repository up in the relay under its monitoring service', async () => {
+  const providers = [];
+  const lookup = async (_relay, provider) => {
+    providers.push(provider);
+    return false;
+  };
+  for (const [monitoring, name] of [
+    ['nightwatch', 'Nightwatch'],
+    ['sentry', 'Sentry'],
+  ]) {
+    const items = await run(await stateFor({ deploy: 'none', monitoring }), {
+      repository: 'datalogix/app',
+      relayLookup: lookup,
+    });
+    expect(titles(items, 'warn')).toContainEqual(
+      `Not registered in the monitoring relay: ${name} problems are rejected`,
+    );
+  }
+  expect(providers).toStrictEqual(['nightwatch', 'sentry']);
 });
 
 test('probes every health URL and looks up the relay together, reporting them in order', async () => {

@@ -10,7 +10,7 @@ on:
       provider:
         type: string
         required: true
-        description: forge or cloud
+        description: Deploy provider, a script in .github/actions/deploy/providers (forge, cloud or vercel)
       branch:
         type: string
         default: ""
@@ -30,7 +30,7 @@ on:
       settle-seconds:
         type: number
         default: 0
-        description: Seconds to wait after triggering the deploy before watching (0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first)
+        description: Seconds to wait after triggering the deploy before watching (0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first); on Vercel, the most the wait follows the build until it is ready (0 uses 900)
       watch-minutes:
         type: number
         default: 5
@@ -51,6 +51,10 @@ on:
         type: number
         default: 60
         description: Job timeout; must cover the deploy wait, the watch and a possible rollback
+      monitoring:
+        type: string
+        default: nightwatch
+        description: Monitoring service named in the issue of a failed deploy, and marked with each deploy when it has a script in .github/actions/deploy/monitoring with deploy markers (none for no service)
       language:
         type: string
         default: pt-BR
@@ -83,10 +87,16 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       PROVIDER: ${{ inputs.provider }}
+      MONITORING: ${{ inputs.monitoring }}
       ENVIRONMENT: ${{ inputs.environment }}
       DEPLOY_HOOK: ${{ secrets.DEPLOY_HOOK }}
       HEALTH_URL: ${{ vars.HEALTH_URL }}
       NIGHTWATCH_TOKEN: ${{ secrets.NIGHTWATCH_TOKEN }}
+      # Vercel: the API token, the project (id or name), its team and the target when it is not the environment's name
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT: ${{ vars.VERCEL_PROJECT }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+      VERCEL_TARGET: ${{ vars.VERCEL_TARGET }}
       BRANCH: ${{ inputs.branch || github.event.repository.default_branch }}
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
