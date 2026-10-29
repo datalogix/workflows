@@ -59,6 +59,17 @@ gh secret set NIGHTWATCH_TOKEN --repo OWNER/REPO --env staging
 gh secret set NIGHTWATCH_TOKEN --repo OWNER/REPO --env production
 ```
 
+With `deploy: vercel`, each environment gets the Vercel token and project instead of `DEPLOY_HOOK` (see [Vercel](../deploy.md#vercel)):
+
+```bash
+for env in staging production; do
+  gh secret set VERCEL_TOKEN --repo OWNER/REPO --env $env
+  gh variable set VERCEL_PROJECT --repo OWNER/REPO --env $env --body "my-project"
+  # Only for a team's project
+  gh variable set VERCEL_TEAM_ID --repo OWNER/REPO --env $env --body "team_..."
+done
+```
+
 ## Health check
 
 Laravel 11 and newer enable `/up` in `bootstrap/app.php` (`health: '/up'` in `withRouting()`). To make it fail when the database is unreachable, add to `AppServiceProvider::boot()`:

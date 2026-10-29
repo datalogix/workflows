@@ -40,7 +40,7 @@ on:
       deploy:
         type: string
         default: none
-        description: Deploy the default branch after its tests pass, with forge or cloud (none disables)
+        description: Deploy the default branch after its tests pass, with forge, cloud or vercel (none disables)
       staging:
         type: boolean
         default: true

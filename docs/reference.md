@@ -22,7 +22,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `approvals-medium` / `approvals-high`                             | `1` / `1`                      | Human approvals for medium and high risk pull requests                   |
 | `count-author`                                                    | `false`                        | Count a human author with write access as one approval (solo maintainers) |
 | `extra-high-risk-paths`                                           | empty                          | More patterns (one per line) that make a pull request high risk, added to the risk gate's defaults (e.g. `app/Services/Payment/*`) |
-| `deploy`                                                          | `none`                         | Deploy the default branch with `forge` or `cloud` (with `production-branch`, the production branch goes to production) |
+| `deploy`                                                          | `none`                         | Deploy the default branch with `forge`, `cloud` or [`vercel`](deploy.md#vercel) (with `production-branch`, the production branch goes to production) |
 | `staging`                                                         | `true`                         | Deploy and watch `staging` before `production`                           |
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
 | `production-branch`                                               | empty                          | Branch deployed to production (e.g. `main`); the default branch then deploys only staging. List both branches in `push.branches` (e.g. `[develop, main]`; setup does). See [Production branch](deploy.md#production-branch) |
@@ -173,12 +173,12 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | Input             | Default   | Description                                                                                     |
 | ----------------- | --------- | ----------------------------------------------------------------------------------------------- |
 | `environment`     | required  | GitHub environment to deploy                                                                    |
-| `provider`        | required  | `forge` or `cloud`                                                                              |
+| `provider`        | required  | `forge`, `cloud` or `vercel`                                                                    |
 | `branch`          | empty     | Branch the environment deploys, sent to Forge with the commit; empty uses the default branch    |
 | `mode`            | `deploy`  | `deploy` publishes the run's commit; `rollback` returns to the release before the live one      |
 | `issue`           | `0`       | Issue that asked for the rollback; gets the result as a comment and loses the `rollback` label  |
 | `rollback-label`  | `rollback`| Label removed from that issue after a rollback                                                  |
-| `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud |
+| `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud. Vercel follows the build until it is ready, for at most this (`0`: 900) |
 | `watch-minutes`   | `10`      | Minutes to watch the health URL                                                                 |
 | `max-failures`    | `3`       | Consecutive failed checks (every 30 seconds) that trigger the rollback                          |
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |

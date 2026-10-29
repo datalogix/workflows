@@ -49,11 +49,22 @@ A rollback redeploys code, not the database, which is why the `laravel` plugin k
 
 Every deploy that stays healthy is recorded as a ref under `refs/datalogix/deploys/<environment>/` (environment name in lowercase; not a branch or tag, so it does not show up in the branch list), rolled-back releases under `refs/datalogix/rolled-back/<environment>/`, and the commit last deployed (healthy or not) as `refs/datalogix/live/<environment>`, which a rollback starts from. The rollbacks read this history, so it starts with the first deploy made by `project`; the 30 newest entries are kept. GitHub's own deployment list still shows the commit of each workflow run, which after a rollback is not the commit that is live.
 
+## Vercel
+
+`deploy: vercel` deploys through Vercel's API instead of a deploy hook, which on Vercel always builds the branch head: the API builds the exact commit, so rollbacks work as on Forge. Each GitHub environment needs:
+
+- the `VERCEL_TOKEN` secret (an access token with access to the project);
+- the `VERCEL_PROJECT` variable (the project's id or name), and `VERCEL_TEAM_ID` for a team's project;
+- the `HEALTH_URL` variable, on the domain of that environment;
+- optionally `VERCEL_TARGET`: the Vercel target is the GitHub environment's name (`production`, `staging`, or a custom environment with that name) unless it names another.
+
+Turn off Vercel's own deploys of the branches the workflow deploys (`git.deploymentEnabled` in `vercel.json`, or **Settings > Git** in the project), or every push deploys before the tests run. The wait follows the build until it is ready (at most `settle-seconds`, 900 by default), instead of a fixed time. A build that fails leaves the previous deployment live: the job fails without a rollback or an issue, and the live release recorded for the `rollback` label is the one that failed to build until the next deploy. Setup does not ask for Vercel yet: set the secrets and variables by hand (see [manual setup](laravel/app-manual-setup.md)).
+
 ## Adding a deploy provider
 
 Each provider is a script and a setup file; the deploy itself (the release history, the health checks, the rollback, the issues) is shared:
 
-- `.github/actions/deploy/providers/<id>.sh` defines `provider_settle_seconds` (prints the seconds a deploy usually takes), `provider_check` (stops with an `::error::` when a secret or variable it needs is missing) and `provider_trigger <sha>` (deploys that exact commit; returns non-zero, with an `::error::`, when the provider did not accept it). Hook providers call `require_deploy_hook` and `post_hook <curl --data-urlencode arguments>`. The deploy input `provider` names the script; any other name stops the deploy. A secret the provider reads also goes in the `env` of `deploy.yml`.
+- `.github/actions/deploy/providers/<id>.sh` defines `provider_settle_seconds` (prints the seconds a deploy usually takes), `provider_check` (stops with an `::error::` when a secret or variable it needs is missing) and `provider_trigger <sha>` (deploys that exact commit; returns non-zero, with an `::error::`, when the provider did not accept it), and optionally `provider_wait <seconds>` (follows the deploy until it finishes, for at most those seconds, instead of the fixed wait; the trigger runs in another step of the job, so it passes what the wait needs in a file under `$RUNNER_TEMP`, as `vercel.sh` does). Hook providers call `require_deploy_hook` and `post_hook <curl --data-urlencode arguments>`. The deploy input `provider` names the script; any other name stops the deploy. A secret the provider reads also goes in the `env` of `deploy.yml`.
 - `cli/providers/deploy/<id>.js` describes it to setup (the fields are listed in `cli/providers/deploy/index.js`); a stack offers it by adding its id to `deployProviders([...])` (a Laravel app: `cli/stacks/laravel/app.js`).
 - Tests for both, next to `.github/actions/test/deploy.test.js` and `cli/test/deploy-target.test.js`.
 

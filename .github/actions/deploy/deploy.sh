@@ -15,8 +15,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/inputs.sh"
 # shellcheck source=SCRIPTDIR/../lib/releases.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/releases.sh"
 
-# The deploy provider (providers/<id>.sh) defines provider_settle_seconds (prints the seconds a deploy usually takes),
-# provider_check and provider_trigger <sha>,
+# The deploy provider (providers/<id>.sh) defines provider_settle_seconds (prints the seconds a deploy usually takes, or
+# the most provider_wait <seconds> follows it, when the provider can tell it finished), provider_check and
+# provider_trigger <sha>,
 # which returns non-zero, with an ::error::, when the provider did not accept the deploy. The name is checked before it
 # becomes a path
 providers_dir="$(dirname "${BASH_SOURCE[0]}")/providers"
@@ -104,6 +105,12 @@ settle() {
   local seconds=${1:-0}
   if [ "$seconds" -eq 0 ]; then
     seconds=$(provider_settle_seconds)
+  fi
+  # A provider that can tell when the deploy finished follows it, for at most those seconds
+  if declare -F provider_wait >/dev/null; then
+    echo "Waiting up to $seconds seconds for $PROVIDER to finish the deploy"
+    provider_wait "$seconds"
+    return
   fi
   echo "Waiting $seconds seconds for $PROVIDER to finish the deploy"
   sleep "$seconds"
