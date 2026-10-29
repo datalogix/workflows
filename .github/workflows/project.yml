@@ -74,7 +74,7 @@ on:
       monitoring:
         type: string
         default: nightwatch
-        description: Monitoring service of the app (nightwatch, sentry or none), whose problems become issues; deploys name it, and mark themselves in it when it has deploy markers
+        description: Monitoring service of the app (nightwatch, sentry, inspector or none), whose problems become issues; deploys name it, and mark themselves in it when it has deploy markers
       incidents:
         type: boolean
         default: true

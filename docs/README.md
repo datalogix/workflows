@@ -18,7 +18,7 @@ Each stack has the same four pages (plus a manual setup for apps): adding an app
 | [Daily use](daily-use.md) | Working with Claude, a feature from issue to production, what to do when something breaks |
 | [Verification layers](verification-layers.md) | The eight layers every change goes through, the branch ruleset, solo maintainers, project rules for the security review |
 | [Deploy](deploy.md) | Staging and production deploys, health checks, rollbacks and the release history |
-| [Production errors](production-errors.md) | Nightwatch and Sentry problems as GitHub issues, the relay and how to add another monitoring provider |
+| [Production errors](production-errors.md) | Nightwatch, Sentry and Inspector problems as GitHub issues, the relay and how to add another monitoring provider |
 | [Task manager](task-manager.md) | How the task manager turns client tasks into GitHub issues, picks up issues labeled `task` and follows them |
 | [Claude's conventions and environment](claude.md) | The rules Claude follows, how the project is prepared for it, models and usage limits |
 | [Reference](reference.md) | The inputs of `project`, `package` and the workflows they call, the events `project` handles, the relay settings |

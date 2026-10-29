@@ -1,6 +1,6 @@
 # Production errors
 
-Errors and performance problems that Nightwatch (or errors that [Sentry](#sentry)) detects in production and staging become GitHub issues that Claude analyzes, and you decide what to do:
+Errors and performance problems that Nightwatch (or errors that [Sentry](#sentry) or [Inspector](#inspector)) detects in production and staging become GitHub issues that Claude analyzes, and you decide what to do:
 
 1. Nightwatch opens an issue and sends its webhook to the [relay](../relay), which checks it with that repository's secret, rejects events sent more than an hour from now, acknowledges without sending again an event it already delivered in the last two hours (see [replays](../relay/README.md)), and sends an `incident` event to the project repository.
 2. The `incident` job creates a GitHub issue labeled `incident` and `env:<environment>`, titled like `[Nightwatch production] ...`, with the exception and its file and line (or the slow route, job or command and its duration), the release live in that environment and the changes of its last deploy.
@@ -29,6 +29,22 @@ Differences from Nightwatch:
 - **Issues are not closed from Sentry.** Sentry's issue webhooks (resolved, archived) carry neither the environment nor a signed time they were sent, so the relay cannot check them against replays: close the GitHub issue there. A new alert for the same Sentry issue reopens it.
 - **No deploy markers yet.**
 - The alert must carry the event's environment (its `environment` field or tag), or the problem is skipped. The relay was written from Sentry's documentation: check the first delivery in the worker's logs (see [the relay's README](../relay/README.md#troubleshooting)).
+
+## Inspector
+
+With `monitoring: inspector`, Inspector's error notifications open the GitHub issues:
+
+- Use one Inspector application per environment (production, and staging when its problems become issues): Inspector's notifications do not say the environment, so the relay tells them apart by the application's key.
+- In each application, configure the **Webhook** channel (**Settings > Notifications Channels**) with the URL setup shows (`https://<worker>/inspector/OWNER/REPO`, the same for every environment). Setup asks for each application's ingestion key and stores them together in the relay.
+- A Laravel app needs Inspector's package (`composer require inspector-apm/inspector-laravel`), with each environment's ingestion key in its `INSPECTOR_INGESTION_KEY`.
+
+Differences from Nightwatch:
+
+- **Only exceptions.** A new error opens the issue; a growing frequency or the Nth occurrence of it comments on the issue and reopens it when closed. Single occurrences, alerts and slow transactions are not sent.
+- **No signature.** Inspector sends the application's key in the `X-Inspector-Key` header, not a signature of the body: anyone who has the key (it is in the app's `.env`) can send the relay an error for that repository. Keep the keys out of the repository.
+- **Issues are not closed from Inspector**, which sends no event when an error is resolved: close the GitHub issue there.
+- **No deploy markers.**
+- The issue has no link to Inspector (the notification carries none). The relay does not check the notification's age: without a signature its times prove nothing, so only a body sent twice within two hours is caught. The relay was written from Inspector's documentation: check the first delivery in the worker's logs (see [the relay's README](../relay/README.md#troubleshooting)).
 
 ## Adding a provider
 

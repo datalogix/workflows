@@ -9,7 +9,15 @@ import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWar
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { pushBranches, runsOnPush, WORKFLOW_PATH } from '../../lib/workflow-file.js';
 import { domainOf, isDomain, pathOf, suggestedDomain } from './domain.js';
-import { hasSecret, loadRelayConfig, registerSecret, relayAccepts, relaySupported, webhookUrl } from './relay.js';
+import {
+  hasSecret,
+  loadRelayConfig,
+  readSecret,
+  registerSecret,
+  relayAccepts,
+  relaySupported,
+  webhookUrl,
+} from './relay.js';
 import {
   deployedProductionBranch,
   hasReleaseApp,
@@ -159,6 +167,18 @@ const monitoringOf = (stack, a) =>
     : (stack.monitoring.find((service) => service.id === a?.monitoring) ?? stack.monitoring[0]);
 // What the questions and messages name: the chosen service, or the stack's first
 const serviceOf = (stack, a) => monitoringOf(stack, a) ?? stack.monitoring[0];
+// What the relay stores for the service: a signing secret, or one key per environment (Inspector)
+const secretName = (service) => (service.keyPerEnvironment ? 'application keys' : 'signing secret');
+
+/** The keys stored by environment for a service with one key per environment, {} when none or not such JSON. */
+function storedKeys(secret) {
+  try {
+    const keys = JSON.parse(secret);
+    return keys && typeof keys === 'object' && !Array.isArray(keys) ? keys : {};
+  } catch {
+    return {};
+  }
+}
 
 /** Loads the relay settings of an owner into ctx, remembering whose they are. */
 async function loadRelay(ctx, owner) {
@@ -569,7 +589,16 @@ function setupSteps(stack) {
         const spinner = clack.spinner();
         spinner.start('Looking for the repository in the monitoring relay');
         const service = serviceOf(stack, answers);
-        ctx.relayRegistered = await hasSecret(ctx.relay, service.id, answers.repository);
+        // A key per environment: the ones stored are read, so a key left empty keeps its current value
+        const environments = answers.incidentStaging && staging(answers) ? ['production', 'staging'] : ['production'];
+        let stored = null;
+        if (service.keyPerEnvironment) {
+          const secret = await readSecret(ctx.relay, service.id, answers.repository);
+          stored = secret === null ? null : storedKeys(secret);
+          ctx.relayRegistered = stored === null ? null : environments.every((environment) => stored[environment]);
+        } else {
+          ctx.relayRegistered = await hasSecret(ctx.relay, service.id, answers.repository);
+        }
         spinner.stop(
           ctx.relayRegistered === null
             ? 'Could not read the monitoring relay (run npx wrangler login)'
@@ -587,11 +616,26 @@ function setupSteps(stack) {
           ].join('\n'),
           `${service.name} webhook`,
         );
-        return orExit(
-          await clack.password({
-            message: question(header, `${service.name} signing secret${dim(relayHint(ctx.relayRegistered))}`),
-          }),
-        );
+        if (!service.keyPerEnvironment) {
+          return orExit(
+            await clack.password({
+              message: question(header, `${service.name} signing secret${dim(relayHint(ctx.relayRegistered))}`),
+            }),
+          );
+        }
+
+        const typed = {};
+        for (const environment of environments) {
+          const registered = stored === null ? null : Boolean(stored[environment]);
+          const key = orExit(
+            await clack.password({
+              message: question(header, `${service.name} key of ${environment}${dim(relayHint(registered))}`),
+            }),
+          ).trim();
+          if (key) typed[environment] = key;
+        }
+        // Stored whole, with the keys not typed again; nothing typed stores nothing
+        return Object.keys(typed).length ? JSON.stringify({ ...stored, ...typed }) : '';
       },
     },
     ...stack.steps(),
@@ -1063,19 +1107,20 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
       );
     } else if (!relaySupported()) {
       steps.push(
-        `Point the ${serviceOf(stack, answers).name} webhook to ${cyan(webhookUrl(relay, serviceOf(stack, answers).id, answers.repository))} and store its signing secret in the relay by hand (relay/README.md in datalogix/workflows): setup cannot do it on Windows.`,
+        `Point the ${serviceOf(stack, answers).name} webhook to ${cyan(webhookUrl(relay, serviceOf(stack, answers).id, answers.repository))} and store its ${secretName(serviceOf(stack, answers))} in the relay by hand (relay/README.md in datalogix/workflows): setup cannot do it on Windows.`,
       );
     } else if (
       (!answers.webhookSecret?.trim() && relayRegistered !== true) ||
       results.some((result) => result.id === 'monitoringRelay' && !result.ok)
     ) {
       steps.push(
-        `Point the ${serviceOf(stack, answers).name} webhook to ${cyan(webhookUrl(relay, serviceOf(stack, answers).id, answers.repository))} and run setup again to store its signing secret.`,
+        `Point the ${serviceOf(stack, answers).name} webhook to ${cyan(webhookUrl(relay, serviceOf(stack, answers).id, answers.repository))} and run setup again to store its ${secretName(serviceOf(stack, answers))}.`,
       );
     }
   }
 
-  if (answers.incidents || answers.monitoringMarkers) {
+  // A service with a key per environment tells them apart by the key, not by name
+  if ((answers.incidents || answers.monitoringMarkers) && !serviceOf(stack, answers).keyPerEnvironment) {
     steps.push(
       `In ${serviceOf(stack, answers).name}, name the environments ${bold('production')}${answers.staging ? ` and ${bold('staging')}` : ''}, like the GitHub environments.`,
     );
@@ -1245,7 +1290,11 @@ async function healthStatus(url) {
 }
 
 /** Compares a project with what the workflows need (see check). */
-async function evaluate(stack, state, { relay, repository, probe = healthStatus, relayLookup = hasSecret }) {
+async function evaluate(
+  stack,
+  state,
+  { relay, repository, probe = healthStatus, relayLookup = hasSecret, relayRead = readSecret },
+) {
   const report = createReport();
   const { ok, warn, error } = report;
 
@@ -1262,9 +1311,19 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   );
   const looksUpRelay =
     state.current?.incidents !== false && relay.configured && !(repository && !relayAccepts(relay, repository));
+  const service = serviceOf(stack, state.current);
+  // A key per environment (Inspector): the environments that need one, and those missing in the relay (null unread)
+  const keyed =
+    environments.includes('staging') && state.current?.incidentStaging !== false
+      ? ['production', 'staging']
+      : ['production'];
+  const missingKeys = async () => {
+    const secret = await relayRead(relay, service.id, repository);
+    return secret === null ? null : keyed.filter((name) => !storedKeys(secret)[name]);
+  };
   const registration =
     looksUpRelay && relaySupported()
-      ? started(relayLookup(relay, serviceOf(stack, state.current).id, repository))
+      ? started(service.keyPerEnvironment ? missingKeys() : relayLookup(relay, service.id, repository))
       : null;
 
   if (workflowItems(report, state, { ref: PROJECT_REF, kind: 'project', fix: SETUP })) {
@@ -1432,12 +1491,16 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
       warn('Cannot read the monitoring relay on Windows', 'see relay/README.md in datalogix/workflows');
     } else {
       const registered = await registration;
-      if (registered === true) ok('Registered in the monitoring relay');
-      else if (registered === false)
+      // With a key per environment, the list of those missing: some of them is a key to add, all of them not registered
+      const missing = Array.isArray(registered) ? registered : null;
+      if (registered === true || missing?.length === 0) ok('Registered in the monitoring relay');
+      else if (missing && missing.length < keyed.length)
         warn(
-          `Not registered in the monitoring relay: ${serviceOf(stack, state.current).name} problems are rejected`,
+          `${service.name} key of ${missing.join(' and ')} missing in the monitoring relay: its problems are rejected`,
           SETUP,
         );
+      else if (registered === false || missing)
+        warn(`Not registered in the monitoring relay: ${service.name} problems are rejected`, SETUP);
       else warn('Could not read the monitoring relay', 'run npx wrangler login, then check again');
     }
   }

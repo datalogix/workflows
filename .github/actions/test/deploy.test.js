@@ -267,7 +267,7 @@ describe('deploy', () => {
 
   test('deploy marks Nightwatch only when it is the monitoring service', async () => {
     const env = { SHA: sha('c'), NIGHTWATCH_TOKEN: 'token' };
-    for (const monitoring of ['sentry', 'none', '../x']) {
+    for (const monitoring of ['sentry', 'inspector', 'none', '../x']) {
       const result = await step('deploy', { env: { ...env, MONITORING: monitoring } });
       expect(result.code).toBe(0);
       expect(callsTo(result, 'curl').filter((call) => call.includes('nightwatch.laravel.com'))).toStrictEqual([]);
@@ -547,6 +547,7 @@ describe('open-issue', () => {
     };
     expect(await hint('nightwatch')).toMatch(/Verifique os erros no Nightwatch e os logs do deploy no forge\./);
     expect(await hint('sentry')).toMatch(/Verifique os erros no Sentry e os logs do deploy no forge\./);
+    expect(await hint('inspector')).toMatch(/Verifique os erros no Inspector e os logs do deploy no forge\./);
     expect(await hint('none')).toMatch(/Verifique os logs do deploy no forge\. Para redeployar/);
   });
 

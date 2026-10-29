@@ -4,11 +4,11 @@ import { deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { deployProviders } from '../../providers/deploy/index.js';
-import { monitoringServices } from '../../providers/monitoring/index.js';
+import { MONITORING_SERVICES, monitoringServices } from '../../providers/monitoring/index.js';
 import { addDatabaseCheck, inspectHealth, PROVIDER_PATH } from './health.js';
 import { inspectTools, NO_TOOLS, toolSteps } from './tools.js';
 
-// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch or Sentry, the
+// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch, Sentry or Inspector, the
 // health check of bootstrap/app.php and the lint and test tools
 
 const BY_HAND = 'see docs/laravel/app-manual-setup.md in datalogix/workflows';
@@ -56,7 +56,11 @@ const jsStep = {
 };
 
 // The package each monitoring service needs in the app, without which nothing reaches it
-const AGENTS = { nightwatch: 'laravel/nightwatch', sentry: 'sentry/sentry-laravel' };
+const AGENTS = {
+  nightwatch: 'laravel/nightwatch',
+  sentry: 'sentry/sentry-laravel',
+  inspector: 'inspector-apm/inspector-laravel',
+};
 const monitoringOf = (a) => a?.monitoring ?? 'nightwatch';
 
 /** Whether composer.json requires the package, e.g. Nightwatch's agent. */
@@ -232,10 +236,13 @@ function deploySiteTasks(answers, { state }) {
 // Problems become issues, or deploys are marked: both need Nightwatch's agent in the app, with its token
 const usesNightwatch = (a) => monitoringOf(a) === 'nightwatch' && Boolean(a.incidents || a.monitoringMarkers);
 
-/** Sentry's SDK, when its problems become issues and the app does not require it yet. */
-function sentryNextSteps(answers, { state }) {
-  if (monitoringOf(answers) !== 'sentry' || !answers.incidents || state.sentry) return [];
-  return [`Install Sentry's SDK in the app, or nothing reaches Sentry: ${cyan(`composer require ${AGENTS.sentry}`)}`];
+/** The SDK of Sentry or Inspector, when its problems become issues and the app does not require it yet. */
+function sdkNextSteps(answers, { state }) {
+  const service = MONITORING_SERVICES[monitoringOf(answers)];
+  if (!['sentry', 'inspector'].includes(service?.id) || !answers.incidents || state[service.id]) return [];
+  return [
+    `Install ${service.name}'s SDK in the app, or nothing reaches ${service.name}: ${cyan(`composer require ${AGENTS[service.id]}`)}`,
+  ];
 }
 
 /** What Nightwatch needs in the app and its servers that setup did not do: the agent, and each environment's token. */
@@ -318,7 +325,7 @@ function evaluateMonitoring({ ok, warn }, state) {
   if (state[service]) ok(`${name} in composer.json`);
   else
     warn(
-      `composer.json does not require ${name}, so nothing reaches ${service === 'sentry' ? 'Sentry' : 'Nightwatch'}`,
+      `composer.json does not require ${name}, so nothing reaches ${MONITORING_SERVICES[service].name}`,
       `composer require ${name}`,
     );
 }
@@ -328,12 +335,13 @@ export default projectKind({
   deployHookHint: Object.values(PROVIDERS)
     .map((provider) => provider.hookHint)
     .join(' · '),
-  monitoring: monitoringServices(['nightwatch', 'sentry']),
+  monitoring: monitoringServices(['nightwatch', 'sentry', 'inspector']),
   empty: {
     health: { laravel: false, route: null, databaseCheck: false },
     tools: NO_TOOLS,
     nightwatch: false,
     sentry: false,
+    inspector: false,
     nodeScripts: [],
   },
   /** What collectState reads from the folder for a Laravel app: its health check, its locale and its tools. */
@@ -342,6 +350,7 @@ export default projectKind({
     locale: await readLocale(root),
     nightwatch: await requiresPackage(root, AGENTS.nightwatch),
     sentry: await requiresPackage(root, AGENTS.sentry),
+    inspector: await requiresPackage(root, AGENTS.inspector),
     nodeScripts: await nodeScripts(root),
     tools: await inspectTools(root),
   }),
@@ -359,7 +368,7 @@ export default projectKind({
       ? [`Make ${answers.healthPath} answer 200 only when the app works (${BY_HAND}).`]
       : []),
     ...nightwatchNextSteps(answers, { state, results }),
-    ...sentryNextSteps(answers, { state }),
+    ...sdkNextSteps(answers, { state }),
   ],
   evaluateDeploy,
   evaluateMonitoring,

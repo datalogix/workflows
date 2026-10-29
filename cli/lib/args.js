@@ -105,7 +105,7 @@ Options (each one skips its question in setup)
   --health-path /up           Health check path
   --production auto|manual    Deploy production automatically, or only from Run workflow
   --github-deployments / --no-github-deployments  Record each deploy in the repository's Deployments
-  --monitoring <service>      The app's monitoring service (laravel: nightwatch, sentry or none)
+  --monitoring <service>      The app's monitoring service (laravel: nightwatch, sentry, inspector or none)
   --incidents / --no-incidents  Turn problems of the monitoring service (see --monitoring) into GitHub issues
   --solo / --no-solo          You work alone on the project (protect: on the package)
   --approvals-medium 1        Human approvals a medium-risk pull request needs (team projects)

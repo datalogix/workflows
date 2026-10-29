@@ -25,6 +25,7 @@ How projects use it is in [Production errors](../docs/production-errors.md).
 | [`src/providers/index.js`](src/providers/index.js) | The provider registry and the incident format every provider produces |
 | [`src/providers/nightwatch.js`](src/providers/nightwatch.js) | Laravel Nightwatch: HMAC-SHA256 signature, issue events |
 | [`src/providers/sentry.js`](src/providers/sentry.js) | Sentry: HMAC-SHA256 signature, issue alerts (opened and reopened only) |
+| [`src/providers/inspector.js`](src/providers/inspector.js) | Inspector: the application key in `X-Inspector-Key` (no signature), one key per environment, error notifications (opened and reopened only) |
 | [`src/signatures.js`](src/signatures.js) | Signature checks shared by providers (HMAC-SHA256) |
 | [`src/keys.js`](src/keys.js) | The KV key format, shared with the setup command |
 | [`test/`](test) | Tests, run with `npm test` (Vitest) |
@@ -35,7 +36,7 @@ How projects use it is in [Production errors](../docs/production-errors.md).
 | Setting | Where | What it is |
 | --- | --- | --- |
 | `ALLOWED_OWNER` | `wrangler.toml`, `[vars]` (set by `org` to its organization) | GitHub owner whose repositories may be targeted |
-| `SECRETS` | `wrangler.toml`, `[[kv_namespaces]]` (`org` reuses or creates `incident-relay-secrets`) | KV namespace with one entry per repository and provider: `<provider>:<owner>/<repo>` → webhook secret; also the events delivered in the last two hours (`delivery:…`, with a TTL) |
+| `SECRETS` | `wrangler.toml`, `[[kv_namespaces]]` (`org` reuses or creates `incident-relay-secrets`) | KV namespace with one entry per repository and provider: `<provider>:<owner>/<repo>` → webhook secret (Inspector: a JSON object of keys by environment, `{"production":"<key>","staging":"<key>"}`); also the events delivered in the last two hours (`delivery:…`, with a TTL) |
 | `GITHUB_TOKEN` | Worker secret | Fine-grained token with **Contents: read and write** on the project repositories |
 | `relay.json` | `workflows/relay.json` in `<owner>/.github` | Written by `org`: the worker's URL, the namespace id and the owner, so setup can show the webhook URL and store each repository's secret |
 
@@ -58,6 +59,8 @@ npx wrangler kv key put "nightwatch:datalogix/app" --namespace-id <id> --path se
 rm -f secret.txt; unset SECRET
 ```
 
+For Inspector, the file holds each environment's application key as JSON, `{"production":"<key>","staging":"<key>"}`, under `inspector:<owner>/<repo>`.
+
 On Windows, paste the secret into a file with an editor, save it outside any repository, run the same `kv key put` with `--path <file>` and delete the file afterwards; never type the secret in the command line. `<id>` is the `namespaceId` in `workflows/relay.json` of the organization's `.github` repository.
 
 `npx wrangler kv key list --namespace-id <id> --remote` lists the registered repositories (the keys, not the secrets).
@@ -66,9 +69,9 @@ On Windows, paste the secret into a file with an editor, save it outside any rep
 
 1. **Write `src/providers/<id>.js`**, exporting `{ id, name, verify, sentAt, normalize }`:
    - `id` is the URL segment and the prefix of its KV keys; `name` is shown in GitHub issues.
-   - `verify(request, body, secret)` proves the raw body came from the provider. Use a signature (`verifyHmacSha256`).
+   - `verify(request, body, secret)` proves the raw body came from the provider. Use a signature (`verifyHmacSha256`). It may return an object instead of `true`, which `normalize` receives (Inspector, without a signature, returns the environment of the key that matched).
    - `sentAt(webhook)` returns when the provider sent the webhook, in epoch milliseconds, from a field covered by the signature.
-   - `normalize(webhook)` returns the incident format documented in [`src/providers/index.js`](src/providers/index.js), or `null` for events to ignore. The problem's `id` must be the same in every event about it, so issues are reopened and closed instead of duplicated. `environment.name` must match the GitHub environment (`production`, `staging`).
+   - `normalize(webhook, verified)` returns the incident format documented in [`src/providers/index.js`](src/providers/index.js), or `null` for events to ignore. The problem's `id` must be the same in every event about it, so issues are reopened and closed instead of duplicated. `environment.name` must match the GitHub environment (`production`, `staging`).
 2. **Register it** in `src/providers/index.js`.
 3. **Test it with a real webhook** from the provider, captured from its dashboard or a test delivery: signature format, event names and payload shape are where documentation is most often incomplete.
 4. **Document its setup** in [Production errors](../docs/production-errors.md), and teach the setup command to ask for its secret ([`../cli`](../cli/README.md)).
