@@ -8,7 +8,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 
 | Input                                                             | Default                        | Description                                                              |
 | ----------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------ |
-| `stack`                                                           | `laravel`                      | Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugin (`laravel@datalogix`); only `laravel` is supported (another one fails the run) |
+| `stack`                                                           | `laravel`                      | Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugins (`core@datalogix` and `laravel@datalogix`); only `laravel` is supported (another one fails the run) |
 | `tests` / `review` / `security-review` / `risk-gate` / `fix-ci`   | `true`                         | Turn each layer on or off; `tests`, `security-review` and `risk-gate` have required checks, so run `protect` again after changing them |
 | `php-version` / `node-version`                                    | detected                       | Override the environment versions                                        |
 | `pint` / `phpstan`                                                | `true`                         | Run Pint (on the files changed by the pull request) and PHPStan when they are installed; see [Lint and test suite](laravel/app-tests.md#lint-and-test-suite) |
@@ -93,7 +93,7 @@ The tests of a JavaScript or TypeScript library: see [JavaScript library tests](
 | `language`                                | `pt-BR`                                                                                          | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
 | `allowed-tools`                           | `Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*`                              | Tools Claude may use                                                      |
 | `disallowed-tools`                        | force push, branch deletion, `gh pr merge`, `gh pr review`, `gh release`, `gh repo`, `gh secret` | Tools Claude may never use                                                |
-| `plugin-marketplaces` / `plugins`         | empty / `laravel@datalogix`                                                                      | Extra marketplaces, besides this repository's at the workflows' version (always added), and plugins to install |
+| `plugin-marketplaces` / `plugins`         | empty / `core@datalogix` and `laravel@datalogix`                                                 | Extra marketplaces, besides this repository's at the workflows' version (always added), and plugins to install |
 | `show-full-output`                        | `false`                                                                                          | Print Claude's full output in the logs (may expose secrets)               |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).

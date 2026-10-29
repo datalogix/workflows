@@ -15,7 +15,7 @@ Breaking changes (renamed or removed inputs, new required secrets or permissions
 
 ## The Claude plugin is released with the workflows
 
-The workflows install the `laravel` plugin through the [`plugins`](../.github/actions/plugins/action.yml) action, called with `@v2` like the other actions. The runner downloads the whole repository at that tag, and the action returns its path as a local marketplace (the Claude Code action does not accept a ref in marketplace URLs). Changes to [`plugins/laravel`](../plugins/laravel) therefore reach projects only when a release moves the tag, together with the workflows that depend on them: for example, the `[ci-fix]` commit tag required by the `fix-ci` command is what `claude-fix-ci` counts to limit attempts.
+The workflows install the `core` plugin and the plugin of the project's stack (`laravel`) through the [`plugins`](../.github/actions/plugins/action.yml) action, called with `@v2` like the other actions. The runner downloads the whole repository at that tag, and the action returns its path as a local marketplace (the Claude Code action does not accept a ref in marketplace URLs). Changes to [`plugins/`](../plugins) therefore reach projects only when a release moves the tag, together with the workflows that depend on them: for example, the `[ci-fix]` commit tag required by the `fix-ci` command is what `claude-fix-ci` counts to limit attempts.
 
 To try a plugin change in a project before releasing it, point the `plugins@v2` reference of the workflow at the branch (`plugin-marketplaces` only adds marketplaces next to this repository's, so it cannot replace the released plugin). Your local Claude Code still installs the plugin from the marketplace URL, that is, from the default branch.
 

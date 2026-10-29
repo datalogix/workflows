@@ -13,7 +13,7 @@ on:
       stack:
         type: string
         default: laravel
-        description: Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugin (laravel@datalogix). Only laravel is supported today
+        description: Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugins (core@datalogix and laravel@datalogix). Only laravel is supported today
       # Layers
       tests:
         type: boolean
@@ -190,7 +190,9 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude.yml@v2
     secrets: inherit
     with:
-      plugins: laravel@datalogix
+      plugins: |
+        core@datalogix
+        laravel@datalogix
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
       model: ${{ inputs.model }}
@@ -229,7 +231,9 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude-review.yml@v2
     secrets: inherit
     with:
-      plugins: laravel@datalogix
+      plugins: |
+        core@datalogix
+        laravel@datalogix
       model: ${{ inputs.model }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
@@ -244,7 +248,9 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude-security-review.yml@v2
     secrets: inherit
     with:
-      plugins: laravel@datalogix
+      plugins: |
+        core@datalogix
+        laravel@datalogix
       model: ${{ inputs.model }}
       fail-on: ${{ inputs.security-fail-on }}
       extra-instructions: ${{ inputs.extra-instructions }}
@@ -277,7 +283,9 @@ jobs:
     uses: datalogix/workflows/.github/workflows/claude-fix-ci.yml@v2
     secrets: inherit
     with:
-      plugins: laravel@datalogix
+      plugins: |
+        core@datalogix
+        laravel@datalogix
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
       model: ${{ inputs.fix-ci-model }}
@@ -350,7 +358,9 @@ jobs:
     uses: datalogix/workflows/.github/workflows/incident.yml@v2
     secrets: inherit
     with:
-      plugins: laravel@datalogix
+      plugins: |
+        core@datalogix
+        laravel@datalogix
       environments: ${{ inputs.incident-environments }}
       types: ${{ inputs.incident-types }}
       model: ${{ inputs.model }}

@@ -1,0 +1,7 @@
+{
+  "name": "core",
+  "description": "Datalogix conventions for every project: language, commits, scope, validation limits, review rounds and pull requests",
+  "author": {
+    "name": "Datalogix"
+  }
+}

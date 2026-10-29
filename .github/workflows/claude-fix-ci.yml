@@ -45,7 +45,9 @@ on:
         description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
       plugins:
         type: string
-        default: laravel@datalogix
+        default: |
+          core@datalogix
+          laravel@datalogix
         description: Claude Code plugins to install, one per line (name@marketplace)
       extra-instructions:
         type: string
@@ -177,4 +179,4 @@ jobs:
             ${{ steps.setup.outputs.mcp-config != '' && format('--mcp-config {0}', steps.setup.outputs.mcp-config) || '' }}
             --allowed-tools "${{ inputs.allowed-tools }}"
             --disallowed-tools "${{ inputs.disallowed-tools }}"
-            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Do everything synchronously and only end your turn when the task is complete. Before starting, load the laravel:conventions skill and follow all of its rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Do everything synchronously and only end your turn when the task is complete. Before starting, load the core:conventions and laravel:conventions skills and follow all of their rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"

@@ -51,4 +51,4 @@ Keep these in sync:
 
 ## Note on the plugin
 
-`plugins/laravel/skills/conventions/SKILL.md` (team language for commits and PR text, read from "Team language: <value>" in the system prompt, Brazilian Portuguese without it; feature flags, etc.) defines how Claude behaves *in the target Laravel projects*; the workflows' `language` input sets the team language per project. It is not the convention for this repository, where code, docs and commit messages are in English.
+`plugins/core/skills/conventions/SKILL.md` (team language for commits and PR text, read from "Team language: <value>" in the system prompt, Brazilian Portuguese without it; scope, validation limits, review rounds, PR sections) and the stack's skill (`plugins/laravel/skills/conventions/SKILL.md`: feature flags, migrations, the tools of the pre-PR verification) define how Claude behaves *in the target projects*; every Claude workflow installs `core@datalogix` with the stack's plugin; the workflows' `language` input sets the team language per project. It is not the convention for this repository, where code, docs and commit messages are in English.

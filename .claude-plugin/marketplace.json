@@ -8,6 +8,11 @@
   },
   "plugins": [
     {
+      "name": "core",
+      "source": "./plugins/core",
+      "description": "Datalogix conventions for every project, installed with the plugin of its stack"
+    },
+    {
       "name": "laravel",
       "source": "./plugins/laravel",
       "description": "Datalogix conventions and commands for Laravel projects"
