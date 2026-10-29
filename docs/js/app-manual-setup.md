@@ -18,11 +18,38 @@ jobs:
       # Without Sentry: incidents: false
 ```
 
-Do not set `deploy`: the workflows do not deploy JavaScript apps yet.
+With Vercel deploys, add `deploy: vercel`, then set up the environments and `vercel.json` below.
 
 ## Labels, Claude token and code owners
 
 The same as for a Laravel app, without the `env:` labels: see [Labels](../laravel/app-manual-setup.md#labels), the [Claude token](../laravel/app-manual-setup.md#claude-token) when the repository cannot read the organization's, and the `/.github/` line of `.github/CODEOWNERS` ([Code owners](../laravel/app-manual-setup.md#code-owners)).
+
+## Vercel
+
+Each GitHub environment (`production`, and `staging` for the project's `staging` custom environment) needs the variables and secrets of [Vercel](../deploy.md#vercel):
+
+```bash
+for env in staging production; do
+  gh api --method PUT "repos/OWNER/REPO/environments/$env" >/dev/null
+  gh secret set VERCEL_TOKEN --repo OWNER/REPO --env $env
+  gh secret set VERCEL_AUTOMATION_BYPASS_SECRET --repo OWNER/REPO --env $env
+  gh variable set VERCEL_PROJECT --repo OWNER/REPO --env $env --body "prj_..."
+  # Only for a team's project
+  gh variable set VERCEL_TEAM_ID --repo OWNER/REPO --env $env --body "team_..."
+done
+gh variable set HEALTH_URL --repo OWNER/REPO --env staging --body "https://dev.example.com/api/health"
+gh variable set HEALTH_URL --repo OWNER/REPO --env production --body "https://example.com/api/health"
+```
+
+In `vercel.json`, turn off Vercel's own deploys of the branches the workflows deploy, keeping the previews of pull requests:
+
+```json
+{
+  "git": { "deploymentEnabled": { "main": false } }
+}
+```
+
+Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt).
 
 ## Sentry
 
