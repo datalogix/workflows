@@ -67,10 +67,13 @@ export const NO_ENVIRONMENT = { exists: false, deployHook: false, healthUrl: nul
  */
 export async function hasReleaseApp(github) {
   const found = await Promise.all(
-    RELEASE_APP_SECRETS.map(
-      async (name) =>
-        (await github.hasRepositorySecret(name)) || (await github.hasOrganizationSecret(name).catch(() => false)),
-    ),
+    RELEASE_APP_SECRETS.map(async (name) => {
+      const [repository, organization] = await Promise.all([
+        github.hasRepositorySecret(name),
+        github.hasOrganizationSecret(name).catch(() => false),
+      ]);
+      return repository || organization;
+    }),
   );
   return found.every(Boolean);
 }

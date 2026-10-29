@@ -24,8 +24,8 @@ export async function check(ctx) {
   let items;
   try {
     const detected = await detectStack(ctx.root);
-    await detected.module.prepare?.(ctx);
-    state = await collectState(github, ctx.root, { detected });
+    // The relay settings (prepare) do not depend on the state, so both are read together
+    [, state] = await Promise.all([detected.module.prepare?.(ctx), collectState(github, ctx.root, { detected })]);
     // GitHub's own spelling of the repository, which the relay keys use
     if (state) items = await evaluate(state, { relay: ctx.relay, repository: state.repo?.full_name ?? ctx.repository });
   } catch (error) {

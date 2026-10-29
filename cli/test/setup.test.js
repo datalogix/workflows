@@ -1187,6 +1187,9 @@ function setupGitHub(methods = {}) {
     login: async () => 'ana',
     labels: async () => [],
     environment: async () => null,
+    // Read along with the environment: a missing one answers none
+    hasEnvironmentSecret: async () => false,
+    environmentVariable: async () => null,
     hasRepositorySecret: async () => true,
     hasOrganizationSecret: async () => false,
     claudeApp: async () => 'all',
