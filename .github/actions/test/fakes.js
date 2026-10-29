@@ -77,8 +77,9 @@ echo "[\\"sleep\\", \\"$1\\"]" >> "$FAKE_DIR/calls.jsonl"
 /**
  * Runs a script of an action with fake gh, curl and sleep in PATH, and `event` as the event payload. Returns its exit code and output, the calls
  * made to the fakes (as argument arrays), the gh calls no rule matched, what it wrote to GITHUB_OUTPUT and to the step summary.
+ * `setup` prepares the folder before the run (e.g. a git repository) and may return the folder the script runs in.
  */
-export async function runScript(script, { args = [], env = {}, event = {}, gh = [], curl = [] } = {}) {
+export async function runScript(script, { args = [], env = {}, event = {}, gh = [], curl = [], setup } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'action-'));
   try {
     for (const [name, content] of [
@@ -100,8 +101,9 @@ export async function runScript(script, { args = [], env = {}, event = {}, gh = 
     for (const file of ['calls.jsonl', 'unmatched.jsonl', 'output', 'summary']) await writeFile(join(dir, file), '');
     await writeFile(join(dir, 'event.json'), JSON.stringify(event));
 
+    const cwd = (await setup?.(dir)) ?? dir;
     const child = spawn('bash', [join(actions, script), ...args], {
-      cwd: dir,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         PATH: `${dir}:${process.env.PATH}`,
