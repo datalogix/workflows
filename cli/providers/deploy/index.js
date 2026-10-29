@@ -1,5 +1,6 @@
 import cloud from './cloud.js';
 import forge from './forge.js';
+import vercel from './vercel.js';
 
 /**
  * The deploy targets setup knows, each a file here whose default export is:
@@ -17,9 +18,16 @@ import forge from './forge.js';
  *   nightwatchTask(api, site, environment, token) or null    puts the Nightwatch token in the site
  *   manualSteps({ which, branchesOf, twoBranches, left, why })    what is left to do by hand without the API
  *
+ * and optionally, for a provider deployed by something else than a deploy hook:
+ *
+ *   secret        the environment secret its deploys need (DEPLOY_HOOK by default), which check looks for
+ *   variables     the environment variables its deploys need, which check looks for
+ *   hookQuestions false: setup asks for no deploy hook
+ *   environmentValues(answers, environment)   { secrets, variables } setup writes in that environment
+ *
  * A stack offers the ones its apps deploy to (deployProviders), and a new one also needs its deploy script.
  */
-export const DEPLOY_PROVIDERS = Object.fromEntries([forge, cloud].map((provider) => [provider.id, provider]));
+export const DEPLOY_PROVIDERS = Object.fromEntries([forge, cloud, vercel].map((provider) => [provider.id, provider]));
 
 /** The deploy providers of a stack, by id, in the order given. */
 export const deployProviders = (ids) => Object.fromEntries(ids.map((id) => [id, DEPLOY_PROVIDERS[id]]));

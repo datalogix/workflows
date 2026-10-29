@@ -1318,13 +1318,26 @@ test('does not ask the kind when the workflow file leaves a single choice', asyn
 });
 
 test('refuses a folder no stack recognizes, unless --stack or --kind says what it is', async (t) => {
-  const root = await folder(t, { 'package.json': '{}', 'nuxt.config.ts': '' }, 'setup-');
+  const root = await folder(t, { Gemfile: '', Rakefile: '' }, 'setup-');
   for (const flags of [{}, { yes: true }]) {
     await expect(chooseStack({ root, flags })).rejects.toThrow('This folder is not a Laravel app or package');
   }
   expect(prompts.asked).toStrictEqual([]);
   expect((await chooseStack({ root, flags: { kind: 'package' } })).label).toBe('Laravel package');
   expect((await chooseStack({ root, flags: { stack: 'laravel' } })).label).toBe('Laravel app');
+});
+
+test('asks whether a JavaScript folder is an app or a library, starting from the detected one', async (t) => {
+  const library = await folder(t, { 'package.json': '{"name": "lib"}' }, 'setup-');
+  prompts.answer = 'JavaScript package';
+  expect((await chooseStack({ root: library, flags: {} })).label).toBe('JavaScript package');
+  expect(prompts.asked).toMatchObject([{ initialValue: 'JavaScript package' }]);
+  expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual([
+    'JavaScript app',
+    'JavaScript package',
+  ]);
+  const app = await folder(t, { 'package.json': '{"dependencies": {"next": "^16"}}' }, 'setup-');
+  expect((await chooseStack({ root: app, flags: { yes: true } })).label).toBe('JavaScript app');
 });
 
 test('asks the kind, starting from the detected one, when the folder has no workflow file', async (t) => {
@@ -1432,4 +1445,38 @@ test('says the pull request of the workflow file fails the security review', asy
     'the security review fails: have a person review it, then an admin merges it past the check',
   );
   expect(pr({ securityReview: false })).not.toContain('security review fails');
+});
+
+test('sets a Next app up with stack js and Sentry, not deployed by the workflows', async (t) => {
+  const manifest = { dependencies: { next: '^16' }, scripts: { 'test:e2e': 'playwright test' } };
+  const root = await folder(t, { 'package.json': JSON.stringify(manifest) }, 'setup-');
+  const { monitoring, ...flags } = setupFlags;
+  expect([flags.deploy, monitoring]).toStrictEqual(['none', 'nightwatch']);
+  prompts.answer = false;
+  // Only the end-to-end tests question is left without a flag
+  expect(
+    await setup(
+      setupContext(root, setupGitHub(), { ...flags, yes: false, monitoring: 'sentry', stack: 'js', kind: 'app' }),
+    ),
+  ).toBe(1);
+  expect(prompts.asked.map((options) => options.message)).toStrictEqual([
+    expect.stringContaining('Run the end-to-end tests (test:e2e) in the tests?'),
+    'Apply these changes?',
+  ]);
+
+  expect(await setup(setupContext(root, setupGitHub(), { ...flags, monitoring: 'sentry' }))).toBe(0);
+  const inputs = parseInputs(await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8'));
+  expect(inputs).toMatchObject({ stack: 'js', monitoring: 'sentry', incidents: 'false' });
+  expect(inputs.deploy).toBe(undefined);
+});
+
+test("tells to install Sentry's SDK of the framework, and checks for it", async () => {
+  const jsApp = (await import('../stacks/js/app.js')).default;
+  const state = { ...APP_STATE, framework: 'nuxt', sentry: false };
+  const steps = jsApp.setup.nextSteps(
+    { repository: 'datalogix/app', monitoring: 'sentry', incidents: true },
+    { relay, results: [], state },
+  );
+  expect(steps).toContainEqual(expect.stringContaining('npx @sentry/wizard@latest -i nuxt'));
+  expect(steps).not.toContainEqual(expect.stringContaining('NIGHTWATCH_TOKEN'));
 });

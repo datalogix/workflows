@@ -8,13 +8,14 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 
 | Input                                                             | Default                        | Description                                                              |
 | ----------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------ |
-| `stack`                                                           | `laravel`                      | Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugin (`laravel@datalogix`); only `laravel` is supported (another one fails the run) |
+| `stack`                                                           | `laravel`                      | Stack of the project, `laravel` or [`js`](js/app.md) (Next, Nuxt; another one fails the run), which picks its tests, the environment prepared for Claude, the Claude plugins (`core@datalogix` with `laravel@datalogix` or `js@datalogix`) and the default high-risk paths. Deploys need `laravel` |
 | `tests` / `review` / `security-review` / `risk-gate` / `fix-ci`   | `true`                         | Turn each layer on or off; `tests`, `security-review` and `risk-gate` have required checks, so run `protect` again after changing them |
 | `php-version` / `node-version`                                    | detected                       | Override the environment versions                                        |
 | `pint` / `phpstan`                                                | `true`                         | Run Pint (on the files changed by the pull request) and PHPStan when they are installed; see [Lint and test suite](laravel/app-tests.md#lint-and-test-suite) |
 | `lint-command`                                                    | empty                          | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check` |
 | `test-command`                                                    | detected                       | Test command, `none` skips the test suite; see [Test scripts](laravel/app-tests.md#test-scripts) |
 | `js`                                                              | `true`                         | Run the `typecheck`, `lint` and `test` scripts of `package.json`         |
+| `e2e`                                                             | `true`                         | `stack: js`: run the `test:e2e` script after the build (see [JavaScript app tests](js/app-tests.md)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
@@ -22,7 +23,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `approvals-medium` / `approvals-high`                             | `1` / `1`                      | Human approvals for medium and high risk pull requests                   |
 | `count-author`                                                    | `false`                        | Count a human author with write access as one approval (solo maintainers) |
 | `extra-high-risk-paths`                                           | empty                          | More patterns (one per line) that make a pull request high risk, added to the risk gate's defaults (e.g. `app/Services/Payment/*`) |
-| `deploy`                                                          | `none`                         | Deploy the default branch with `forge`, `cloud` or [`vercel`](deploy.md#vercel) (with `production-branch`, the production branch goes to production) |
+| `deploy`                                                          | `none`                         | Deploy the default branch with `forge`, `cloud` or [`vercel`](deploy.md#vercel) (the one setup offers for `stack: js`; with `production-branch`, the production branch goes to production) |
 | `staging`                                                         | `true`                         | Deploy and watch `staging` before `production`                           |
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
 | `production-branch`                                               | empty                          | Branch deployed to production (e.g. `main`); the default branch then deploys only staging. List both branches in `push.branches` (e.g. `[develop, main]`; setup does). See [Production branch](deploy.md#production-branch) |
@@ -53,11 +54,11 @@ Secrets: `CLAUDE_CODE_OAUTH_TOKEN` (required); `RELEASE_APP_CLIENT_ID` and `RELE
 
 ## `package`
 
-The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Packages](laravel/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, plus:
+The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Laravel packages](laravel/package.md) and [JavaScript libraries](js/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, or with `stack: js` [`node-package-tests`](js/package-tests.md#inputs) (with `node`, `os`, `test-command`, `lint-command` and `timeout-minutes`), plus:
 
 | Input   | Default | Description                                                                                |
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
-| `stack` | `laravel` | Stack of the package, which picks its tests; only `laravel` is supported (another one fails the run) |
+| `stack` | `laravel` | Stack of the package, which picks its tests: `laravel` or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite; it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 
 Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
@@ -67,9 +68,17 @@ Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
 
 The tests of a Laravel app: see [Laravel app tests](laravel/app-tests.md#inputs).
 
+## `node-app-tests`
+
+The tests of a Next or Nuxt app (`stack: js`): see [JavaScript app tests](js/app-tests.md#inputs).
+
 ## `laravel-package-tests`
 
 The tests of a Laravel package: see [Laravel package tests](laravel/package-tests.md#inputs).
+
+## `node-package-tests`
+
+The tests of a JavaScript or TypeScript library: see [JavaScript library tests](js/package-tests.md#inputs).
 
 ## `claude`
 
@@ -90,7 +99,8 @@ The tests of a Laravel package: see [Laravel package tests](laravel/package-test
 | `language`                                | `pt-BR`                                                                                          | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
 | `allowed-tools`                           | `Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*`                              | Tools Claude may use                                                      |
 | `disallowed-tools`                        | force push, branch deletion, `gh pr merge`, `gh pr review`, `gh release`, `gh repo`, `gh secret` | Tools Claude may never use                                                |
-| `plugin-marketplaces` / `plugins`         | empty / `laravel@datalogix`                                                                      | Extra marketplaces, besides this repository's at the workflows' version (always added), and plugins to install |
+| `plugin-marketplaces` / `plugins`         | empty / `core@datalogix` and `laravel@datalogix`                                                 | Extra marketplaces, besides this repository's at the workflows' version (always added), and plugins to install |
+| `stack`                                   | `laravel`                                                                                        | `laravel` or `js`: the environment prepared for Claude (`setup-laravel` or `setup-js`) and the commands and conventions skill of its plugin (`<stack>@datalogix`, which `plugins` must list). The other Claude workflows and `incident` take it too |
 | `show-full-output`                        | `false`                                                                                          | Print Claude's full output in the logs (may expose secrets)               |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
@@ -137,7 +147,8 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 | Input                                                   | Default                                                                                                                                    | Description                                                                |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `high-risk-paths`                                       | migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
+| `stack`                                                 | `laravel`                                                                                                                                  | Picks the default `high-risk-paths`: Laravel's, or JavaScript's for `js` |
+| `high-risk-paths`                                       | Laravel: migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*`. `js`: `middleware.*`, `server/*`, `app/api/*`, `pages/api/*` (also under `src/`), auth files and folders, `prisma/*`, `drizzle/*`, `migrations/*`, `nuxt.config.*`, `next.config.*`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
 | `extra-high-risk-paths`                                 | empty | More patterns, added to `high-risk-paths`: a project's own sensitive paths without repeating (or dropping) the defaults |
 | `low-risk-paths`                                        | tests, Markdown, `docs/*`, `lang/*.json`, editor and git config                                                                                 | A pull request touching only these is low risk; everything else is medium (`lang/*.php` too: it is PHP the app runs) |
 | `ignored-paths`                                         | lock files, `public/build/*`                                                                                                               | Make it at least medium risk, but not counted in the changed lines         |

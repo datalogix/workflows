@@ -3,6 +3,10 @@ name: claude-review
 on:
   workflow_call:
     inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the project (laravel or js), which picks the environment prepared for Claude and the commands and conventions skill of its plugin (<stack>@datalogix, listed in plugins)
       model:
         type: string
         default: opus
@@ -29,7 +33,9 @@ on:
         description: Extra marketplaces, one per line, besides the one with the code-review plugin and this repository's (at the same version as the workflows)
       plugins:
         type: string
-        default: laravel@datalogix
+        default: |
+          core@datalogix
+          laravel@datalogix
         description: Extra plugins, besides code-review
       extra-instructions:
         type: string
@@ -99,4 +105,4 @@ jobs:
           prompt: /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
           claude_args: |
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
-            --append-system-prompt "Before starting, load the laravel:conventions skill and follow its language rules: write every review comment in the team language. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "Before starting, load the core:conventions skill and follow its language rules: write every review comment in the team language. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"

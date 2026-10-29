@@ -533,6 +533,56 @@ test('looks the repository up in the relay under its monitoring service', async 
   expect(providers).toStrictEqual(['nightwatch', 'sentry']);
 });
 
+test("checks a JavaScript app: Sentry's SDK and the relay, nothing of Laravel or deploys", async () => {
+  const workflow = await renderProjectWorkflow({ stack: 'js', monitoring: 'sentry', incidents: true });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'next',
+    sentry: false,
+  };
+  const providers = [];
+  const items = await run(state, {
+    repository: 'datalogix/app',
+    relayLookup: async (_relay, provider) => (providers.push(provider), true),
+  });
+  expect(providers).toStrictEqual(['sentry']);
+  const titles = items.map((item) => item.title);
+  expect(titles).toContainEqual('package.json does not require @sentry/nextjs, so nothing reaches Sentry');
+  expect(titles.join('\n')).not.toMatch(/nightwatch|DEPLOY_HOOK|HEALTH_URL|bootstrap\/app\.php/i);
+});
+
+test('checks the Vercel token and project of a JavaScript app that deploys, not a deploy hook', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'vercel',
+    staging: true,
+    monitoring: 'none',
+    incidents: false,
+  });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'next',
+    healthFile: 'app/api/health/route.ts',
+    healthRoute: false,
+    environments: {
+      production: environment({ deployHook: false, variables: { VERCEL_PROJECT: 'prj_1' } }),
+      staging: environment({ variables: { VERCEL_PROJECT: null } }),
+    },
+  };
+  const items = await run(state, { repository: 'datalogix/app', probe: async () => 200 });
+  const errors = titles(items, 'error');
+  expect(errors).toContainEqual('Environment production has no VERCEL_TOKEN secret');
+  expect(errors).toContainEqual('Environment staging has no VERCEL_PROJECT variable');
+  expect(errors.join('\n')).not.toContain('DEPLOY_HOOK');
+  expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('No health route at app/api/health/route.ts'));
+});
+
 test('probes every health URL and looks up the relay together, reporting them in order', async () => {
   const state = await stateFor({ ...PRODUCTION, incidents: true }, READY);
   const started = [];

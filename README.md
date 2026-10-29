@@ -1,6 +1,6 @@
 # datalogix/workflows
 
-Claude-powered CI/CD for Datalogix Laravel projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
+Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt) projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
 
 What each project gets:
 
@@ -9,7 +9,7 @@ What each project gets:
 - **Safe deploys**: every merge goes to staging, then production, each watched after the deploy and rolled back automatically if it goes down.
 - **Production errors as issues**: problems detected by Nightwatch or Sentry become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.
 
-Packages call a single `package` workflow, today the test matrix. Only public Composer packages are supported: the workflows pass no Composer credentials.
+Packages call a single `package` workflow, today the test matrix: Laravel packages (only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
 
 ## Requirements
 

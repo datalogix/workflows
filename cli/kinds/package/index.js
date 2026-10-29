@@ -27,7 +27,7 @@ function setupSteps(stack) {
     repositoryStep(),
     {
       id: 'codecovToken',
-      when: (a, ctx) => !ctx.state.codecovToken && uploadsCoverage(ctx.state),
+      when: (a, ctx) => stack.coverage !== false && !ctx.state.codecovToken && uploadsCoverage(ctx.state),
       ask: async ({ header }) =>
         orExit(
           await clack.password({
@@ -93,7 +93,7 @@ function nextSteps(answers, { results, state }) {
 }
 
 /** A package needs only its workflow file, the ruleset, the Codecov token and the code owners. */
-async function evaluate(checks, state) {
+async function evaluate(stack, checks, state) {
   const report = createReport();
   workflowItems(report, state, { ref: PACKAGE_REF, kind: 'package', fix: SETUP });
   rulesetItems(report, state, {
@@ -101,7 +101,7 @@ async function evaluate(checks, state) {
     known: Object.values(checks),
   });
   // Optional: without it the tests run, only no coverage report is uploaded
-  if (uploadsCoverage(state)) {
+  if (stack.coverage !== false && uploadsCoverage(state)) {
     if (state.codecovToken) report.ok('CODECOV_TOKEN (coverage reports)');
     else report.warn('No CODECOV_TOKEN: the coverage report is not uploaded', `${SETUP}, or coverage: false`);
   }
@@ -113,11 +113,14 @@ async function evaluate(checks, state) {
 
 /**
  * The module of a stack's package (package.yml): what every package needs, with the stack's part. `stack` gives
- * optionally checks (PACKAGE_CHECKS by default), steps() (its own questions), inspect(root) and empty (its part of
- * the state before it is read).
+ * optionally id (the stack input the workflow file passes, laravel by default), coverage (false when its tests upload
+ * no coverage report, so no Codecov token is asked), checks (PACKAGE_CHECKS by default), steps() (its own questions),
+ * inspect(root) and empty (its part of the state before it is read).
  */
 export function packageKind(stack) {
   const checks = stack.checks ?? PACKAGE_CHECKS;
+  // The workflow file names the stack, so package.yml runs its tests
+  const withStack = (answers) => ({ ...answers, stack: stack.id ?? 'laravel' });
   return {
     ref: PACKAGE_REF,
     checks,
@@ -132,11 +135,11 @@ export function packageKind(stack) {
     }),
     setup: {
       steps: () => setupSteps(stack),
-      tasks: setupTasks,
-      warnings: setupWarnings,
+      tasks: (answers, ctx) => setupTasks(withStack(answers), ctx),
+      warnings: (answers, ctx) => setupWarnings(withStack(answers), ctx),
       nextSteps,
     },
-    evaluate: (state) => evaluate(checks, state),
+    evaluate: (state) => evaluate(stack, checks, state),
     /** Checks to require, from the workflow answers (state.current). */
     requiredChecks: (state) => checksOn(checks, state.current),
     /**

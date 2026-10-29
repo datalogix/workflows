@@ -15,13 +15,16 @@ export async function chooseStack(ctx) {
   // Laravel folder detection misses (e.g. a repository not scaffolded yet)
   if (!detected.recognized && !flagged) {
     throw new Error(
-      'This folder is not a Laravel app or package (no artisan file, and composer.json does not require Laravel): only Laravel is supported today. Run setup from the project folder, or pass --kind app or --kind package to set it up anyway.',
+      'This folder is not a Laravel app or package (no artisan file, and composer.json does not require Laravel) nor a JavaScript library (no package.json). Run setup from the project folder, or pass --stack and --kind to set it up anyway.',
     );
   }
   let chosen = detected;
   if (flagged) chosen = fromFlags(ctx.flags, detected);
   else if (!ctx.flags.yes) {
-    const choices = setupChoices().filter((choice) => !fileKind || choice.kind === fileKind);
+    // The kinds of the detected stack: another stack's template would not run this folder's tests
+    const choices = setupChoices().filter(
+      (choice) => choice.stack === detected.stack && (!fileKind || choice.kind === fileKind),
+    );
     if (choices.length > 1 && choices.some((choice) => choice.label === detected.label)) {
       const label = orExit(
         await clack.select({

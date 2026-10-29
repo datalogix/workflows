@@ -76,7 +76,9 @@ jobs:
         shell: bash
         run: |
           npx -y @anthropic-ai/claude-code plugin validate .
+          npx -y @anthropic-ai/claude-code plugin validate plugins/core
           npx -y @anthropic-ai/claude-code plugin validate plugins/laravel
+          npx -y @anthropic-ai/claude-code plugin validate plugins/js
 
       - name: Locate the plugins
         id: plugins

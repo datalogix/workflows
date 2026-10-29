@@ -674,6 +674,51 @@ describe('vercel', () => {
     expect(result.stdout).toMatch(/::error::Vercel answered HTTP 403: Not authorized/);
   });
 
+  test('records the deployment as live only once it is ready', async () => {
+    const runner = await temp();
+    const env = { ...VERCEL, SHA: sha('c'), RUNNER_TEMP: runner, SETTLE: '30' };
+    const live = (result) => callsTo(result, 'gh').filter((call) => call.includes('datalogix/live/production'));
+    const deploy = await step('deploy', {
+      env,
+      curl: [{ match: 'api.vercel.com/v13/deployments', codes: ['200'], bodies: [{ id: 'dpl_1' }] }],
+    });
+    expect(deploy.code).toBe(0);
+    expect(live(deploy)).toStrictEqual([]);
+
+    const failed = await step('settle', {
+      env,
+      curl: [{ match: 'v13/deployments/dpl_1', codes: ['200'], bodies: [{ readyState: 'ERROR' }] }],
+    });
+    expect(failed.code).toBe(1);
+    expect(live(failed)).toStrictEqual([]);
+
+    const ready = await step('settle', {
+      env,
+      curl: [{ match: 'v13/deployments/dpl_1', codes: ['200'], bodies: [{ readyState: 'READY' }] }],
+    });
+    expect(ready.code).toBe(0);
+    expect(live(ready)).toContainEqual(expect.stringContaining(`sha=${sha('c')}`));
+  });
+
+  test('watch sends the protection bypass in a header file, never in the command line', async () => {
+    const result = await step('watch', {
+      env: { ...VERCEL, SHA: sha('c'), MINUTES: '1', VERCEL_AUTOMATION_BYPASS_SECRET: 'bypass-secret' },
+      gh: [{ match: 'git/refs$', stdout: {} }],
+    });
+    const health = callsTo(result, 'curl').filter((call) => call.includes('app.test/up'));
+    expect(health.length).toBeGreaterThan(0);
+    for (const call of health) {
+      expect(call.split(' <header> ')[0]).not.toContain('bypass-secret');
+      expect(call).toContain('<header> x-vercel-protection-bypass: bypass-secret');
+    }
+    // Forge needs no header
+    const forge = await step('watch', {
+      env: { SHA: sha('c'), MINUTES: '1' },
+      gh: [{ match: 'git/refs$', stdout: {} }],
+    });
+    expect(callsTo(forge, 'curl').every((call) => !call.includes('<header>'))).toBe(true);
+  });
+
   test('settle follows the deployment until it is ready, and fails when its build fails', async () => {
     const wait = async (states, codes = ['200']) => {
       const runner = await temp();

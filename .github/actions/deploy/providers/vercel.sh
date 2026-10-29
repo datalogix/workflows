@@ -23,6 +23,14 @@ provider_check() {
   fi
 }
 
+# Deployment Protection asks a login of staging (and of production, with Standard Protection on custom environments):
+# the health checks pass with the project's Protection Bypass for Automation secret
+provider_health_headers() {
+  if [ -n "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]; then
+    printf 'x-vercel-protection-bypass: %s\n' "$VERCEL_AUTOMATION_BYPASS_SECRET"
+  fi
+}
+
 # Calls the API (method, path, file for the body, then curl arguments) and prints the HTTP code. The token goes through
 # a header file, never in the command line
 vercel_call() {
