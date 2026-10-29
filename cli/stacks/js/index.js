@@ -1,9 +1,9 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import app from './app.js';
 import pkg from './package.js';
 
-// JavaScript and TypeScript: a folder with package.json and no composer.json. Next and Nuxt apps are recognized, so
-// setup says they are not supported yet instead of setting them up as a library
+// JavaScript and TypeScript: a folder with package.json and no composer.json, a Next or Nuxt app or else a library
 const APP_PACKAGES = ['next', 'nuxt'];
 const APP_CONFIG = /^(next|nuxt)\.config\.(js|cjs|mjs|ts|mts)$/;
 
@@ -29,6 +29,5 @@ export default {
       return 'project';
     return 'package';
   },
-  // Apps (Next, Nuxt) come later: withModule says they are not supported yet
-  kinds: { package: pkg },
+  kinds: { project: app, package: pkg },
 };

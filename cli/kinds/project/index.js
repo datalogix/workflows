@@ -185,6 +185,8 @@ function setupSteps(stack) {
     {
       id: 'deploy',
       flag: 'deploy',
+      // A stack without deploy targets is not deployed by the workflows (the deploy input stays none)
+      when: () => stack.deployTargets.length > 0,
       // The stack's targets: --deploy is checked here, as each stack deploys elsewhere
       validate: (value) => (targets.includes(value) ? undefined : `use ${targets.join(', ')}`),
       ask: async ({ header, ctx }) =>
@@ -417,7 +419,8 @@ function setupSteps(stack) {
               'Which monitoring service does the app use?',
               'Its problems can become GitHub issues, and some mark each deploy',
             ),
-            initialValue: ctx.state.current?.monitoring ?? stack.monitoring[0].id,
+            // The current service, when the stack still offers it
+            initialValue: monitoringOf(stack, ctx.state.current)?.id ?? 'none',
             options: [
               ...stack.monitoring.map((service) => ({ value: service.id, label: service.name, hint: service.hint })),
               { value: 'none', label: 'None', hint: 'no problems as issues' },
@@ -660,12 +663,16 @@ function setupSteps(stack) {
 }
 
 /** The workflow file the answers write; without two branches, its push branch is the one that deploys. */
-function renderWorkflow(answers, state) {
+function renderWorkflow(stack, answers, state) {
   const productionBranch = twoBranches(answers) ? answers.productionBranch : null;
   const developmentBranch = twoBranches(answers)
     ? answers.developmentBranch
     : (formerProductionBranch(answers, state) ?? state.defaultBranch);
-  return renderProjectWorkflow({ ...answers, productionBranch }, state.workflow ?? '', developmentBranch);
+  return renderProjectWorkflow(
+    { ...answers, stack: stack.id ?? 'laravel', productionBranch },
+    state.workflow ?? '',
+    developmentBranch,
+  );
 }
 
 /** The changes the answers lead to, as tasks for the progress bar. */
@@ -684,7 +691,7 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
     ? answers.developmentBranch
     : (formerProduction ?? state.defaultBranch);
 
-  tasks.push(workflowFileTask(() => renderWorkflow(answers, state), { root, state }));
+  tasks.push(workflowFileTask(() => renderWorkflow(stack, answers, state), { root, state }));
 
   tasks.push(codeOwnersTask(answers, { root, state }));
 
@@ -1134,11 +1141,11 @@ export function dropsProductionBranch(answers, state) {
 }
 
 /** Warnings shown before applying: what the answers replace or drop in the existing workflow file. */
-async function setupWarnings(answers, ctx) {
+async function setupWarnings(stack, answers, ctx) {
   const warnings = await workflowWarnings(
     ctx.state,
     await projectTemplate(ctx.state.workflow ?? '', ctx.state.defaultBranch),
-    await renderWorkflow(answers, ctx.state),
+    await renderWorkflow(stack, answers, ctx.state),
   );
   if (dropsProductionBranch(answers, ctx.state)) {
     warnings.push('production-branch is removed: setup offers it only with a deploy and staging');
@@ -1459,7 +1466,7 @@ export function projectKind(stack) {
     setup: {
       steps: () => setupSteps(kind),
       tasks: (answers, ctx) => setupTasks(kind, answers, ctx),
-      warnings: setupWarnings,
+      warnings: (answers, ctx) => setupWarnings(kind, answers, ctx),
       nextSteps: (answers, ctx) => nextSteps(kind, answers, ctx),
     },
     evaluate: (state, options) => evaluate(kind, state, options),

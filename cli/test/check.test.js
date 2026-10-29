@@ -532,3 +532,24 @@ test('looks the repository up in the relay under its monitoring service', async 
   }
   expect(providers).toStrictEqual(['nightwatch', 'sentry']);
 });
+
+test("checks a JavaScript app: Sentry's SDK and the relay, nothing of Laravel or deploys", async () => {
+  const workflow = await renderProjectWorkflow({ stack: 'js', monitoring: 'sentry', incidents: true });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'next',
+    sentry: false,
+  };
+  const providers = [];
+  const items = await run(state, {
+    repository: 'datalogix/app',
+    relayLookup: async (_relay, provider) => (providers.push(provider), true),
+  });
+  expect(providers).toStrictEqual(['sentry']);
+  const titles = items.map((item) => item.title);
+  expect(titles).toContainEqual('package.json does not require @sentry/nextjs, so nothing reaches Sentry');
+  expect(titles.join('\n')).not.toMatch(/nightwatch|DEPLOY_HOOK|HEALTH_URL|bootstrap\/app\.php/i);
+});

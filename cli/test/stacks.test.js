@@ -97,6 +97,7 @@ test('offers every stack and kind setup supports', () => {
   expect(setupChoices().map((choice) => choice.label)).toStrictEqual([
     'Laravel app',
     'Laravel package',
+    'JavaScript app',
     'JavaScript package',
   ]);
 });
@@ -108,15 +109,12 @@ test('tells a JavaScript library from a Next or Nuxt app, and a PHP project from
     'package',
     'JavaScript package',
   ]);
-  // Apps come later: their detection stops setup, check and protect with a clear message
   for (const files of [
     { 'package.json': manifest({ dependencies: { next: '^16' } }) },
     { 'package.json': manifest({ devDependencies: { nuxt: '^4' } }) },
     { 'package.json': '{}', 'nuxt.config.ts': '' },
   ]) {
-    await expect(detectStack(await folder(t, files, 'stacks-'))).rejects.toThrow(
-      'JavaScript apps are not supported yet',
-    );
+    expect(await detect(t, files)).toStrictEqual(['js', 'project', 'JavaScript app']);
   }
   // composer.json makes it a PHP project, with frontend scripts
   expect(await detect(t, { 'package.json': '{}', 'composer.json': '{}' })).toStrictEqual(APP);
