@@ -25,10 +25,19 @@ test('tells a Laravel app from a Laravel package by the folder', async (t) => {
   expect(await detect(t, { 'composer.json': composer({ extra: { laravel: { providers: ['A'] } } }) })).toStrictEqual(
     PACKAGE,
   );
-  // Not a Laravel folder (or a composer.json it cannot read): set up as a Laravel app
+  // Not a Laravel folder (or a composer.json it cannot read): read as a Laravel app, not recognized
   expect(await detect(t, { 'composer.json': '{}' })).toStrictEqual(APP);
   expect(await detect(t, { 'composer.json': '{ not json' })).toStrictEqual(APP);
   expect(await detect(t, {})).toStrictEqual(APP);
+});
+
+test('tells whether a stack recognized the folder or its workflow file', async (t) => {
+  const recognized = async (files) => (await detectStack(await folder(t, files, 'stacks-'))).recognized;
+  expect(await recognized({ artisan: '' })).toBe(true);
+  expect(await recognized({ 'composer.json': LARAVEL_PACKAGE })).toBe(true);
+  expect(await recognized({ [WORKFLOW_PATH]: await renderProjectWorkflow({ deploy: 'none' }) })).toBe(true);
+  expect(await recognized({ 'package.json': '{}', 'nuxt.config.ts': '' })).toBe(false);
+  expect(await recognized({})).toBe(false);
 });
 
 test('lets the workflow file decide the kind', async (t) => {

@@ -10,8 +10,16 @@ export async function chooseStack(ctx) {
   const detected = await detectStack(ctx.root);
   // The workflow file decides the kind: setting it up as the other kind would replace it with the other template
   const { fileKind } = detected;
+  const flagged = ctx.flags.stack !== undefined || ctx.flags.kind !== undefined;
+  // Another stack's folder (Nuxt, Next, a JS library) would get a Laravel workflow file; --stack or --kind confirm a
+  // Laravel folder detection misses (e.g. a repository not scaffolded yet)
+  if (!detected.recognized && !flagged) {
+    throw new Error(
+      'This folder is not a Laravel app or package (no artisan file, and composer.json does not require Laravel): only Laravel is supported today. Run setup from the project folder, or pass --kind app or --kind package to set it up anyway.',
+    );
+  }
   let chosen = detected;
-  if (ctx.flags.stack !== undefined || ctx.flags.kind !== undefined) chosen = fromFlags(ctx.flags, detected);
+  if (flagged) chosen = fromFlags(ctx.flags, detected);
   else if (!ctx.flags.yes) {
     const choices = setupChoices().filter((choice) => !fileKind || choice.kind === fileKind);
     if (choices.length > 1 && choices.some((choice) => choice.label === detected.label)) {

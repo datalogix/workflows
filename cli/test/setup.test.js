@@ -1248,6 +1248,16 @@ test('does not ask the kind when the workflow file leaves a single choice', asyn
   expect(prompts.asked).toStrictEqual([]);
 });
 
+test('refuses a folder no stack recognizes, unless --stack or --kind says what it is', async (t) => {
+  const root = await folder(t, { 'package.json': '{}', 'nuxt.config.ts': '' }, 'setup-');
+  for (const flags of [{}, { yes: true }]) {
+    await expect(chooseStack({ root, flags })).rejects.toThrow('This folder is not a Laravel app or package');
+  }
+  expect(prompts.asked).toStrictEqual([]);
+  expect((await chooseStack({ root, flags: { kind: 'package' } })).label).toBe('Laravel package');
+  expect((await chooseStack({ root, flags: { stack: 'laravel' } })).label).toBe('Laravel app');
+});
+
 test('asks the kind, starting from the detected one, when the folder has no workflow file', async (t) => {
   const root = await folder(t, { artisan: '' }, 'setup-');
   prompts.answer = 'Laravel package';

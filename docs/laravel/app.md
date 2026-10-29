@@ -12,7 +12,7 @@ From the project folder:
 npx --allow-git=root github:datalogix/workflows#v2 setup
 ```
 
-It first says what the folder looks like (a Laravel app has an `artisan` file) and asks you to confirm it; `--kind app` and `--stack laravel` answer it, and `--yes` takes what it detected. When `.github/workflows/datalogix.yml` already calls the package workflow, setup refuses to set the folder up as an app: remove the file first.
+It first says what the folder looks like (a Laravel app has an `artisan` file) and asks you to confirm it; `--kind app` and `--stack laravel` answer it, and `--yes` takes what it detected. A folder that is neither a Laravel app nor a Laravel package (a Nuxt or Next app, a JavaScript library) is refused, as only Laravel is supported today; `--kind app` sets it up anyway, e.g. a repository not scaffolded yet. When `.github/workflows/datalogix.yml` already calls the package workflow, setup refuses to set the folder up as an app: remove the file first.
 
 Then it asks one question at a time, with a progress bar showing how many are left. Answers come prefilled from what the project already has, so running it again only changes what you change:
 

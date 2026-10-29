@@ -10,13 +10,15 @@ import laravel from './laravel/index.js';
  */
 export const STACKS = [laravel];
 
-// A folder no stack recognizes (or no folder) is set up as a Laravel app, the most common case
+// A folder no stack recognizes (or no folder) is read as a Laravel app, the most common case; setup refuses it unless
+// --stack or --kind says what it is (recognized: false)
 const FALLBACK = { stack: laravel, kind: 'project' };
 
 /**
  * The stack and kind of the folder: the workflow file decides the kind (project.yml or package.yml) and its `stack:`
  * input the stack; without a workflow file, the first stack that recognizes the folder. Also returns the workflow
- * file's content (null without one) and the kind whose entry point it calls (fileKind, null when it calls none).
+ * file's content (null without one), the kind whose entry point it calls (fileKind, null when it calls none) and whether
+ * a stack recognized the folder or its workflow file (recognized; false when it fell back to a Laravel app).
  */
 export async function detectStack(root) {
   let workflow = null;
@@ -36,11 +38,12 @@ export async function detectStack(root) {
       break;
     }
   }
+  const fileKind = (workflow && workflowKind((found ?? FALLBACK).stack, workflow)) || null;
+  const recognized = Boolean(found || fileKind);
   found ??= { ...FALLBACK };
-  const fileKind = (workflow && workflowKind(found.stack, workflow)) || null;
   // A file that names the stack but calls no entry point leaves the kind to the folder
   const kind = fileKind || found.kind || (await found.stack.detect(root)) || 'project';
-  return { ...withModule(found.stack, kind), workflow, fileKind };
+  return { ...withModule(found.stack, kind), workflow, fileKind, recognized };
 }
 
 /** Every stack and kind setup can set up, as detection results, for the question that confirms the detected one. */
