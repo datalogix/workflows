@@ -1,6 +1,10 @@
 # shellcheck shell=bash
-# Nightwatch deploy markers, with the environment's NIGHTWATCH_TOKEN. Laravel Cloud already reports its deploys to
-# Nightwatch, so only the other providers mark them here
+# Laravel Nightwatch, with deploy markers sent with the environment's NIGHTWATCH_TOKEN. Laravel Cloud already reports
+# its deploys to Nightwatch, so only the other providers mark them here
+
+monitoring_name() {
+  echo Nightwatch
+}
 
 mark_nightwatch() {
   local sha=$1 name=$2

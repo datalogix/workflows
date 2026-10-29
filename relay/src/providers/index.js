@@ -38,5 +38,6 @@
  */
 
 import nightwatch from './nightwatch.js';
+import sentry from './sentry.js';
 
-export const providers = Object.fromEntries([nightwatch].map((provider) => [provider.id, provider]));
+export const providers = Object.fromEntries([nightwatch, sentry].map((provider) => [provider.id, provider]));

@@ -29,15 +29,15 @@ fi
 # shellcheck source=/dev/null
 source "$providers_dir/$PROVIDER.sh"
 
-# Each monitoring service (monitoring/<id>.sh) defines mark_<id> <sha> <name>, which marks a deploy when the
-# environment has its token, and only warns when it cannot
-markers=()
-for monitoring in "$(dirname "${BASH_SOURCE[0]}")"/monitoring/*.sh; do
-  [ -f "$monitoring" ] || continue
+# The monitoring service (monitoring/<id>.sh) defines monitoring_name and, with deploy markers, mark_<id> <sha> <name>,
+# which marks a deploy when the environment has its token and only warns when it cannot. none, or a service without a
+# script, has neither
+monitoring=${MONITORING:-nightwatch}
+monitoring_file="$(dirname "${BASH_SOURCE[0]}")/monitoring/$monitoring.sh"
+if [[ "$monitoring" =~ ^[a-z][a-z0-9-]*$ ]] && [ -f "$monitoring_file" ]; then
   # shellcheck source=/dev/null
-  source "$monitoring"
-  markers+=("$(basename "$monitoring" .sh)")
-done
+  source "$monitoring_file"
+fi
 
 history=$(history_ref "$environment_key")
 rejected=$(rolled_back_ref "$environment_key")
@@ -131,10 +131,9 @@ watch_health() {
   done
 }
 
-# Marks the deploy in every monitoring service the environment has a token for
+# Marks the deploy in the monitoring service, when it has deploy markers
 report_markers() {
-  local marker
-  for marker in "${markers[@]}"; do "mark_$marker" "$1" "$2"; done
+  if declare -F "mark_$monitoring" >/dev/null; then "mark_$monitoring" "$1" "$2"; fi
 }
 
 check() {
@@ -254,6 +253,20 @@ rollback() {
   fi
 }
 
+# Where to look after a failed deploy: the monitoring service's errors, when there is one, and the provider's logs
+errors_hint() {
+  local rerun_en="To redeploy this commit after the fix, use **Re-run jobs** on this run: $RUN_URL"
+  local rerun_pt="Para redeployar este commit depois da correção, use **Re-run jobs** nesta execução: $RUN_URL"
+  if declare -F monitoring_name >/dev/null; then
+    local name
+    name=$(monitoring_name)
+    t "Check the errors in $name and the deploy logs in $PROVIDER. $rerun_en" \
+      "Verifique os erros no $name e os logs do deploy no $PROVIDER. $rerun_pt"
+  else
+    t "Check the deploy logs in $PROVIDER. $rerun_en" "Verifique os logs do deploy no $PROVIDER. $rerun_pt"
+  fi
+}
+
 open_issue() {
   local short=${GITHUB_SHA:0:7} result body
   # shellcheck disable=SC2153 # TARGET is set by the step env in deploy.yml
@@ -277,8 +290,7 @@ open_issue() {
     "$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** failed the health checks of \`$HEALTH_URL\`." \
       "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** falhou nos health checks de \`$HEALTH_URL\`.")" \
     "$result" \
-    "$(t "Check the errors in Nightwatch and the deploy logs in $PROVIDER. To redeploy this commit after the fix, use **Re-run jobs** on this run: $RUN_URL" \
-      "Verifique os erros no Nightwatch e os logs do deploy no $PROVIDER. Para redeployar este commit depois da correção, use **Re-run jobs** nesta execução: $RUN_URL")" \
+    "$(errors_hint)" \
     "$(t "To ask Claude to investigate, add the \`claude-plan\` label." \
       "Para pedir ao Claude que investigue, adicione o label \`claude-plan\`.")")
 

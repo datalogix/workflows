@@ -511,3 +511,24 @@ test('warns when Nightwatch is on and the app does not require its agent', async
   expect(await warns({ deploy: 'none', solo: true, incidents: true }, { nightwatch: true })).not.toContain(warning);
   expect(await warns({ deploy: 'none', solo: true, incidents: false }, { nightwatch: false })).not.toContain(warning);
 });
+
+test('looks the repository up in the relay under its monitoring service', async () => {
+  const providers = [];
+  const lookup = async (_relay, provider) => {
+    providers.push(provider);
+    return false;
+  };
+  for (const [monitoring, name] of [
+    ['nightwatch', 'Nightwatch'],
+    ['sentry', 'Sentry'],
+  ]) {
+    const items = await run(await stateFor({ deploy: 'none', monitoring }), {
+      repository: 'datalogix/app',
+      relayLookup: lookup,
+    });
+    expect(titles(items, 'warn')).toContainEqual(
+      `Not registered in the monitoring relay: ${name} problems are rejected`,
+    );
+  }
+  expect(providers).toStrictEqual(['nightwatch', 'sentry']);
+});

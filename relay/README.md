@@ -24,6 +24,7 @@ How projects use it is in [Production errors](../docs/production-errors.md).
 | [`src/index.js`](src/index.js) | The worker: routing, secret lookup, dispatch to GitHub |
 | [`src/providers/index.js`](src/providers/index.js) | The provider registry and the incident format every provider produces |
 | [`src/providers/nightwatch.js`](src/providers/nightwatch.js) | Laravel Nightwatch: HMAC-SHA256 signature, issue events |
+| [`src/providers/sentry.js`](src/providers/sentry.js) | Sentry: HMAC-SHA256 signature, issue alerts (opened and reopened only) |
 | [`src/signatures.js`](src/signatures.js) | Signature checks shared by providers (HMAC-SHA256) |
 | [`src/keys.js`](src/keys.js) | The KV key format, shared with the setup command |
 | [`test/`](test) | Tests, run with `npm test` (Vitest) |

@@ -67,6 +67,10 @@ on:
         description: Record each deploy and rollback in the repository's Deployments (deploy); false still uses the environments
 
       # Incidents
+      monitoring:
+        type: string
+        default: nightwatch
+        description: Monitoring service of the app (nightwatch, sentry or none), whose problems become issues; deploys name it, and mark themselves in it when it has deploy markers
       incidents:
         type: boolean
         default: true
@@ -298,6 +302,7 @@ jobs:
       # 0 is falsy in expressions, so it falls back to watch-minutes
       watch-minutes: ${{ inputs.staging-watch-minutes || inputs.watch-minutes }}
       github-deployments: ${{ inputs.github-deployments }}
+      monitoring: ${{ inputs.monitoring }}
       language: ${{ inputs.language }}
 
   production:
@@ -319,6 +324,7 @@ jobs:
       branch: ${{ inputs.production-branch }}
       watch-minutes: ${{ inputs.watch-minutes }}
       github-deployments: ${{ inputs.github-deployments }}
+      monitoring: ${{ inputs.monitoring }}
       language: ${{ inputs.language }}
 
   release:
@@ -372,6 +378,7 @@ jobs:
       issue: ${{ github.event.issue.number }}
       watch-minutes: 5
       github-deployments: ${{ inputs.github-deployments }}
+      monitoring: ${{ inputs.monitoring }}
       language: ${{ inputs.language }}
 
   # The rollback label on a staging issue with staging off: no environment to roll back, so the issue says why and

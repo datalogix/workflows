@@ -262,6 +262,15 @@ describe('deploy', () => {
     expect(reported(cloud)).toStrictEqual([]);
   });
 
+  test('deploy marks Nightwatch only when it is the monitoring service', async () => {
+    const env = { SHA: sha('c'), NIGHTWATCH_TOKEN: 'token' };
+    for (const monitoring of ['sentry', 'none', '../x']) {
+      const result = await step('deploy', { env: { ...env, MONITORING: monitoring } });
+      expect(result.code).toBe(0);
+      expect(callsTo(result, 'curl').filter((call) => call.includes('nightwatch.laravel.com'))).toStrictEqual([]);
+    }
+  });
+
   test('deploy warns when Nightwatch rejects the deploy marker', async () => {
     const result = await step('deploy', {
       env: { SHA: sha('c'), NIGHTWATCH_TOKEN: 'token' },
@@ -524,6 +533,16 @@ describe('open-issue', () => {
     // The rollback label would revert the healthy release the environment went back to
     expect(issue).not.toMatch(/--label/);
     expect(callsTo(result, 'gh')).not.toContainEqual(expect.stringMatching(/^label create env:/));
+  });
+
+  test('open-issue names the monitoring service, when the project has one', async () => {
+    const hint = async (monitoring) => {
+      const result = await step('open-issue', { env: { ROLLBACK: 'failure', MONITORING: monitoring } });
+      return callsTo(result, 'gh').find((call) => call.startsWith('issue create'));
+    };
+    expect(await hint('nightwatch')).toMatch(/Verifique os erros no Nightwatch e os logs do deploy no forge\./);
+    expect(await hint('sentry')).toMatch(/Verifique os erros no Sentry e os logs do deploy no forge\./);
+    expect(await hint('none')).toMatch(/Verifique os logs do deploy no forge\. Para redeployar/);
   });
 
   test('open-issue labels the issue with its environment, so the rollback label reverts that one', async () => {

@@ -29,6 +29,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `watch-minutes`                                                   | `10`                           | Minutes each environment is watched after a deploy                       |
 | `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `5`); `0` uses `watch-minutes` |
 | `github-deployments`                                              | `true`                         | Record each deploy and rollback in the repository's **Deployments**; `false` still uses the environments' secrets, variables and required reviewers |
+| `monitoring`                                                      | `nightwatch`                   | Monitoring service of the app: `nightwatch`, `sentry` or `none`. Its problems become issues (with `incidents`), the issue of a failed deploy names it, and Nightwatch marks each deploy on Forge. See [Production errors](production-errors.md) |
 | `incidents`                                                       | `true`                         | Turn monitoring problems into GitHub issues analyzed by Claude           |
 | `incident-environments`                                           | `["production", "staging"]`    | Monitoring environments whose problems become GitHub issues (JSON)       |
 | `incident-types`                                                  | `["exception", "performance"]` | Problem types that become GitHub issues (JSON)                           |
@@ -183,6 +184,7 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |
 | `github-deployments` | `true` | Record the deploy in the repository's **Deployments**; `false` still uses the environment (custom deployment protection rules need the record: with them, `false` fails the job) |
 | `timeout-minutes` | `60`      | Job timeout                                                                                     |
+| `monitoring`      | `nightwatch` | Monitoring service named in the issue of a failed deploy, and marked with each deploy when it has deploy markers (`none`: no service) |
 | `language`        | `pt-BR`   | Language of the issues and comments: `en` for a value starting with `en`, otherwise `pt-BR`     |
 
 An automatic rollback is watched for 3 minutes; a rollback from the `rollback` label (`project`) for 5.

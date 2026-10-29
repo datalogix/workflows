@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
 import { dropsProductionBranch } from '../kinds/project/index.js';
-import { hasSecret } from '../kinds/project/relay.js';
+import { hasSecret, registerSecret } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
 import { EMPTY_STATE } from '../lib/state.js';
@@ -46,7 +46,7 @@ vi.mock('@clack/prompts', async (importOriginal) => ({
 // The relay is read for real unless a test says what it answers
 vi.mock('../kinds/project/relay.js', async (importOriginal) => {
   const original = await importOriginal();
-  return { ...original, hasSecret: vi.fn(original.hasSecret) };
+  return { ...original, hasSecret: vi.fn(original.hasSecret), registerSecret: vi.fn(original.registerSecret) };
 });
 
 // Each test starts with no prompt shown and the relay read for real
@@ -996,6 +996,36 @@ test('registers the signing secret in the relay only with incidents and a secret
   expect(ids({ incidents: false, webhookSecret: 'whsec' })).not.toContain('monitoringRelay');
 });
 
+test('asks about problems as issues only with a monitoring service, and performance only from Nightwatch', () => {
+  const ids = (answers) => askedSteps(setupSteps(), { repository: 'datalogix/app', deploy: 'none', ...answers });
+  expect(ids({ monitoring: 'none' })).not.toContain('incidents');
+  expect(ids({ monitoring: 'nightwatch', incidents: true })).toContain('incidentPerformance');
+  expect(ids({ monitoring: 'sentry', incidents: true })).not.toContain('incidentPerformance');
+  // Deploy markers: Nightwatch on Forge only
+  expect(ids({ deploy: 'forge', monitoring: 'nightwatch' })).toContain('monitoringMarkers');
+  expect(ids({ deploy: 'forge', monitoring: 'sentry' })).not.toContain('monitoringMarkers');
+});
+
+test('turns problems as issues off without a monitoring service', async (t) => {
+  const root = await folder(t, { artisan: '' }, 'setup-');
+  const { incidents, ...flags } = setupFlags;
+  expect(incidents).toBe(false);
+  expect(await setup(setupContext(root, setupGitHub(), { ...flags, monitoring: 'none' }))).toBe(0);
+  const inputs = parseInputs(await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8'));
+  expect([inputs.monitoring, inputs.incidents]).toStrictEqual(['none', 'false']);
+});
+
+test('registers the Sentry signing secret under the sentry provider', async () => {
+  vi.mocked(registerSecret).mockResolvedValueOnce(undefined);
+  const answers = { repository: 'datalogix/app', deploy: 'none', codeOwners: '@ana', monitoring: 'sentry' };
+  const task = setupTasks(
+    { ...answers, incidents: true, webhookSecret: 'client-secret' },
+    { github: fakeGitHub(), root: '', state: APP_STATE, relay },
+  ).find((candidate) => candidate.id === 'monitoringRelay');
+  await task.run();
+  expect(vi.mocked(registerSecret)).toHaveBeenLastCalledWith(relay, 'sentry', 'datalogix/app', 'client-secret');
+});
+
 test('tells to store the signing secret by hand on Windows', (t) => {
   onPlatform(t, 'win32');
   expect(askedSteps(setupSteps(), { incidents: true, repository: 'datalogix/app' })).not.toContain('webhookSecret');
@@ -1169,6 +1199,7 @@ const setupFlags = {
   yes: true,
   repo: 'datalogix/app',
   deploy: 'none',
+  monitoring: 'nightwatch',
   incidents: false,
   language: 'pt-BR',
   lint: 'none',

@@ -51,6 +51,10 @@ on:
         type: number
         default: 60
         description: Job timeout; must cover the deploy wait, the watch and a possible rollback
+      monitoring:
+        type: string
+        default: nightwatch
+        description: Monitoring service named in the issue of a failed deploy, and marked with each deploy when it has a script in .github/actions/deploy/monitoring with deploy markers (none for no service)
       language:
         type: string
         default: pt-BR
@@ -83,6 +87,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       PROVIDER: ${{ inputs.provider }}
+      MONITORING: ${{ inputs.monitoring }}
       ENVIRONMENT: ${{ inputs.environment }}
       DEPLOY_HOOK: ${{ secrets.DEPLOY_HOOK }}
       HEALTH_URL: ${{ vars.HEALTH_URL }}

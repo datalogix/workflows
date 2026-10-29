@@ -13,6 +13,8 @@ import { TOOL_INPUTS, toolAnswers, toolInputs } from '../../lib/tools.js';
 export const PROJECT_REF = 'datalogix/workflows/.github/workflows/project.yml@v2';
 // Default of the language input of project.yml
 export const DEFAULT_LANGUAGE = 'pt-BR';
+// Default of the monitoring input of project.yml
+const DEFAULT_MONITORING = 'nightwatch';
 
 /** Inputs the setup command manages; any other input in an existing file is kept as it is. */
 const MANAGED = [
@@ -28,6 +30,7 @@ const MANAGED = [
   'approvals-high',
   'count-author',
   'github-deployments',
+  'monitoring',
   'incidents',
   'incident-environments',
   'incident-types',
@@ -53,6 +56,7 @@ export function projectAnswers(inputs) {
     productionBranch: scalar(inputs['production-branch']) || null,
     solo: scalar(inputs['count-author'])?.toLowerCase() === 'true',
     githubDeployments: flagOf(inputs['github-deployments']),
+    monitoring: scalar(inputs.monitoring)?.toLowerCase() || DEFAULT_MONITORING,
     incidents: flagOf(inputs.incidents),
     incidentStaging: environments ? environments.includes('staging') : undefined,
     incidentPerformance: types ? types.includes('performance') : undefined,
@@ -96,6 +100,8 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
     else if (String(answers[answer]).trim() !== defaultValue) managed[input] = String(answers[answer]).trim();
   }
   if (answers.solo) managed['count-author'] = 'true';
+  if (answers.monitoring === undefined) keep('monitoring');
+  else if (answers.monitoring !== DEFAULT_MONITORING) managed.monitoring = answers.monitoring;
   if (answers.incidents === false) managed.incidents = 'false';
   // The lists keep values setup does not ask about (another environment, a list set when there was no staging)
   const list = (input, defaults, value, answer) => {

@@ -4,11 +4,11 @@ import { deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { deployProviders } from '../../providers/deploy/index.js';
-import nightwatch from '../../providers/monitoring/nightwatch.js';
+import { monitoringServices } from '../../providers/monitoring/index.js';
 import { addDatabaseCheck, inspectHealth, PROVIDER_PATH } from './health.js';
 import { inspectTools, NO_TOOLS, toolSteps } from './tools.js';
 
-// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch, the
+// What a Laravel app adds to project.yml (cli/kinds/project/index.js): Forge and Laravel Cloud deploys, Nightwatch or Sentry, the
 // health check of bootstrap/app.php and the lint and test tools
 
 const BY_HAND = 'see docs/laravel/app-manual-setup.md in datalogix/workflows';
@@ -55,10 +55,14 @@ const jsStep = {
     ),
 };
 
-/** Whether composer.json requires Nightwatch's agent, without which no problem or deploy reaches Nightwatch. */
-async function requiresNightwatch(root) {
+// The package each monitoring service needs in the app, without which nothing reaches it
+const AGENTS = { nightwatch: 'laravel/nightwatch', sentry: 'sentry/sentry-laravel' };
+const monitoringOf = (a) => a?.monitoring ?? 'nightwatch';
+
+/** Whether composer.json requires the package, e.g. Nightwatch's agent. */
+async function requiresPackage(root, name) {
   try {
-    return 'laravel/nightwatch' in (JSON.parse(await readFile(join(root, 'composer.json'), 'utf8')).require ?? {});
+    return name in (JSON.parse(await readFile(join(root, 'composer.json'), 'utf8')).require ?? {});
   } catch {
     return false;
   }
@@ -226,7 +230,13 @@ function deploySiteTasks(answers, { state }) {
 }
 
 // Problems become issues, or deploys are marked: both need Nightwatch's agent in the app, with its token
-const usesNightwatch = (a) => Boolean(a.incidents || a.monitoringMarkers);
+const usesNightwatch = (a) => monitoringOf(a) === 'nightwatch' && Boolean(a.incidents || a.monitoringMarkers);
+
+/** Sentry's SDK, when its problems become issues and the app does not require it yet. */
+function sentryNextSteps(answers, { state }) {
+  if (monitoringOf(answers) !== 'sentry' || !answers.incidents || state.sentry) return [];
+  return [`Install Sentry's SDK in the app, or nothing reaches Sentry: ${cyan(`composer require ${AGENTS.sentry}`)}`];
+}
 
 /** What Nightwatch needs in the app and its servers that setup did not do: the agent, and each environment's token. */
 function nightwatchNextSteps(answers, { state, results = [] }) {
@@ -298,15 +308,18 @@ function evaluateDeploy({ ok, warn }, state) {
   if (state.health.route && state.health.databaseCheck) ok(`Health check ${state.health.route} checks the database`);
 }
 
-/** Whether Nightwatch's agent is in the app, when Nightwatch is on. */
+/** Whether the monitoring service's package is in the app, when the service is on. */
 function evaluateMonitoring({ ok, warn }, state) {
   // composer.json is read from the folder: without the app, nothing to say
   if (!state.health.laravel) return;
-  if (state.nightwatch) ok('laravel/nightwatch in composer.json');
+  const service = monitoringOf(state.current);
+  const name = AGENTS[service];
+  if (!name) return;
+  if (state[service]) ok(`${name} in composer.json`);
   else
     warn(
-      'composer.json does not require laravel/nightwatch, so nothing reaches Nightwatch',
-      'composer require laravel/nightwatch',
+      `composer.json does not require ${name}, so nothing reaches ${service === 'sentry' ? 'Sentry' : 'Nightwatch'}`,
+      `composer require ${name}`,
     );
 }
 
@@ -315,18 +328,20 @@ export default projectKind({
   deployHookHint: Object.values(PROVIDERS)
     .map((provider) => provider.hookHint)
     .join(' · '),
-  monitoring: nightwatch,
+  monitoring: monitoringServices(['nightwatch', 'sentry']),
   empty: {
     health: { laravel: false, route: null, databaseCheck: false },
     tools: NO_TOOLS,
     nightwatch: false,
+    sentry: false,
     nodeScripts: [],
   },
   /** What collectState reads from the folder for a Laravel app: its health check, its locale and its tools. */
   inspect: async (root) => ({
     health: await inspectHealth(root),
     locale: await readLocale(root),
-    nightwatch: await requiresNightwatch(root),
+    nightwatch: await requiresPackage(root, AGENTS.nightwatch),
+    sentry: await requiresPackage(root, AGENTS.sentry),
     nodeScripts: await nodeScripts(root),
     tools: await inspectTools(root),
   }),
@@ -344,6 +359,7 @@ export default projectKind({
       ? [`Make ${answers.healthPath} answer 200 only when the app works (${BY_HAND}).`]
       : []),
     ...nightwatchNextSteps(answers, { state, results }),
+    ...sentryNextSteps(answers, { state }),
   ],
   evaluateDeploy,
   evaluateMonitoring,
