@@ -13,7 +13,7 @@ on:
       stack:
         type: string
         default: laravel
-        description: Stack of the project (laravel or js), which picks its tests, the environment prepared for Claude, the Claude plugins (core@datalogix with laravel@datalogix or js@datalogix) and the default high-risk paths. Deploys need laravel
+        description: Stack of the project (laravel or js), which picks its tests, the environment prepared for Claude, the Claude plugins (core@datalogix with laravel@datalogix or js@datalogix) and the default high-risk paths
       # Layers
       tests:
         type: boolean
@@ -314,11 +314,12 @@ jobs:
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
+  # After the tests of the stack: tests (Laravel) or js-tests, the other one skipped
   staging:
-    needs: tests
+    needs: [tests, js-tests]
     if: |
-      !cancelled() && inputs.stack == 'laravel' && inputs.deploy != 'none' && inputs.staging &&
-      (needs.tests.result == 'success' || (needs.tests.result == 'skipped' && !inputs.tests)) &&
+      !cancelled() && contains(fromJSON('["laravel", "js"]'), inputs.stack) && inputs.deploy != 'none' && inputs.staging &&
+      (needs.tests.result == 'success' || needs.js-tests.result == 'success' || (needs.tests.result == 'skipped' && needs.js-tests.result == 'skipped' && !inputs.tests)) &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
@@ -336,10 +337,10 @@ jobs:
       language: ${{ inputs.language }}
 
   production:
-    needs: [tests, staging]
+    needs: [tests, js-tests, staging]
     if: |
-      !cancelled() && inputs.stack == 'laravel' && inputs.deploy != 'none' &&
-      (needs.tests.result == 'success' || (needs.tests.result == 'skipped' && !inputs.tests)) &&
+      !cancelled() && contains(fromJSON('["laravel", "js"]'), inputs.stack) && inputs.deploy != 'none' &&
+      (needs.tests.result == 'success' || needs.js-tests.result == 'success' || (needs.tests.result == 'skipped' && needs.js-tests.result == 'skipped' && !inputs.tests)) &&
       (needs.staging.result == 'success' || (needs.staging.result == 'skipped' && (!inputs.staging || inputs.production-branch != ''))) &&
       github.ref == format('refs/heads/{0}', inputs.production-branch || github.event.repository.default_branch) &&
       ((github.event_name == 'push' && inputs.production == 'auto') || github.event_name == 'workflow_dispatch')
@@ -359,7 +360,7 @@ jobs:
 
   release:
     if: |
-      inputs.stack == 'laravel' && inputs.deploy != 'none' && inputs.production-branch != '' && github.event_name == 'push' &&
+      contains(fromJSON('["laravel", "js"]'), inputs.stack) && inputs.deploy != 'none' && inputs.production-branch != '' && github.event_name == 'push' &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
        github.ref == format('refs/heads/{0}', inputs.production-branch))
     permissions:
@@ -392,7 +393,7 @@ jobs:
 
   rollback:
     if: |
-      inputs.stack == 'laravel' && inputs.deploy != 'none' &&
+      contains(fromJSON('["laravel", "js"]'), inputs.stack) && inputs.deploy != 'none' &&
       github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'rollback' &&
       ((contains(github.event.issue.labels.*.name, 'env:staging') && inputs.staging) ||
        (contains(github.event.issue.labels.*.name, 'env:production') && !contains(github.event.issue.labels.*.name, 'env:staging')))
@@ -418,7 +419,7 @@ jobs:
   # loses the label, as after a rollback
   rollback-off:
     if: |
-      inputs.stack == 'laravel' && inputs.deploy != 'none' && !inputs.staging &&
+      contains(fromJSON('["laravel", "js"]'), inputs.stack) && inputs.deploy != 'none' && !inputs.staging &&
       github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'rollback' &&
       contains(github.event.issue.labels.*.name, 'env:staging')
     runs-on: ubuntu-latest

@@ -17,9 +17,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/releases.sh"
 
 # The deploy provider (providers/<id>.sh) defines provider_settle_seconds (prints the seconds a deploy usually takes, or
 # the most provider_wait <seconds> follows it, when the provider can tell it finished), provider_check and
-# provider_trigger <sha>,
-# which returns non-zero, with an ::error::, when the provider did not accept the deploy. The name is checked before it
-# becomes a path
+# provider_trigger <sha>, which returns non-zero, with an ::error::, when the provider did not accept the deploy; and
+# optionally provider_wait and provider_health_headers (prints the headers the health URL needs). The name is checked
+# before it becomes a path
 providers_dir="$(dirname "${BASH_SOURCE[0]}")/providers"
 if [[ ! "${PROVIDER:-}" =~ ^[a-z][a-z0-9-]*$ ]] || [ ! -f "$providers_dir/$PROVIDER.sh" ]; then
   known=""
@@ -94,10 +94,18 @@ post_hook() {
   fi
 }
 
+# A provider that follows its deploy (provider_wait) records the release as live once it is ready: a build that fails
+# leaves the previous one live. The wait runs in another step of the job, so the commit waits in a file
+live_pending_file="${RUNNER_TEMP:-/tmp}/datalogix-live-$environment_key"
+
 trigger() {
   local sha=$1
   provider_trigger "$sha" || return 1
-  set_live "$sha"
+  if declare -F provider_wait >/dev/null; then
+    echo "$sha" > "$live_pending_file"
+  else
+    set_live "$sha"
+  fi
   echo "Deploy of $sha to $ENVIRONMENT triggered"
 }
 
@@ -109,8 +117,12 @@ settle() {
   # A provider that can tell when the deploy finished follows it, for at most those seconds
   if declare -F provider_wait >/dev/null; then
     echo "Waiting up to $seconds seconds for $PROVIDER to finish the deploy"
-    provider_wait "$seconds"
-    return
+    provider_wait "$seconds" || return 1
+    if [ -s "$live_pending_file" ]; then
+      set_live "$(cat "$live_pending_file")"
+      rm -f "$live_pending_file"
+    fi
+    return 0
   fi
   echo "Waiting $seconds seconds for $PROVIDER to finish the deploy"
   sleep "$seconds"
@@ -121,11 +133,19 @@ settle() {
 # fewer checks than max-failures) is not taken as healthy
 watch_health() {
   # As a decimal number: arithmetic reads 08 as octal and fails, which would end the loop before any check
-  local minutes=$((10#$1)) fails=0 check=0 code
+  local minutes=$((10#$1)) fails=0 check=0 code headers=()
+  # Headers the provider needs on the health URL (provider_health_headers, e.g. a protection bypass), through a file:
+  # they may hold a secret, which never goes in the command line
+  if declare -F provider_health_headers >/dev/null; then
+    local header_file
+    header_file=$(mktemp)
+    provider_health_headers > "$header_file"
+    [ -s "$header_file" ] && headers=(-H "@$header_file")
+  fi
   while ((check < minutes * 2 || fails > 0)); do
     if ((check > 0)); then sleep 30; fi
     check=$((check + 1))
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$HEALTH_URL" 2>/dev/null || true)
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 ${headers[@]+"${headers[@]}"} "$HEALTH_URL" 2>/dev/null || true)
     if [ "$code" = 200 ]; then
       fails=0
     else
