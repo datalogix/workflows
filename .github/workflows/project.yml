@@ -53,9 +53,13 @@ on:
         type: string
         default: ""
         description: Branch deployed to production (e.g. main); the default branch then deploys only staging. Empty deploys the default branch to both. The release pull requests run their checks only with the RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY secrets
+      settle-seconds:
+        type: number
+        default: 0
+        description: Seconds to wait after triggering a deploy or rollback before watching; 0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first
       watch-minutes:
         type: number
-        default: 5
+        default: 3
         description: Minutes each environment is watched after a deploy before it counts as successful. The deploy job stops after 60 minutes, waits included (settle, watch and a rollback), so keep it well below that
       staging-watch-minutes:
         type: number
@@ -299,6 +303,7 @@ jobs:
     with:
       environment: staging
       provider: ${{ inputs.deploy }}
+      settle-seconds: ${{ inputs.settle-seconds }}
       # 0 is falsy in expressions, so it falls back to watch-minutes
       watch-minutes: ${{ inputs.staging-watch-minutes || inputs.watch-minutes }}
       github-deployments: ${{ inputs.github-deployments }}
@@ -321,6 +326,7 @@ jobs:
     with:
       environment: production
       provider: ${{ inputs.deploy }}
+      settle-seconds: ${{ inputs.settle-seconds }}
       branch: ${{ inputs.production-branch }}
       watch-minutes: ${{ inputs.watch-minutes }}
       github-deployments: ${{ inputs.github-deployments }}
@@ -373,6 +379,7 @@ jobs:
       # env:staging or env:production (an unrelated issue, or env:qa) does not run this job
       environment: ${{ contains(github.event.issue.labels.*.name, 'env:staging') && 'staging' || 'production' }}
       provider: ${{ inputs.deploy }}
+      settle-seconds: ${{ inputs.settle-seconds }}
       branch: ${{ !contains(github.event.issue.labels.*.name, 'env:staging') && inputs.production-branch || '' }}
       mode: rollback
       issue: ${{ github.event.issue.number }}
