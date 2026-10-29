@@ -151,6 +151,13 @@ function secretSteps(id, { label, exists, when, validate: validValue = notEmpty,
 
 const ownerOf = (repository) => repository.split('/')[0];
 
+// What a deploy provider needs in each environment (cli/providers/deploy): the secret its deploys read, DEPLOY_HOOK by
+// default, its variables, and whether setup asks for the deploy hooks
+const deployProviderOf = (stack, a) => stack.deployProviders?.[a?.deploy] ?? null;
+const deploySecretOf = (stack, a) => deployProviderOf(stack, a)?.secret ?? 'DEPLOY_HOOK';
+const deployVariablesOf = (stack, a) => deployProviderOf(stack, a)?.variables ?? [];
+const asksHooks = (stack, a) => deploys(a) && deployProviderOf(stack, a)?.hookQuestions !== false;
+
 // The monitoring service the answers (or the workflow file, as answers) chose, the stack's first by default; null when
 // the project uses none
 const monitoringOf = (stack, a) =>
@@ -389,7 +396,7 @@ function setupSteps(stack) {
       label: 'Production deploy hook',
       hint: stack.deployHookHint,
       about: 'Empty: production deploys fail until setup runs again with it',
-      when: (a) => deploys(a) && !a.deployHooks?.production,
+      when: (a) => asksHooks(stack, a) && !a.deployHooks?.production,
       exists: (ctx) => ctx.state.environments.production.deployHook,
       validate: validUrl,
       // The site may not exist yet: its deploys fail until the hook is set
@@ -399,7 +406,7 @@ function setupSteps(stack) {
       label: 'Staging deploy hook',
       hint: stack.deployHookHint,
       about: 'Empty: staging deploys fail until setup runs again with it, and production waits for staging',
-      when: (a) => staging(a) && !a.deployHooks?.staging,
+      when: (a) => asksHooks(stack, a) && staging(a) && !a.deployHooks?.staging,
       exists: (ctx) => ctx.state.environments.staging.deployHook,
       validate: validUrl,
       optional: true,
@@ -882,9 +889,19 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
           await github.setVariable('HEALTH_URL', healthUrl, environment);
           changes.push(`HEALTH_URL ${healthUrl}`);
         }
-        if (hooks[environment]) {
-          await github.setSecret('DEPLOY_HOOK', hooks[environment].trim(), environment);
-          changes.push('DEPLOY_HOOK');
+        // The provider's own secrets and variables, or the deploy hook
+        const values = deployProviderOf(stack, answers)?.environmentValues?.(answers, environment) ?? {
+          secrets: hooks[environment] ? { DEPLOY_HOOK: hooks[environment].trim() } : {},
+        };
+        for (const [name, value] of Object.entries(values.secrets ?? {})) {
+          if (!value) continue;
+          await github.setSecret(name, value, environment);
+          changes.push(name);
+        }
+        for (const [name, value] of Object.entries(values.variables ?? {})) {
+          if (!value || state.environments[environment].variables?.[name] === value) continue;
+          await github.setVariable(name, value, environment);
+          changes.push(`${name} ${value}`);
         }
         if (tokens[environment]) {
           await github.setSecret(serviceOf(stack, answers).secret, tokens[environment].trim(), environment);
@@ -1026,7 +1043,7 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
   // Deploy hooks left empty: every deploy to that environment fails until they are set
   const missingHooks = ['production', 'staging'].filter(
     (environment) =>
-      deploys(answers) &&
+      asksHooks(stack, answers) &&
       (environment === 'production' || answers.staging) &&
       !answers[`${environment}Hook`]?.trim() &&
       !answers.deployHooks?.[environment] &&
@@ -1161,15 +1178,19 @@ async function readProject(stack, github, read, { current, release }) {
   const environment = async (name) => {
     const exists = Boolean(await github.environment(name));
     if (!exists) return NO_ENVIRONMENT;
-    const [deployHook, healthUrl, monitoringToken] = await Promise.all([
-      github.hasEnvironmentSecret(name, 'DEPLOY_HOOK'),
+    const variableNames = deployVariablesOf(stack, current);
+    // deployHook: whether the secret the provider's deploys read is set (DEPLOY_HOOK, or the provider's own)
+    const [deployHook, healthUrl, values, monitoringToken] = await Promise.all([
+      github.hasEnvironmentSecret(name, deploySecretOf(stack, current)),
       github.environmentVariable(name, 'HEALTH_URL'),
+      Promise.all(variableNames.map((variable) => github.environmentVariable(name, variable))),
       // Only a service with deploy markers has a token in the environments
       monitoringOf(stack, current)?.secret
         ? github.hasEnvironmentSecret(name, monitoringOf(stack, current).secret)
         : false,
     ]);
-    return { exists, deployHook, healthUrl, monitoringToken };
+    const variables = Object.fromEntries(variableNames.map((variable, i) => [variable, values[i]]));
+    return { exists, deployHook, healthUrl, monitoringToken, ...(variableNames.length ? { variables } : {}) };
   };
   const releases = release || Boolean(current?.productionBranch);
 
@@ -1287,7 +1308,11 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
         error(`Environment ${name} is missing`, SETUP);
         continue;
       }
-      if (!environment.deployHook) error(`Environment ${name} has no DEPLOY_HOOK secret`, SETUP);
+      if (!environment.deployHook)
+        error(`Environment ${name} has no ${deploySecretOf(stack, state.current)} secret`, SETUP);
+      for (const variable of deployVariablesOf(stack, state.current)) {
+        if (!environment.variables?.[variable]) error(`Environment ${name} has no ${variable} variable`, SETUP);
+      }
       // Optional: only marks deploys in the monitoring service, and setup does not record the choice
       if (monitoringOf(stack, state.current)?.markers({ deploy }) && environment.monitoringToken)
         ok(`${name}: ${monitoringOf(stack, state.current).secret} (deploy markers)`);
@@ -1439,7 +1464,8 @@ async function protectedBranch(github, current) {
 
 /**
  * The module of a stack's app (project.yml): what every project needs, with the stack's part. `stack` gives
- * deployTargets ([{ value, label }], 'none' is added), deployHookHint, monitoring (the services it offers, the
+ * deployTargets ([{ value, label }], 'none' is added), deployProviders (their descriptions by id, see
+ * cli/providers/deploy/index.js: secret, variables, hookQuestions, environmentValues), deployHookHint, monitoring (the services it offers, the
  * first by default: see cli/providers/monitoring/index.js),
  * healthPath(ctx), steps(), tasks(answers, ctx), files ({ task id: path } for the commit), deployNextSteps(answers,
  * { twoBranches, results }), nextSteps(answers, { state, results }), evaluateDeploy(report, state), and optionally evaluateMonitoring(report, state), checks

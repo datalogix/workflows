@@ -325,6 +325,7 @@ function evaluateMonitoring({ ok, warn }, state) {
 
 export default projectKind({
   deployTargets: Object.values(PROVIDERS).map((provider) => ({ value: provider.id, label: provider.label })),
+  deployProviders: PROVIDERS,
   deployHookHint: Object.values(PROVIDERS)
     .map((provider) => provider.hookHint)
     .join(' · '),
