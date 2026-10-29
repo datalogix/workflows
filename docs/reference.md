@@ -27,6 +27,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
 | `production-branch`                                               | empty                          | Branch deployed to production (e.g. `main`); the default branch then deploys only staging. List both branches in `push.branches` (e.g. `[develop, main]`; setup does). See [Production branch](deploy.md#production-branch) |
 | `watch-minutes`                                                   | `10`                           | Minutes each environment is watched after a deploy                       |
+| `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `5`); `0` uses `watch-minutes` |
 | `github-deployments`                                              | `true`                         | Record each deploy and rollback in the repository's **Deployments**; `false` still uses the environments' secrets, variables and required reviewers |
 | `incidents`                                                       | `true`                         | Turn monitoring problems into GitHub issues analyzed by Claude           |
 | `incident-environments`                                           | `["production", "staging"]`    | Monitoring environments whose problems become GitHub issues (JSON)       |
@@ -94,7 +95,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ## `claude-review`
 
-Reviews a pull request. `project` calls it once, when the pull request is opened, reopened or marked ready for review; later pushes are not reviewed again (comment `@claude` for another review). The security review still runs on every push. With [`production-branch`](deploy.md#production-branch), `project` skips the release and sync pull requests between the two branches; hotfix pull requests to the production branch are reviewed.
+Reviews a pull request. `project` calls it once, when the pull request is opened, reopened or marked ready for review; later pushes are not reviewed again (comment `@claude` for another review). The security review still runs on every push, unless the pull request changes only documentation (see [`claude-security-review`](#claude-security-review)). With [`production-branch`](deploy.md#production-branch), `project` skips the release and sync pull requests between the two branches; hotfix pull requests to the production branch are reviewed.
 
 | Input                             | Default                                | Description                                            |
 | --------------------------------- | -------------------------------------- | ------------------------------------------------------ |
@@ -110,6 +111,8 @@ Reviews a pull request. `project` calls it once, when the pull request is opened
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 ## `claude-security-review`
+
+Runs on every push to a pull request. A pull request whose changes, taken as a whole, are only Markdown files is not reviewed: the comment says so and the check passes. Markdown under `.github/`, `.claude/` or `resources/`, and any `CLAUDE.md` or `AGENTS.md`, counts as code, as does a deleted or renamed file; a push of documentation on top of code is still reviewed.
 
 | Input                             | Default                                | Description                                                                         |
 | --------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |

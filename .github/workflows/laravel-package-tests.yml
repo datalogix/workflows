@@ -275,26 +275,28 @@ jobs:
           key: composer-lint-${{ runner.os }}-${{ hashFiles('composer.json') }}
           restore-keys: composer-lint-${{ runner.os }}-
 
+      # Each tool below runs even when an earlier one failed, so a run reports every failure at once
       - name: Install dependencies
+        id: install
         if: steps.lint.outputs.enabled
         shell: bash
         run: composer update --prefer-stable --prefer-dist --no-interaction
 
       # Only the files changed by the PR, so existing style issues do not fail the build
       - name: Laravel Pint
-        if: steps.lint.outputs.pint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.lint.outputs.pint }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
         run: vendor/bin/pint --test --diff="origin/$BASE"
 
       - name: PHPStan
-        if: steps.lint.outputs.phpstan
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.lint.outputs.phpstan }}
         shell: bash
         run: vendor/bin/phpstan analyse --no-progress --error-format=github --memory-limit=2G
 
       - name: Lint command
-        if: inputs.lint-command != ''
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint-command != '' }}
         shell: bash
         env:
           LINT_COMMAND: ${{ inputs.lint-command }}

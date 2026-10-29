@@ -27,6 +27,8 @@ A separate `lint` job runs once, outside the matrix, on the highest PHP version 
 - PHPStan, when the package requires `phpstan/phpstan` or Larastan (`phpstan: false` turns it off);
 - `lint-command`, when set (e.g. `composer lint:check`).
 
+Each one runs even when an earlier one failed, so one run reports every lint failure.
+
 Setup asks for them like for an app, starting from what `composer.json` requires: see [Lint and test suite](app-tests.md#lint-and-test-suite).
 
 A new push to a pull request cancels the previous run; runs on `main` always finish. The `all-checks` job passes only when every other job passed (or was skipped), so the required check does not depend on the matrix job names.

@@ -60,7 +60,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Each check below runs even when an earlier one failed, so a run reports every failure at once; none runs
+      # without the dependencies
       - name: Setup Laravel
+        id: setup
         uses: datalogix/workflows/.github/actions/setup-laravel@v2
         with:
           php-version: ${{ inputs.php-version }}
@@ -68,19 +71,19 @@ jobs:
 
       # Only the files changed by the PR, so existing style issues do not fail the build
       - name: Laravel Pint
-        if: inputs.pint && github.event_name == 'pull_request' && hashFiles('vendor/bin/pint') != ''
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.pint && github.event_name == 'pull_request' && hashFiles('vendor/bin/pint') != '' }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
         run: vendor/bin/pint --test --diff="origin/$BASE"
 
       - name: PHPStan
-        if: inputs.phpstan && hashFiles('vendor/bin/phpstan') != ''
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.phpstan && hashFiles('vendor/bin/phpstan') != '' }}
         shell: bash
         run: vendor/bin/phpstan analyse --no-progress --error-format=github --memory-limit=2G
 
       - name: Lint command
-        if: inputs.lint-command != ''
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.lint-command != '' }}
         shell: bash
         env:
           LINT_COMMAND: ${{ inputs.lint-command }}
@@ -89,7 +92,7 @@ jobs:
         run: eval "$LINT_COMMAND"
 
       - name: Tests
-        if: inputs.test-command != 'none'
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.test-command != 'none' }}
         shell: bash
         env:
           TEST_COMMAND: ${{ inputs.test-command }}
@@ -108,7 +111,7 @@ jobs:
 
       - name: Detect package.json scripts
         id: js
-        if: inputs.js && hashFiles('package.json') != ''
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.js && hashFiles('package.json') != '' }}
         shell: bash
         run: |
           if [ -f pnpm-lock.yaml ]; then
@@ -129,21 +132,21 @@ jobs:
           done
 
       - name: Typecheck
-        if: steps.js.outputs.typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.typecheck }}
         shell: bash
         env:
           RUN: ${{ steps.js.outputs.run }}
         run: $RUN typecheck
 
       - name: JS lint
-        if: steps.js.outputs.lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.lint }}
         shell: bash
         env:
           RUN: ${{ steps.js.outputs.run }}
         run: $RUN lint
 
       - name: JS tests
-        if: steps.js.outputs.test
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.test }}
         shell: bash
         env:
           RUN: ${{ steps.js.outputs.run }}
@@ -152,7 +155,7 @@ jobs:
       # On PRs only when composer.lock changes, so a new advisory does not block unrelated PRs;
       # scheduled runs catch advisories published after the dependencies were installed
       - name: Composer audit
-        if: inputs.audit && hashFiles('composer.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && hashFiles('composer.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
@@ -167,7 +170,7 @@ jobs:
       # Same events as composer audit; fails on high and critical advisories only, as npm reports many low ones.
       # Dev dependencies are included: Vite and the frontend libraries end up in the bundle
       - name: Node audit
-        if: inputs.audit && hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}

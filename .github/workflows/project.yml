@@ -57,6 +57,10 @@ on:
         type: number
         default: 10
         description: Minutes each environment is watched after a deploy before it counts as successful. The deploy job stops after 60 minutes, waits included (settle, watch and a rollback), so keep it well below that
+      staging-watch-minutes:
+        type: number
+        default: 0
+        description: Minutes staging is watched after a deploy, so production can follow sooner; 0 uses watch-minutes
       github-deployments:
         type: boolean
         default: true
@@ -291,7 +295,8 @@ jobs:
     with:
       environment: staging
       provider: ${{ inputs.deploy }}
-      watch-minutes: ${{ inputs.watch-minutes }}
+      # 0 is falsy in expressions, so it falls back to watch-minutes
+      watch-minutes: ${{ inputs.staging-watch-minutes || inputs.watch-minutes }}
       github-deployments: ${{ inputs.github-deployments }}
       language: ${{ inputs.language }}
 

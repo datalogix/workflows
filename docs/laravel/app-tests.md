@@ -22,6 +22,8 @@ Setup reads `composer.json` and asks two questions, starting from what is instal
 - **Lint checks**: Laravel Pint (on pull requests, only the files they change), PHPStan, and another command. The installed tools come checked; unchecking one writes `pint: false` or `phpstan: false`, and unchecking everything turns lint off. Another command (`lint-command`) runs after them, on every event; setup suggests the `composer.json` scripts that only check (e.g. `composer lint:check && composer types:check`), leaving out what Pint and PHPStan already cover.
 - **Test suite**: the suggested command, another command (`test-command`) or off (`test-command: none`). The suggestion is `composer test` when that script only runs tests, and `php artisan test` when it also runs Pint or PHPStan (as in the Laravel starter kits), so lint does not run twice, nor Pint on every file. Without Pest, PHPUnit or a `test` script, the question starts at off.
 
+Each check runs even when an earlier one failed (a Pint failure still runs PHPStan, the suite and the rest), so one run reports every failure; none runs when the project could not be prepared.
+
 With the suite and lint off, the `tests` job still runs (the audits, the `package.json` scripts), so its required check still reports. To turn the whole layer off, and its required check with it, set `tests: false`.
 
 ## Test scripts

@@ -115,8 +115,33 @@ jobs:
         id: workflow
         uses: datalogix/workflows/.github/actions/workflow-file@v2
 
+      # A pull request that changes only documentation has nothing to review. The whole pull request counts, not the
+      # last push: a push of documentation on top of code (or on top of a blocking finding) is still reviewed. Markdown
+      # read as instructions (.github/, .claude/, CLAUDE.md, AGENTS.md) or that the app may render (resources/) counts
+      # as code, and so does a deleted or renamed file (--no-renames lists its old name). A failed git diff fails this
+      # step, so the review never skips by accident
+      - name: Check for code changes
+        id: changes
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          files=$(git diff --name-only --no-renames "origin/$BASE...HEAD")
+          docs=false
+          if [ -n "$files" ]; then
+            docs=true
+            while IFS= read -r file; do
+              case "$file" in
+                .github/* | .claude/* | */.claude/* | resources/* | CLAUDE.md | */CLAUDE.md | AGENTS.md | */AGENTS.md) docs=false ;;
+                *.md) ;;
+                *) docs=false ;;
+              esac
+            done <<< "$files"
+          fi
+          echo "docs-only=$docs" >> "$GITHUB_OUTPUT"
+
       - name: Review security with Claude Code
-        if: steps.workflow.outputs.changed != 'true'
+        if: steps.workflow.outputs.changed != 'true' && steps.changes.outputs.docs-only == 'false'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -156,6 +181,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           WORKFLOW_CHANGED: ${{ steps.workflow.outputs.changed }}
           WORKFLOW_FILE: ${{ steps.workflow.outputs.path }}
+          DOCS_ONLY: ${{ steps.changes.outputs.docs-only }}
         run: |
           marker="<!-- claude-security-review -->"
           # A single comment per PR, updated on every push. Every page is read and the first id kept in bash: a pipe
@@ -187,6 +213,21 @@ jobs:
                 "[Ver execução]($RUN_URL)" "$marker")"
             fi
             exit 1
+          fi
+
+          if [ "$DOCS_ONLY" = true ]; then
+            if [ "$ENGLISH" = true ]; then
+              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Security review" \
+                "This pull request changes only documentation (Markdown files), so Claude did not review it. A change to any other file brings the review back." \
+                "[View run]($RUN_URL)" "$marker")"
+            else
+              publish "$(printf '%s\n\n%s\n\n%s\n\n%s' "## Revisão de segurança" \
+                "Este PR altera só documentação (arquivos Markdown), então o Claude não o revisou. Uma mudança em qualquer outro arquivo traz a revisão de volta." \
+                "[Ver execução]($RUN_URL)" "$marker")"
+            fi
+            echo "### Security review" >> "$GITHUB_STEP_SUMMARY"
+            echo "Only documentation changed: not reviewed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
 
           if ! jq -e '.findings | type == "array" and all(type == "object")' "$FINDINGS" >/dev/null 2>&1; then
