@@ -56,7 +56,7 @@ on:
       settle-seconds:
         type: number
         default: 0
-        description: Seconds to wait after triggering a deploy or rollback before watching; 0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first
+        description: Seconds to wait after triggering a deploy or rollback before watching; 0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first; on Vercel, the most the wait follows the build until it is ready (0 uses 900)
       watch-minutes:
         type: number
         default: 3

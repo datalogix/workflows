@@ -115,7 +115,7 @@ Open any small pull request (a README change is enough).
 
 Merge the test pull request.
 
-**Check:** the `datalogix` run on the default branch runs the tests, then **staging** (deploy, wait, 5 minutes of health checks), then **production**. With a production branch, that run deploys only staging and opens the release pull request: merge it to see the production deploy. Each successful deploy is recorded in the [release history](../deploy.md#release-history); the `rollback` label needs a recorded release before the live one.
+**Check:** the `datalogix` run on the default branch runs the tests, then **staging** (deploy, wait, 3 minutes of health checks), then **production**. With a production branch, that run deploys only staging and opens the release pull request: merge it to see the production deploy. Each successful deploy is recorded in the [release history](../deploy.md#release-history); the `rollback` label needs a recorded release before the live one.
 
 ## Step 5: Protect the default branch
 
