@@ -15,7 +15,7 @@ npm run format                                       # Prettier + ESLint --fix
 npx vitest run cli/test/setup.test.js                # a single test file
 npx vitest run -t "<name>" cli/test/setup.test.js
 (cd relay && npm ci && npm test)                     # relay tests (separate package with its own Vitest)
-shellcheck -x .github/actions/*/*.sh                 # lint the action scripts
+shellcheck -x .github/actions/*/*.sh .github/actions/deploy/*/*.sh   # lint the action scripts
 npx -y @anthropic-ai/claude-code plugin validate .   # and plugins/laravel
 node cli/index.js setup                              # run the CLI from a project folder against a local clone
 ```

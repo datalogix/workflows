@@ -17,4 +17,4 @@ Nightwatch's documentation does not specify the exact format of the `Nightwatch-
 
 ## Adding a provider
 
-The relay is organized by monitoring provider: the webhook URL names the provider, and each repository is accepted only by the providers it has a secret for. A new provider is one file in the relay; the workflows need no changes. See [the relay's README](../relay/README.md#adding-a-provider).
+The relay is organized by monitoring provider: the webhook URL names the provider, and each repository is accepted only by the providers it has a secret for. A new provider is one file in the relay; the workflows need no changes. See [the relay's README](../relay/README.md#adding-a-provider). Setup needs its description in `cli/providers/monitoring/<id>.js`, and its deploy markers, if it has them, a script in `.github/actions/deploy/monitoring/` (see [Adding a deploy provider](deploy.md#adding-a-deploy-provider)).

@@ -49,6 +49,16 @@ A rollback redeploys code, not the database, which is why the `laravel` plugin k
 
 Every deploy that stays healthy is recorded as a ref under `refs/datalogix/deploys/<environment>/` (environment name in lowercase; not a branch or tag, so it does not show up in the branch list), rolled-back releases under `refs/datalogix/rolled-back/<environment>/`, and the commit last deployed (healthy or not) as `refs/datalogix/live/<environment>`, which a rollback starts from. The rollbacks read this history, so it starts with the first deploy made by `project`; the 30 newest entries are kept. GitHub's own deployment list still shows the commit of each workflow run, which after a rollback is not the commit that is live.
 
+## Adding a deploy provider
+
+Each provider is a script and a setup file; the deploy itself (the release history, the health checks, the rollback, the issues) is shared:
+
+- `.github/actions/deploy/providers/<id>.sh` defines `provider_settle_seconds` (prints the seconds a deploy usually takes), `provider_check` (stops with an `::error::` when a secret or variable it needs is missing) and `provider_trigger <sha>` (deploys that exact commit; returns non-zero, with an `::error::`, when the provider did not accept it). Hook providers call `require_deploy_hook` and `post_hook <curl --data-urlencode arguments>`. The deploy input `provider` names the script; any other name stops the deploy. A secret the provider reads also goes in the `env` of `deploy.yml`.
+- `cli/providers/deploy/<id>.js` describes it to setup (the fields are listed in `cli/providers/deploy/index.js`); a stack offers it by adding its id to `deployProviders([...])` (a Laravel app: `cli/stacks/laravel/app.js`).
+- Tests for both, next to `.github/actions/test/deploy.test.js` and `cli/test/deploy-target.test.js`.
+
+Deploy markers belong to the monitoring service, not the provider: `.github/actions/deploy/monitoring/<id>.sh` defines `mark_<id> <sha> <name>`, which marks the deploy when the environment has its token and only warns when it cannot.
+
 ## What the health checks do not see
 
 They catch an app that is down or failing on the health URL, and only during the watch after a deploy. A rise in errors on other pages is handled as a [production error](production-errors.md#production-errors). For outages at any other time, use an uptime monitor (Forge, Laravel Cloud and services like Oh Dear offer one).

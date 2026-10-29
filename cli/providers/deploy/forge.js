@@ -1,3 +1,4 @@
+import { bold, dim } from '../../lib/ui.js';
 import { apiClient, repositoryOf } from './api.js';
 
 // What setup does in Forge with an API token: finds the sites of the repository, reads their deploy hook, makes their
@@ -122,3 +123,33 @@ export function forgeNightwatchTask(api, site, environment, token) {
     },
   };
 }
+
+/** Forge, as a deploy target of setup (see index.js). */
+export default {
+  id: 'forge',
+  label: 'Laravel Forge',
+  name: 'Forge',
+  kind: 'site',
+  where: 'the Forge site',
+  hookHint: 'Forge: site Settings > Deployments',
+  tokenHint:
+    'with site:manage-deploys and, for Nightwatch, server:view and site:manage-environment; turns off Push to deploy, fixes the deploy script, reads the deploy hooks and sets NIGHTWATCH_TOKEN',
+  api: forgeApi,
+  find: forgeSites,
+  hook: forgeDeployHook,
+  targetLabel: (site) => site.name,
+  task: forgeSiteTask,
+  nightwatchTask: forgeNightwatchTask,
+  manualSteps: ({ which, branchesOf, twoBranches, why }) => {
+    const branches = () => branchesOf((environment, branch) => `${environment} site on ${branch}`).join(', ');
+    return [
+      [
+        `In Forge, for ${which('site')}: turn off ${bold('Push to deploy')}${twoBranches ? ` (${branches()})` : ''}, and in the deploy script, on zero-downtime sites, add right after ${bold('cd $FORGE_RELEASE_DIRECTORY')}:`,
+        dim(ZERO_DOWNTIME_SNIPPET.replace(/^/gm, '  ')),
+        `  On standard sites, replace ${bold('git pull origin $FORGE_SITE_BRANCH')} with:`,
+        dim(STANDARD_SNIPPET.replace(/^/gm, '  ')),
+        ...why,
+      ].join('\n'),
+    ];
+  },
+};

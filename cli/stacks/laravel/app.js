@@ -3,16 +3,8 @@ import { join } from 'node:path';
 import { deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
-import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from './cloud.js';
-import {
-  forgeApi,
-  forgeDeployHook,
-  forgeNightwatchTask,
-  forgeSites,
-  forgeSiteTask,
-  STANDARD_SNIPPET,
-  ZERO_DOWNTIME_SNIPPET,
-} from './forge.js';
+import { deployProviders } from '../../providers/deploy/index.js';
+import nightwatch from '../../providers/monitoring/nightwatch.js';
 import { addDatabaseCheck, inspectHealth, PROVIDER_PATH } from './health.js';
 import { inspectTools, NO_TOOLS, toolSteps } from './tools.js';
 
@@ -112,32 +104,8 @@ function healthCheckTask(root) {
   };
 }
 
-// What setup can do through each target's API with a token of the user's (used during setup only, never stored)
-const PROVIDERS = {
-  forge: {
-    name: 'Forge',
-    kind: 'site',
-    tokenHint:
-      'with site:manage-deploys and, for Nightwatch, server:view and site:manage-environment; turns off Push to deploy, fixes the deploy script, reads the deploy hooks and sets NIGHTWATCH_TOKEN',
-    api: forgeApi,
-    find: forgeSites,
-    hook: forgeDeployHook,
-    label: (site) => site.name,
-    task: forgeSiteTask,
-    nightwatchTask: forgeNightwatchTask,
-  },
-  cloud: {
-    name: 'Laravel Cloud',
-    kind: 'environment',
-    tokenHint: 'turns off Push to deploy and sets the branch of each environment',
-    api: cloudApi,
-    find: cloudEnvironments,
-    hook: null,
-    label: (environment) => `${environment.application} · ${environment.name}`,
-    task: cloudEnvironmentTask,
-    nightwatchTask: null,
-  },
-};
+// The deploy targets of a Laravel app (cli/providers/deploy)
+const PROVIDERS = deployProviders(['forge', 'cloud']);
 
 const withToken = (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]) && Boolean(a.deployToken?.trim());
 const environmentsOf = (a) => (a.staging ? ['production', 'staging'] : ['production']);
@@ -213,7 +181,7 @@ function deploySiteStep(environment) {
           options: [
             ...targets.map((target, i) => ({
               value: i,
-              label: provider.label(target),
+              label: provider.targetLabel(target),
               hint: target.branch ? `branch ${target.branch}` : undefined,
             })),
             { value: -1, label: 'None of these', hint: 'setup lists what to do by hand at the end' },
@@ -276,12 +244,7 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
   const problems = left
     .filter((environment) => resultOf(environment) && !resultOf(environment).ok)
     .map((environment) => `${environment}: ${resultOf(environment).detail}`);
-  const where =
-    answers.deploy === 'forge'
-      ? 'the Forge site'
-      : answers.deploy === 'cloud'
-        ? 'the Laravel Cloud environment'
-        : 'the server';
+  const where = PROVIDERS[answers.deploy]?.where ?? 'the server';
   if (!deploys(answers) || left.length) {
     steps.push(
       [
@@ -321,28 +284,7 @@ function deployNextSteps(answers, { twoBranches, results = [] }) {
       );
   const which = (kind) =>
     left.length === 2 ? `both ${kind}s` : answers.staging ? `the ${left[0]} ${kind}` : `the ${kind}`;
-  if (answers.deploy === 'forge') {
-    const branches = () => branchesOf((environment, branch) => `${environment} site on ${branch}`).join(', ');
-    return [
-      [
-        `In Forge, for ${which('site')}: turn off ${bold('Push to deploy')}${twoBranches ? ` (${branches()})` : ''}, and in the deploy script, on zero-downtime sites, add right after ${bold('cd $FORGE_RELEASE_DIRECTORY')}:`,
-        dim(ZERO_DOWNTIME_SNIPPET.replace(/^/gm, '  ')),
-        `  On standard sites, replace ${bold('git pull origin $FORGE_SITE_BRANCH')} with:`,
-        dim(STANDARD_SNIPPET.replace(/^/gm, '  ')),
-        ...why,
-      ].join('\n'),
-    ];
-  }
-  if (answers.deploy === 'cloud') {
-    const branches = () => branchesOf((environment, branch) => `${environment} track ${branch}`).join(' and ');
-    return [
-      [
-        `In Laravel Cloud, for ${which('environment')}: turn off ${bold('Push to deploy')}${twoBranches ? `, make ${branches()}` : left.includes('staging') ? ', and make staging track the default branch' : ''}.`,
-        ...why,
-      ].join('\n'),
-    ];
-  }
-  return [];
+  return PROVIDERS[answers.deploy]?.manualSteps({ which, branchesOf, twoBranches, left, why }) ?? [];
 }
 
 /** The health check items of check, for an app that deploys. */
@@ -369,20 +311,11 @@ function evaluateMonitoring({ ok, warn }, state) {
 }
 
 export default projectKind({
-  deployTargets: [
-    { value: 'forge', label: 'Laravel Forge' },
-    { value: 'cloud', label: 'Laravel Cloud' },
-  ],
-  deployHookHint: 'Forge: site Settings > Deployments · Cloud: environment Settings > Deployments',
-  monitoring: {
-    id: 'nightwatch',
-    name: 'Nightwatch',
-    secret: 'NIGHTWATCH_TOKEN',
-    tokenHint: "the app's NIGHTWATCH_TOKEN",
-    webhookHint: `In Nightwatch, open the application's ${bold('Issues settings > Webhooks')} and set the URL to:`,
-    // Deploy markers need the Nightwatch token of a Forge site
-    markers: (answers) => answers.deploy === 'forge',
-  },
+  deployTargets: Object.values(PROVIDERS).map((provider) => ({ value: provider.id, label: provider.label })),
+  deployHookHint: Object.values(PROVIDERS)
+    .map((provider) => provider.hookHint)
+    .join(' · '),
+  monitoring: nightwatch,
   empty: {
     health: { laravel: false, route: null, databaseCheck: false },
     tools: NO_TOOLS,

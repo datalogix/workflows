@@ -1,3 +1,4 @@
+import { bold } from '../../lib/ui.js';
 import { apiClient } from './api.js';
 
 // What setup does in Laravel Cloud with an API token: finds the environments of the repository's applications, turns
@@ -50,3 +51,29 @@ export function cloudEnvironmentTask(api, environment, name, branch) {
     },
   };
 }
+
+/** Laravel Cloud, as a deploy target of setup (see index.js). */
+export default {
+  id: 'cloud',
+  label: 'Laravel Cloud',
+  name: 'Laravel Cloud',
+  kind: 'environment',
+  where: 'the Laravel Cloud environment',
+  hookHint: 'Cloud: environment Settings > Deployments',
+  tokenHint: 'turns off Push to deploy and sets the branch of each environment',
+  api: cloudApi,
+  find: cloudEnvironments,
+  hook: null,
+  targetLabel: (environment) => `${environment.application} · ${environment.name}`,
+  task: cloudEnvironmentTask,
+  nightwatchTask: null,
+  manualSteps: ({ which, branchesOf, twoBranches, left, why }) => {
+    const branches = () => branchesOf((environment, branch) => `${environment} track ${branch}`).join(' and ');
+    return [
+      [
+        `In Laravel Cloud, for ${which('environment')}: turn off ${bold('Push to deploy')}${twoBranches ? `, make ${branches()}` : left.includes('staging') ? ', and make staging track the default branch' : ''}.`,
+        ...why,
+      ].join('\n'),
+    ];
+  },
+};

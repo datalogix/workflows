@@ -70,7 +70,11 @@ describe('check', () => {
   test('check rejects an unknown provider or mode and a missing health URL', async () => {
     const provider = await step('check', { env: { PROVIDER: 'heroku' } });
     expect(provider.code).toBe(1);
-    expect(provider.stdout).toMatch(/provider must be forge or cloud, got 'heroku'/);
+    expect(provider.stdout).toMatch(/provider must be one of cloud, forge, got 'heroku'/);
+    // The name becomes a path, so it never leaves providers/
+    const path = await step('check', { env: { PROVIDER: '../monitoring/nightwatch' } });
+    expect(path.code).toBe(1);
+    expect(path.stdout).toMatch(/provider must be one of cloud, forge, got '\.\.\/monitoring\/nightwatch'/);
 
     const mode = await step('check', { env: { MODE: 'redeploy' } });
     expect(mode.code).toBe(1);

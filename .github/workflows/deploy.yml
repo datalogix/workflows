@@ -10,7 +10,7 @@ on:
       provider:
         type: string
         required: true
-        description: forge or cloud
+        description: Deploy provider, a script in .github/actions/deploy/providers (forge or cloud)
       branch:
         type: string
         default: ""

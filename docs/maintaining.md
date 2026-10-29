@@ -40,7 +40,7 @@ A new push to a pull request cancels its previous run; runs on `main` always fin
 
 - `npm ci && npm test`: tests of the setup command and of the action scripts (Node 22.12+, required by Vitest; the action script tests need `bash` and `jq` on `PATH`).
 - `npm run lint` (ESLint and Prettier) and `npm run format` to fix formatting and lint errors.
-- `(cd relay && npm ci && npm test)` and `shellcheck -x .github/actions/*/*.sh` (`-x` follows the shared `lib/` scripts they source).
+- `(cd relay && npm ci && npm test)` and `shellcheck -x .github/actions/*/*.sh .github/actions/deploy/*/*.sh` (`-x` follows the shared `lib/` scripts they source).
 
 ## Dependencies
 

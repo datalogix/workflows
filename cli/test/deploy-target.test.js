@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { apiClient, repositoryOf } from '../stacks/laravel/api.js';
-import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from '../stacks/laravel/cloud.js';
+import { apiClient, repositoryOf } from '../providers/deploy/api.js';
+import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from '../providers/deploy/cloud.js';
 import {
   forgeApi,
   forgeDeployHook,
@@ -10,7 +10,7 @@ import {
   STANDARD_SNIPPET,
   withCommitCheckout,
   ZERO_DOWNTIME_SNIPPET,
-} from '../stacks/laravel/forge.js';
+} from '../providers/deploy/forge.js';
 import app from '../stacks/laravel/app.js';
 import { APP_STATE, askedSteps, fakeGitHub, RELAY as relay } from './helpers.js';
 
