@@ -1,0 +1,110 @@
+name: risk-gate
+
+on:
+  workflow_call:
+    inputs:
+      high-risk-paths:
+        type: string
+        default: |
+          database/migrations/*
+          app/Policies/*
+          app/Http/Middleware/*
+          bootstrap/app.php
+          config/auth.php
+          config/session.php
+          config/cors.php
+          config/sanctum.php
+          config/permission.php
+          routes/api.php
+          composer.json
+          package.json
+          .github/*
+        description: Patterns (one per line, * also matches /) that make a PR high risk
+      extra-high-risk-paths:
+        type: string
+        default: ""
+        description: More patterns (one per line) that make a PR high risk, added to high-risk-paths (e.g. the project's payment code)
+      low-risk-paths:
+        type: string
+        default: |
+          tests/*
+          *.md
+          docs/*
+          lang/*.json
+          .editorconfig
+          .gitattributes
+          .gitignore
+        description: Patterns of files that are low risk; a PR touching only these is low risk
+      ignored-paths:
+        type: string
+        default: |
+          composer.lock
+          package-lock.json
+          pnpm-lock.yaml
+          yarn.lock
+          public/build/*
+        description: Patterns of generated files; they make a PR at least medium risk but are not counted in the changed lines
+      high-risk-lines:
+        type: number
+        default: 600
+        description: Changed lines (outside ignored and low-risk paths) that make a PR high risk
+      approvals-low:
+        type: number
+        default: 0
+        description: Human approvals a low-risk PR needs of its current changes
+      approvals-medium:
+        type: number
+        default: 1
+        description: Human approvals a medium-risk PR needs of its current changes
+      approvals-high:
+        type: number
+        default: 1
+        description: Human approvals a high-risk PR needs of its current changes
+      count-author:
+        type: boolean
+        default: false
+        description: Count a human PR author with write access as one approval (for solo maintainers, who cannot approve their own PRs)
+      label-prefix:
+        type: string
+        default: "risk:"
+        description: Prefix of the risk labels (risk:low, risk:medium, risk:high)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of the label descriptions (pt-BR or en; other languages get pt-BR)
+
+jobs:
+  # Skipped on merge_group: skipped here, inside the called workflow, the check still reports as skipped, which satisfies
+  # a required check (a skip in the caller would not: keep this condition here). The PR was approved before the queue.
+  gate:
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_review'
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    concurrency:
+      group: risk-gate-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Classify risk and check approvals
+        uses: datalogix/workflows/.github/actions/risk-gate@v2
+        with:
+          pull-request: ${{ github.event.pull_request.number }}
+          high-risk-paths: ${{ inputs.high-risk-paths }}
+          extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
+          low-risk-paths: ${{ inputs.low-risk-paths }}
+          ignored-paths: ${{ inputs.ignored-paths }}
+          high-risk-lines: ${{ inputs.high-risk-lines }}
+          approvals-low: ${{ inputs.approvals-low }}
+          approvals-medium: ${{ inputs.approvals-medium }}
+          approvals-high: ${{ inputs.approvals-high }}
+          count-author: ${{ inputs.count-author }}
+          label-prefix: ${{ inputs.label-prefix }}
+          language: ${{ inputs.language }}

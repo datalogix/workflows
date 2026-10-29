@@ -1,0 +1,24 @@
+name: Datalogix language
+description: Whether the fixed texts of a workflow are in English, by the same rule as the action scripts (lib/language.sh)
+
+inputs:
+  language:
+    description: Team language (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+
+outputs:
+  english:
+    description: true for English, false for Portuguese
+    value: ${{ steps.language.outputs.english }}
+
+runs:
+  using: composite
+
+  steps:
+    - id: language
+      shell: bash
+      env:
+        LANGUAGE: ${{ inputs.language }}
+      run: |
+        source "$GITHUB_ACTION_PATH/../lib/language.sh"
+        echo "english=$english" >> "$GITHUB_OUTPUT"

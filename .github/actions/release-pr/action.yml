@@ -1,0 +1,32 @@
+name: Release pull request
+description: Keeps the release pull request from the development branch to the production branch open with the changes still to release (release), or opens a pull request back to the development branch with the production changes it lacks (sync)
+
+inputs:
+  mode:
+    description: release or sync
+    required: true
+  development-branch:
+    description: Branch deployed to staging (the default branch)
+    required: true
+  production-branch:
+    description: Branch deployed to production
+    required: true
+  token:
+    description: Token that opens the pull requests; only pull requests opened with a GitHub App token run their workflows
+    required: true
+  language:
+    description: Language of the pull request texts (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+
+runs:
+  using: composite
+
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        MODE: ${{ inputs.mode }}
+        DEVELOPMENT: ${{ inputs.development-branch }}
+        PRODUCTION: ${{ inputs.production-branch }}
+        LANGUAGE: ${{ inputs.language }}
+      run: bash "$GITHUB_ACTION_PATH/release-pr.sh"

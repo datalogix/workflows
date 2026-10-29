@@ -1,0 +1,148 @@
+name: claude-security-review
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        type: string
+        default: opus
+        description: Claude model (e.g. fable, opus, sonnet); empty uses the account default
+      max-turns:
+        type: number
+        default: 40
+        description: Maximum turns of Claude's security review
+      timeout-minutes:
+        type: number
+        default: 30
+        description: Timeout of the security review job
+      fail-on:
+        type: string
+        default: high
+        description: Lowest severity that fails the check (high, medium, low or none)
+      ignored-authors:
+        type: string
+        default: '["dependabot[bot]", "renovate[bot]"]'
+        description: JSON list of PR authors that are not reviewed, unless someone else pushed the commits (dependency updates are covered by composer audit)
+      allowed-bots:
+        type: string
+        default: "*"
+        description: Bots whose PRs are reviewed (ignored-authors still takes precedence)
+      plugin-marketplaces:
+        type: string
+        default: ""
+        description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
+      plugins:
+        type: string
+        default: laravel@datalogix
+        description: Claude Code plugins to install, one per line (name@marketplace)
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this repository (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what Claude writes for the team (e.g. pt-BR, en; no double quotes); the fixed texts exist in pt-BR and en, other languages get pt-BR
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  # Skipped here, inside the called workflow, the check <caller> / security / security still reports as skipped, which
+  # satisfies a required check (a skip in the caller would not: keep this condition here). Drafts, forks, ignored
+  # authors and merge queue runs therefore pass without a security review; the PR itself was already reviewed.
+  security:
+    if: |
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !(contains(fromJSON(inputs.ignored-authors), github.event.pull_request.user.login) &&
+        contains(fromJSON(inputs.ignored-authors), github.actor))
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: claude-security-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Locate the Datalogix plugins
+        id: plugins
+        uses: datalogix/workflows/.github/actions/plugins@v2
+
+      # A pull request that changes the workflow file cannot run Claude (claude-code-action requires the default
+      # branch's copy): Publish findings says so, and the check fails, so changing the workflow never skips the review
+      - name: Check the workflow file
+        id: workflow
+        uses: datalogix/workflows/.github/actions/workflow-file@v2
+
+      # Validates fail-on, then skips the review of a pull request that changes the workflow file or only documentation,
+      # or whose changes are the same as in the last passing review (see check.sh)
+      - name: Check the pull request
+        id: check
+        uses: datalogix/workflows/.github/actions/security-review@v2
+        with:
+          step: check
+          fail-on: ${{ inputs.fail-on }}
+          workflow-changed: ${{ steps.workflow.outputs.changed }}
+
+      - name: Review security with Claude Code
+        if: steps.check.outputs.review == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: ${{ inputs.allowed-bots }}
+
+          plugin_marketplaces: |
+            ${{ steps.plugins.outputs.marketplace }}
+            ${{ inputs.plugin-marketplaces }}
+          plugins: ${{ inputs.plugins }}
+
+          prompt: /laravel:security-review ${{ env.PR_NUMBER }} ${{ runner.temp }}/security-findings.json
+
+          # Read-only: Claude can only read the code and the PR, and write the findings file (// starts an absolute
+          # path): any other file it could write (the findings of a forged review, $GITHUB_ENV) would be read by the
+          # steps after it. Edit rules cover every tool that writes files (Write rules never match) and an edit no rule
+          # allows is denied, so Edit stays off the denied list. Reads stay in the workspace (not /proc or the runner's
+          # files) and git's --output, which writes a file, is denied
+          claude_args: |
+            --max-turns ${{ inputs.max-turns }}
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --allowed-tools "Read(./**),Grep(./**),Glob(./**),Edit(/${{ runner.temp }}/security-findings.json),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(ls:*)"
+            --disallowed-tools "Bash(git * --output*),Bash(git push:*),Bash(git commit:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh api:*)"
+            --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only end your turn once the findings file has been written. Load the laravel:conventions skill before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+
+      # Also after a failed review (max-turns, an error of the action), so the PR comment does not keep the result of an
+      # earlier commit; not when cancelled, since a newer run replaces this one, nor when fail-on is invalid
+      - name: Publish findings
+        id: findings
+        if: ${{ !cancelled() && steps.check.outputs.levels != '' }}
+        uses: datalogix/workflows/.github/actions/security-review@v2
+        with:
+          step: publish
+          fail-on: ${{ inputs.fail-on }}
+          levels: ${{ steps.check.outputs.levels }}
+          workflow-changed: ${{ steps.workflow.outputs.changed }}
+          workflow-file: ${{ steps.workflow.outputs.path }}
+          docs-only: ${{ steps.check.outputs.docs-only }}
+          reused: ${{ steps.check.outputs.reused }}
+          digest: ${{ steps.check.outputs.digest }}
+          findings: ${{ runner.temp }}/security-findings.json
+          language: ${{ inputs.language }}

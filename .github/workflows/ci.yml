@@ -8,9 +8,16 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the previous run; runs on main always finish
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -22,7 +29,7 @@ jobs:
           # Not updated by Dependabot: bump manually from https://github.com/rhysd/actionlint/releases
           ACTIONLINT_VERSION: 1.7.12
         run: |
-          bash <(curl -sSL "https://raw.githubusercontent.com/rhysd/actionlint/v$ACTIONLINT_VERSION/scripts/download-actionlint.bash") "$ACTIONLINT_VERSION"
+          bash <(curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/v$ACTIONLINT_VERSION/scripts/download-actionlint.bash") "$ACTIONLINT_VERSION"
 
           # Point the examples at the local workflows so their inputs and secrets are checked too
           mkdir -p .lint/examples
@@ -30,12 +37,40 @@ jobs:
             sed 's|datalogix/workflows/\(\.github/workflows/[^@]*\)@v[0-9]*|./\1|' "$f" > ".lint/$f"
           done
 
-          ./actionlint -color .github/workflows/*.yml .lint/examples/*.yml
+          # The project and package workflows call the other workflows: point them at the local ones too
+          mkdir -p .lint/workflows
+          for f in project package; do
+            sed 's|datalogix/workflows/\(\.github/workflows/[^@]*\)@v[0-9]*|./\1|' ".github/workflows/$f.yml" > ".lint/workflows/$f.yml"
+          done
+
+          ./actionlint -color .github/workflows/*.yml .lint/examples/*.yml .lint/workflows/*.yml
+
+      # actionlint only checks inline scripts; the actions keep theirs in files
+      - name: Lint action scripts
+        shell: bash
+        run: shellcheck -x .github/actions/*/*.sh
 
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
           node-version: lts/*
+
+      - name: Test incident relay
+        shell: bash
+        working-directory: relay
+        run: |
+          npm ci
+          npm test
+
+      - name: Test setup command and action scripts
+        shell: bash
+        run: |
+          npm ci
+          npm test
+
+      - name: Lint and check formatting
+        shell: bash
+        run: npm run lint
 
       - name: Validate Claude plugin
         shell: bash
@@ -43,8 +78,20 @@ jobs:
           npx -y @anthropic-ai/claude-code plugin validate .
           npx -y @anthropic-ai/claude-code plugin validate plugins/laravel
 
+      - name: Locate the plugins
+        id: plugins
+        uses: ./.github/actions/plugins
+
+      - name: Check the plugins path
+        shell: bash
+        env:
+          MARKETPLACE: ${{ steps.plugins.outputs.marketplace }}
+        run: test "$MARKETPLACE" = "$GITHUB_WORKSPACE"
+
   setup-laravel:
     runs-on: ubuntu-latest
+
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -95,7 +142,6 @@ jobs:
           sed -i -e '/DB_CONNECTION=/d' -e '/DB_DATABASE=/d' .env.example
           printf 'DB_CONNECTION=mysql\nDB_DATABASE=laravel\n' >> .env.example
 
-          # Commit a lockfile for the package manager under test
           case "$PM" in
             pnpm)
               version=$(npm view pnpm version)
@@ -184,6 +230,8 @@ jobs:
     needs: [lint, setup-laravel]
 
     runs-on: ubuntu-latest
+
+    timeout-minutes: 5
 
     steps:
       - name: Check results

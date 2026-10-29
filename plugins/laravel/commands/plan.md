@@ -7,7 +7,7 @@ Analyze issue #$ARGUMENTS and post an implementation plan on it. **Do not change
 
 1. Read the issue and its comments with `gh issue view $ARGUMENTS --comments`.
 2. Explore the code to understand where the change fits: models, controllers, routes, views, tests and the patterns already in use.
-3. Post the plan with `gh issue comment $ARGUMENTS --body-file -`, written in Portuguese, with these sections:
+3. Post the plan with `gh issue comment $ARGUMENTS --body-file -`, written in the team language (see the laravel:conventions skill), with these sections:
    - **Entendimento**: what the issue asks for, in a few lines.
    - **Arquivos afetados**: files to create or change, one line about each.
    - **Abordagem**: step-by-step implementation, reusing what already exists.

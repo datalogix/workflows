@@ -1,0 +1,65 @@
+name: release-pr
+
+on:
+  workflow_call:
+    inputs:
+      production-branch:
+        type: string
+        required: true
+        description: Branch deployed to production; the default branch is the development branch
+      language:
+        type: string
+        default: pt-BR
+        description: Language of the pull request texts (pt-BR or en; other languages get pt-BR)
+    secrets:
+      # Optional GitHub App that opens the pull requests: pull requests opened with the workflow token run no workflows,
+      # so their checks never report and the production branch cannot require them
+      RELEASE_APP_CLIENT_ID:
+        required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
+
+jobs:
+  # A push to the development branch opens or updates the release pull request to the production branch; a push to the
+  # production branch opens a pull request back to the development branch when it has changes the development branch
+  # lacks (hotfixes)
+  release:
+    if: github.event_name == 'push'
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    # Used only without the GitHub App, which needs the repository's "Allow GitHub Actions to create pull requests"
+    permissions:
+      contents: read
+      pull-requests: write
+
+    env:
+      APP: ${{ secrets.RELEASE_APP_CLIENT_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+
+    # Per branch: release and sync update different pull requests, and a run waiting in a shared group would be
+    # cancelled by the next one
+    concurrency:
+      group: release-pr-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Create the GitHub App token
+        id: token
+        if: env.APP == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+
+      - name: Open or update the pull request
+        uses: datalogix/workflows/.github/actions/release-pr@v2
+        with:
+          mode: ${{ github.ref == format('refs/heads/{0}', inputs.production-branch) && 'sync' || 'release' }}
+          development-branch: ${{ github.event.repository.default_branch }}
+          production-branch: ${{ inputs.production-branch }}
+          token: ${{ steps.token.outputs.token || github.token }}
+          language: ${{ inputs.language }}

@@ -1,0 +1,16 @@
+name = "incident-relay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+ALLOWED_OWNER = "datalogix"
+
+# Webhook secrets, one key per repository: "<provider>:<owner>/<repo>" (e.g. "nightwatch:datalogix/app").
+# A template: the org command deploys with a copy of this file, its namespace id and ALLOWED_OWNER filled in, and
+# stores them in workflows/relay.json of the organization's .github repository, where setup reads them.
+[[kv_namespaces]]
+binding = "SECRETS"
+id = "REPLACE_WITH_THE_NAMESPACE_ID"
+
+# Secret (set with `npx wrangler secret put GITHUB_TOKEN`):
+#   GITHUB_TOKEN  fine-grained token with Contents: read and write on the project repositories

@@ -1,0 +1,22 @@
+name: Datalogix plugins
+description: Path of this repository's Claude Code plugin marketplace, at the same version as the workflows. The runner downloads the whole repository at the action's ref, so the plugins come from the same tag (v2) instead of the default branch.
+
+outputs:
+  marketplace:
+    description: Local marketplace path, for the plugin_marketplaces input of the Claude Code action
+    value: ${{ steps.path.outputs.marketplace }}
+
+runs:
+  using: composite
+
+  steps:
+    - id: path
+      shell: bash
+      run: |
+        # .github/actions/plugins -> repository root
+        root=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)
+        if [ ! -f "$root/.claude-plugin/marketplace.json" ]; then
+          echo "::error::No .claude-plugin/marketplace.json in $root"
+          exit 1
+        fi
+        echo "marketplace=$root" >> "$GITHUB_OUTPUT"

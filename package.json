@@ -1,0 +1,38 @@
+{
+  "name": "datalogix-workflows",
+  "private": true,
+  "license": "MIT",
+  "description": "Sets up and checks Datalogix projects for the reusable workflows in this repository",
+  "type": "module",
+  "bin": {
+    "datalogix-workflows": "cli/index.js"
+  },
+  "files": [
+    "cli/",
+    "!cli/test/",
+    "examples/project.yml",
+    "examples/package.yml",
+    "examples/issue-templates/",
+    "relay/wrangler.toml",
+    "relay/src/"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write . && eslint . --fix"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "vitest": "^5.0.5"
+  }
+}

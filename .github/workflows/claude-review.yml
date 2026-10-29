@@ -10,10 +10,11 @@ on:
       timeout-minutes:
         type: number
         default: 30
+        description: Timeout of the review job
       ignored-authors:
         type: string
         default: '["dependabot[bot]", "renovate[bot]"]'
-        description: JSON list of PR authors that are not reviewed
+        description: JSON list of PR authors that are not reviewed, unless someone else pushed the commits
       skip-label:
         type: string
         default: no-review
@@ -24,8 +25,8 @@ on:
         description: Bots whose PRs are reviewed (ignored-authors still takes precedence)
       plugin-marketplaces:
         type: string
-        default: https://github.com/datalogix/workflows.git
-        description: Extra marketplaces, besides the one with the code-review plugin
+        default: ""
+        description: Extra marketplaces, one per line, besides the one with the code-review plugin and this repository's (at the same version as the workflows)
       plugins:
         type: string
         default: laravel@datalogix
@@ -34,6 +35,10 @@ on:
         type: string
         default: ""
         description: Extra instructions for this repository (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what Claude writes for the team (e.g. pt-BR, en; no double quotes)
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -43,7 +48,8 @@ jobs:
     if: |
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      !contains(fromJSON(inputs.ignored-authors), github.event.pull_request.user.login) &&
+      !(contains(fromJSON(inputs.ignored-authors), github.event.pull_request.user.login) &&
+        contains(fromJSON(inputs.ignored-authors), github.actor)) &&
       !contains(github.event.pull_request.labels.*.name, inputs.skip-label)
 
     runs-on: ubuntu-latest
@@ -65,14 +71,27 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          persist-credentials: false
+
+      - name: Locate the Datalogix plugins
+        id: plugins
+        uses: datalogix/workflows/.github/actions/plugins@v2
+
+      # A pull request that changes the workflow file cannot run Claude: the job only warns (it has no permission to
+      # comment), and the security review's comment explains it on the pull request
+      - name: Check the workflow file
+        id: workflow
+        uses: datalogix/workflows/.github/actions/workflow-file@v2
 
       - name: Run Claude Code Review
+        if: steps.workflow.outputs.changed != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: ${{ inputs.allowed-bots }}
           plugin_marketplaces: |
             https://github.com/anthropics/claude-code.git
+            ${{ steps.plugins.outputs.marketplace }}
             ${{ inputs.plugin-marketplaces }}
           plugins: |
             code-review@claude-code-plugins
@@ -80,4 +99,4 @@ jobs:
           prompt: /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
           claude_args: |
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
-            --append-system-prompt "Before starting, load the laravel:conventions skill and follow its language rules: write every review comment in Brazilian Portuguese. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "Before starting, load the laravel:conventions skill and follow its language rules: write every review comment in the team language. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
