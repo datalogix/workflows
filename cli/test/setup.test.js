@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
 import { dropsProductionBranch } from '../kinds/project/index.js';
-import { hasSecret } from '../kinds/project/relay.js';
+import { hasSecret, loadRelayConfig } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
 import { EMPTY_STATE } from '../lib/state.js';
@@ -46,7 +46,7 @@ vi.mock('@clack/prompts', async (importOriginal) => ({
 // The relay is read for real unless a test says what it answers
 vi.mock('../kinds/project/relay.js', async (importOriginal) => {
   const original = await importOriginal();
-  return { ...original, hasSecret: vi.fn(original.hasSecret) };
+  return { ...original, hasSecret: vi.fn(original.hasSecret), loadRelayConfig: vi.fn(original.loadRelayConfig) };
 });
 
 // Each test starts with no prompt shown and the relay read for real
@@ -981,6 +981,36 @@ test('stops setup with an error when the repository is missing, before other que
   const answers = { repository: 'datalogix/app' };
   await repository.then(answers, ctx({ full_name: 'Datalogix/App' }));
   expect(answers.repository).toBe('Datalogix/App');
+});
+
+test('loads the relay of the answered owner when it differs from the folder owner', async () => {
+  const repository = setupSteps().find((step) => step.id === 'repository');
+  const relays = { acme: { ...relay, owner: 'acme' }, datalogix: relay };
+  vi.mocked(loadRelayConfig).mockImplementation(async (owner) => relays[owner]);
+  const ctx = {
+    repository: 'datalogix/x',
+    folderRepository: 'datalogix/x',
+    // Goes on past the question about the folder being another repository
+    flags: { yes: true },
+    root: '/nowhere',
+    createGitHub: (name) => ({
+      repository: name,
+      repo: async () => ({ full_name: name }),
+      rulesets: async () => [],
+      login: async () => null,
+    }),
+  };
+  await app.prepare(ctx);
+  expect(ctx.relay).toBe(relays.datalogix);
+
+  await repository.then({ repository: 'Datalogix/y' }, ctx);
+  // Same owner, in another spelling: not read again
+  expect(loadRelayConfig).toHaveBeenCalledTimes(1);
+
+  await repository.then({ repository: 'acme/y' }, ctx);
+  expect(loadRelayConfig).toHaveBeenLastCalledWith('acme');
+  expect(ctx.relay).toBe(relays.acme);
+  vi.mocked(loadRelayConfig).mockReset();
 });
 
 test('registers the signing secret in the relay only with incidents and a secret', () => {

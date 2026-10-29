@@ -144,13 +144,24 @@ function secretSteps(id, { label, exists, when, validate: validValue = notEmpty,
 
 const ownerOf = (repository) => repository.split('/')[0];
 
-/** The repository step, then the relay settings of its owner when prepare had no repository to load them for. */
+/** Loads the relay settings of an owner into ctx, remembering whose they are. */
+async function loadRelay(ctx, owner) {
+  ctx.relay = await loadRelayConfig(owner);
+  ctx.relayOwner = owner;
+}
+
+/**
+ * The repository step, then the relay settings of its owner: when prepare had no repository to load them for, or loaded
+ * them for the folder's repository and the answer has another owner. Settings given without an owner (tests) stay.
+ */
 function withRelay(step) {
   return {
     ...step,
     then: async (answers, ctx) => {
       await step.then(answers, ctx);
-      ctx.relay ??= await loadRelayConfig(ownerOf(answers.repository));
+      const owner = ownerOf(answers.repository);
+      const other = ctx.relayOwner !== undefined && ctx.relayOwner.toLowerCase() !== owner.toLowerCase();
+      if (ctx.relay === undefined || ctx.relay === null || other) await loadRelay(ctx, owner);
     },
   };
 }
@@ -1401,7 +1412,7 @@ export function projectKind(stack) {
      * given (tests). Without a repository yet (setup asks for it), the repository step loads them.
      */
     prepare: async (ctx) => {
-      if (ctx.repository) ctx.relay ??= await loadRelayConfig(ownerOf(ctx.repository));
+      if (ctx.repository && ctx.relay == null) await loadRelay(ctx, ownerOf(ctx.repository));
     },
     setup: {
       steps: () => setupSteps(kind),

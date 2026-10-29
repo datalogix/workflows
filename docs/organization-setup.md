@@ -61,7 +61,7 @@ Skip this if you do not want Nightwatch problems turned into issues: leave the t
 
 It stores the worker's URL, its KV namespace and the organization in `workflows/relay.json` of `datalogix/.github`, where every project's setup reads them. To update the relay after a release changes it, run `org` again and say yes to updating it.
 
-**Why:** Nightwatch cannot call GitHub directly, because GitHub requires an authorization header that Nightwatch webhooks cannot send. The relay checks that each webhook really came from Nightwatch, with the secret stored for that repository, and forwards it. It only targets repositories of the organization it was deployed for (`ALLOWED_OWNER`). Each repository's secret is a separate entry in the `SECRETS` namespace, so the setup command can add a project without touching the others.
+**Why:** Nightwatch cannot call GitHub directly, because GitHub requires an authorization header that Nightwatch webhooks cannot send. The relay checks that each webhook really came from Nightwatch, with the secret stored for that repository, and forwards it. It only targets repositories of the organization it was deployed for (`ALLOWED_OWNER`), so each organization gets its own worker, `incident-relay-<organization>`, and several organizations can share one Cloudflare account (a relay deployed before keeps its worker, so the webhooks keep their URL). Each repository's secret is a separate entry in the `SECRETS` namespace, so the setup command can add a project without touching the others.
 
 ## 5. Create the task manager's GitHub App
 

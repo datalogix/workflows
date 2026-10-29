@@ -42,7 +42,7 @@ Each repository is a separate KV entry so the setup command can add or replace o
 
 ## Deploying
 
-The CLI's `org` command deploys it (see [Organization setup, step 4](../docs/organization-setup.md#4-deploy-the-monitoring-relay-only-for-production-errors)): it copies `src/` of the version it runs to a private folder with a `wrangler.toml` made from this one (the namespace id and `ALLOWED_OWNER` filled in), runs `wrangler deploy`, stores `GITHUB_TOKEN` on stdin and writes `relay.json`. `wrangler.toml` here keeps the placeholder id: it is the template, and what `npm run deploy` needs for a deploy by hand after you fill it in.
+The CLI's `org` command deploys it (see [Organization setup, step 4](../docs/organization-setup.md#4-deploy-the-monitoring-relay-only-for-production-errors)): it copies `src/` of the version it runs to a private folder with a `wrangler.toml` made from this one (the namespace id, `ALLOWED_OWNER` and the worker name `incident-relay-<owner>` filled in; a relay deployed before keeps the worker in its URL), runs `wrangler deploy`, stores `GITHUB_TOKEN` on stdin and writes `relay.json`. `wrangler.toml` here keeps the placeholder id: it is the template, and what `npm run deploy` needs for a deploy by hand after you fill it in.
 
 After changing the code, run `npm test`, release, and run `org` again, saying yes to updating the relay. A release does not change the deployed worker by itself.
 

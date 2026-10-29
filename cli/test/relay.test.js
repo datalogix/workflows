@@ -10,6 +10,7 @@ import {
   relayAccepts,
   relayConfig,
   relayNamespace,
+  relayWorker,
 } from '../kinds/project/relay.js';
 import { onPlatform, RELAY as relay } from './helpers.js';
 
@@ -175,15 +176,25 @@ test('deploys the relay of this version with its namespace and owner, and the to
   expect(sources).toContain('index.js');
   expect(calls).toStrictEqual([
     [['deploy'], undefined],
-    [['secret', 'put', 'GITHUB_TOKEN', '--name', 'incident-relay'], 'github_pat_x'],
+    [['secret', 'put', 'GITHUB_TOKEN', '--name', 'incident-relay-acme'], 'github_pat_x'],
   ]);
+  expect(config).toMatch(/^name = "incident-relay-acme"$/m);
 
   // Without a token the one stored before stays
   calls.length = 0;
-  await deployRelay({ namespaceId: id, owner: 'acme' }, deploy);
+  await deployRelay({ namespaceId: id, owner: 'acme', worker: 'incident-relay' }, deploy);
   expect(calls).toStrictEqual([[['deploy'], undefined]]);
+  expect(config).toMatch(/^name = "incident-relay"$/m);
 
   await expect(deployRelay({ namespaceId: id, owner: 'acme' }, runner({ stdout: 'done' }))).rejects.toThrow(
     'printed no workers.dev URL',
   );
+});
+
+test('names the worker after its owner, and keeps the worker of a relay already deployed', () => {
+  expect(relayWorker('Acme')).toBe('incident-relay-acme');
+  expect(relayWorker('acme', 'https://incident-relay.acme.workers.dev')).toBe('incident-relay');
+  expect(relayWorker('acme', 'https://incident-relay-acme.acme.workers.dev')).toBe('incident-relay-acme');
+  // A URL that is not workers.dev (a custom domain) gives no name: the one every relay had before
+  expect(relayWorker('acme', 'https://relay.acme.com')).toBe('incident-relay');
 });

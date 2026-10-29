@@ -4,11 +4,12 @@ import {
   cloudflareLoggedIn,
   cloudflareLogin,
   deployRelay,
-  loadRelayConfig,
   RELAY_PATH,
   RELAY_REPO,
+  relayConfig,
   relayNamespace,
   relaySupported,
+  relayWorker,
 } from '../kinds/project/relay.js';
 import { SETUP } from '../lib/evaluate.js';
 import { packageRoot } from '../lib/project.js';
@@ -59,17 +60,20 @@ async function askToken(organization, emptyMeans) {
   return token?.trim() ?? '';
 }
 
-/** The relay task: deploys the worker of this version and stores its settings where setup reads them. */
-function relayTask(organization, relay, token) {
+/**
+ * The relay task: deploys the worker of this version and stores its settings where setup reads them. `file` is
+ * relay.json as read before (null when missing), whose sha the update needs.
+ */
+function relayTask(organization, relay, file, token) {
   const name = organization.organization;
   return {
     id: 'relay',
     title: relay.configured ? 'Monitoring relay (update)' : 'Monitoring relay',
     run: async () => {
       const namespaceId = relay.configured ? relay.namespaceId : (await relayNamespace()).id;
-      const url = await deployRelay({ namespaceId, owner: name, token });
+      const worker = relayWorker(name, relay.configured ? relay.url : '');
+      const url = await deployRelay({ namespaceId, owner: name, token, worker });
       const content = `${JSON.stringify({ url, namespaceId, owner: name }, null, 2)}\n`;
-      const file = await organization.file(RELAY_REPO, RELAY_PATH);
       if (file?.content !== content) {
         await organization.putFile(
           RELAY_REPO,
@@ -95,24 +99,26 @@ export async function org(ctx) {
 
   const spinner = clack.spinner();
   spinner.start(`Reading ${name}`);
-  let plan, apps, repository, forms, current, relay;
+  let plan, apps, repository, forms, current, relayFile;
   try {
-    [plan, apps, repository, forms] = await Promise.all([
+    [plan, apps, repository, forms, relayFile] = await Promise.all([
       organization.plan(),
       organization.installedApps(),
       organization.repo(RELAY_REPO),
       issueForms(),
+      // Kept with its sha for the relay task
+      organization.file(RELAY_REPO, RELAY_PATH),
     ]);
     current = repository
       ? await Promise.all(Object.keys(forms).map((file) => organization.file(RELAY_REPO, `${FORMS_PATH}/${file}`)))
       : [];
-    relay = ctx.relay ?? (await loadRelayConfig(name, organization));
   } catch (error) {
     // A running spinner keeps the process alive
     spinner.error(`Could not read ${name}`);
     throw error;
   }
   spinner.stop(`Read ${name}`);
+  const relay = ctx.relay ?? relayConfig(relayFile?.content);
 
   const left = [];
   if (apps?.includes('claude')) clack.log.success('Claude GitHub App installed');
@@ -141,15 +147,18 @@ export async function org(ctx) {
       },
     });
   }
-  const changedForms = Object.keys(forms).filter((file, index) => current[index]?.content !== forms[file]);
+  // With the forms read above (none when the repository is created by this run), so each update has its sha
+  const changedForms = Object.keys(forms)
+    .map((file, index) => ({ file, existing: current[index] }))
+    .filter(({ file, existing }) => existing?.content !== forms[file]);
   tasks.push({
     id: 'issueForms',
     title: 'Issue forms',
     run: async () => {
       const changes = [];
-      for (const file of changedForms) {
+      // One after another: parallel commits to one branch through the contents API conflict
+      for (const { file, existing } of changedForms) {
         const path = `${FORMS_PATH}/${file}`;
-        const existing = await organization.file(RELAY_REPO, path);
         await organization.putFile(
           RELAY_REPO,
           path,
@@ -168,7 +177,7 @@ export async function org(ctx) {
     left.push('Run org from macOS or Linux to deploy the monitoring relay.');
   } else if (!relay.configured) {
     const token = await askToken(name, 'to skip the relay (no problems become issues)');
-    if (token) tasks.push(relayTask(organization, relay, token));
+    if (token) tasks.push(relayTask(organization, relay, relayFile, token));
     else
       left.push(`Problems of the monitoring service do not become issues until the relay is deployed: run org again.`);
   } else {
@@ -181,7 +190,7 @@ export async function org(ctx) {
           initialValue: false,
         }),
       );
-    if (update) tasks.push(relayTask(organization, relay, await askToken(name, 'to keep the current one')));
+    if (update) tasks.push(relayTask(organization, relay, relayFile, await askToken(name, 'to keep the current one')));
   }
 
   clack.note(tasks.map((task) => `• ${task.title}`).join('\n'), `Changes for ${name}`);
