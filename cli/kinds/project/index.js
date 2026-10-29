@@ -160,13 +160,24 @@ const monitoringOf = (stack, a) =>
 // What the questions and messages name: the chosen service, or the stack's first
 const serviceOf = (stack, a) => monitoringOf(stack, a) ?? stack.monitoring[0];
 
-/** The repository step, then the relay settings of its owner when prepare had no repository to load them for. */
+/** Loads the relay settings of an owner into ctx, remembering whose they are. */
+async function loadRelay(ctx, owner) {
+  ctx.relay = await loadRelayConfig(owner);
+  ctx.relayOwner = owner;
+}
+
+/**
+ * The repository step, then the relay settings of its owner: when prepare had no repository to load them for, or loaded
+ * them for the folder's repository and the answer has another owner. Settings given without an owner (tests) stay.
+ */
 function withRelay(step) {
   return {
     ...step,
     then: async (answers, ctx) => {
       await step.then(answers, ctx);
-      ctx.relay ??= await loadRelayConfig(ownerOf(answers.repository));
+      const owner = ownerOf(answers.repository);
+      const other = ctx.relayOwner !== undefined && ctx.relayOwner.toLowerCase() !== owner.toLowerCase();
+      if (ctx.relay === undefined || ctx.relay === null || other) await loadRelay(ctx, owner);
     },
   };
 }
@@ -755,20 +766,28 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
       const existing = new Map(state.labels.map((name) => [name.toLowerCase(), name]));
       const labels = labelsFor(environments);
       const missing = labels.filter((label) => !existing.has(label.name.toLowerCase()));
-      for (const label of missing) {
-        await github.createLabel(label.name, label.color, labelDescription(label, answers.language));
-      }
       // A description that is still the default text in another language follows the project's language; one written
       // by hand is kept
-      const translated = [];
-      for (const label of labels) {
-        const name = existing.get(label.name.toLowerCase());
-        const description = labelDescription(label, answers.language);
-        const current = state.labelDescriptions[name];
-        if (!name || current === description || !Object.values(label.description).includes(current)) continue;
-        await github.setLabelDescription(name, description);
-        translated.push(name);
-      }
+      const translations = labels
+        .map((label) => ({ name: existing.get(label.name.toLowerCase()), label }))
+        .filter(({ name, label }) => {
+          const current = state.labelDescriptions[name];
+          return (
+            name &&
+            current !== labelDescription(label, answers.language) &&
+            Object.values(label.description).includes(current)
+          );
+        });
+      // Each label is its own request, independent of the others
+      await Promise.all([
+        ...missing.map((label) =>
+          github.createLabel(label.name, label.color, labelDescription(label, answers.language)),
+        ),
+        ...translations.map(({ name, label }) =>
+          github.setLabelDescription(name, labelDescription(label, answers.language)),
+        ),
+      ]);
+      const translated = translations.map(({ name }) => name);
       const changes = [
         ...(missing.length ? [`created ${missing.map((label) => label.name).join(', ')}`] : []),
         ...(translated.length ? [`translated ${translated.join(', ')}`] : []),
@@ -1151,10 +1170,10 @@ async function setupWarnings(answers, ctx) {
  * branch (or `release`, as setup can turn one on), how release pull requests are opened.
  */
 async function readProject(stack, github, read, { current, release }) {
+  // Its secrets and variable are read along with it: for a missing environment they answer 404, read as none
   const environment = async (name) => {
-    const exists = Boolean(await github.environment(name));
-    if (!exists) return NO_ENVIRONMENT;
-    const [deployHook, healthUrl, monitoringToken] = await Promise.all([
+    const [found, deployHook, healthUrl, monitoringToken] = await Promise.all([
+      github.environment(name),
       github.hasEnvironmentSecret(name, 'DEPLOY_HOOK'),
       github.environmentVariable(name, 'HEALTH_URL'),
       // Only a service with deploy markers has a token in the environments
@@ -1162,7 +1181,7 @@ async function readProject(stack, github, read, { current, release }) {
         ? github.hasEnvironmentSecret(name, monitoringOf(stack, current).secret)
         : false,
     ]);
-    return { exists, deployHook, healthUrl, monitoringToken };
+    return found ? { exists: true, deployHook, healthUrl, monitoringToken } : NO_ENVIRONMENT;
   };
   const releases = release || Boolean(current?.productionBranch);
 
@@ -1230,6 +1249,24 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   const report = createReport();
   const { ok, warn, error } = report;
 
+  // The slow reads (health URLs, up to 10 seconds each, and the relay through wrangler) start together, here; the items
+  // below await them in their usual order. A failure is kept for the await, not reported as unhandled meanwhile
+  const started = (promise) => (promise.catch(() => {}), promise);
+  const deploy = state.current?.deploy ?? 'none';
+  const environments =
+    deploy === 'none' ? [] : state.current?.staging === false ? ['production'] : ['production', 'staging'];
+  const probes = Object.fromEntries(
+    environments
+      .filter((name) => state.environments[name].exists && state.environments[name].healthUrl)
+      .map((name) => [name, started(probe(state.environments[name].healthUrl))]),
+  );
+  const looksUpRelay =
+    state.current?.incidents !== false && relay.configured && !(repository && !relayAccepts(relay, repository));
+  const registration =
+    looksUpRelay && relaySupported()
+      ? started(relayLookup(relay, serviceOf(stack, state.current).id, repository))
+      : null;
+
   if (workflowItems(report, state, { ref: PROJECT_REF, kind: 'project', fix: SETUP })) {
     if (state.current?.incidents !== false && !/^(?![ \t]*#).*\brepository_dispatch\b/m.test(state.workflow)) {
       warn(
@@ -1271,9 +1308,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
       'run check as an organization admin after gh auth refresh -s admin:org',
     );
 
-  const deploy = state.current?.deploy ?? 'none';
   if (deploy !== 'none') {
-    const environments = state.current?.staging === false ? ['production'] : ['production', 'staging'];
     for (const name of environments) {
       const environment = state.environments[name];
       if (!environment.exists) {
@@ -1288,7 +1323,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
         error(`Environment ${name} has no HEALTH_URL variable`, SETUP);
         continue;
       }
-      const status = await probe(environment.healthUrl);
+      const status = await probes[name];
       if (status === 200) ok(`${name}: ${environment.healthUrl} answers 200`);
       else
         warn(
@@ -1396,7 +1431,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
     } else if (!relaySupported()) {
       warn('Cannot read the monitoring relay on Windows', 'see relay/README.md in datalogix/workflows');
     } else {
-      const registered = await relayLookup(relay, serviceOf(stack, state.current).id, repository);
+      const registered = await registration;
       if (registered === true) ok('Registered in the monitoring relay');
       else if (registered === false)
         warn(
@@ -1454,7 +1489,7 @@ export function projectKind(stack) {
      * given (tests). Without a repository yet (setup asks for it), the repository step loads them.
      */
     prepare: async (ctx) => {
-      if (ctx.repository) ctx.relay ??= await loadRelayConfig(ownerOf(ctx.repository));
+      if (ctx.repository && ctx.relay == null) await loadRelay(ctx, ownerOf(ctx.repository));
     },
     setup: {
       steps: () => setupSteps(kind),

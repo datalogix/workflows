@@ -1,0 +1,101 @@
+name: Security review
+description: Decides whether Claude reviews the security of a pull request (step check) and publishes its findings as a pull request comment, failing at fail-on (step publish)
+
+inputs:
+  step:
+    description: check (before the review) or publish (after it)
+    required: true
+  fail-on:
+    description: Lowest severity that fails the check (high, medium, low or none)
+    default: high
+  workflow-changed:
+    description: true when the pull request changes the workflow file the run started from (workflow-file action)
+    default: "false"
+  workflow-file:
+    description: Path of that workflow file
+    default: ""
+  levels:
+    description: (publish) The levels output of the check step
+    default: "[]"
+  docs-only:
+    description: (publish) The docs-only output of the check step
+    default: ""
+  reused:
+    description: (publish) The reused output of the check step
+    default: ""
+  digest:
+    description: (publish) The digest output of the check step
+    default: ""
+  findings:
+    description: (publish) Findings file written by Claude
+    default: ""
+  language:
+    description: Language of the fixed texts (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+  token:
+    description: Token that reads and writes the pull request comments
+    default: ${{ github.token }}
+
+outputs:
+  levels:
+    description: Severities that fail the check, as a JSON array
+    value: ${{ steps.check.outputs.levels }}
+  review:
+    description: true when Claude should review the pull request
+    value: ${{ steps.check.outputs.review }}
+  docs-only:
+    description: true when the pull request changes only documentation
+    value: ${{ steps.check.outputs.docs-only }}
+  reused:
+    description: true when the last passing review covers the same changes
+    value: ${{ steps.check.outputs.reused }}
+  digest:
+    description: Digest of the changes of the pull request
+    value: ${{ steps.check.outputs.digest }}
+  blocking:
+    description: Findings at or above fail-on
+    value: ${{ steps.publish.outputs.blocking }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Check the pull request
+      id: check
+      if: inputs.step == 'check'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BASE: ${{ github.base_ref }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        WORKFLOW_CHANGED: ${{ inputs.workflow-changed }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: bash "$GITHUB_ACTION_PATH/check.sh"
+
+    - name: Publish findings
+      id: publish
+      if: inputs.step == 'publish'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        LEVELS: ${{ inputs.levels }}
+        WORKFLOW_CHANGED: ${{ inputs.workflow-changed }}
+        WORKFLOW_FILE: ${{ inputs.workflow-file }}
+        DOCS_ONLY: ${{ inputs.docs-only }}
+        REUSED: ${{ inputs.reused }}
+        DIGEST: ${{ inputs.digest }}
+        FINDINGS: ${{ inputs.findings }}
+        LANGUAGE: ${{ inputs.language }}
+      run: bash "$GITHUB_ACTION_PATH/publish.sh"
+
+    - name: Unknown step
+      if: inputs.step != 'check' && inputs.step != 'publish'
+      shell: bash
+      env:
+        STEP: ${{ inputs.step }}
+      run: |
+        echo "::error::Invalid step: $STEP (use check or publish)"
+        exit 1

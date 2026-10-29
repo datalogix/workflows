@@ -47,6 +47,8 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
   // Names of the organization secrets this repository can read (none for private repositories on GitHub Free),
   // fetched once per command
   let organizationSecrets;
+  // Names of the repository's own secrets, also fetched once (and again after one is stored or deleted)
+  let repositorySecrets;
 
   const paginate = async (path) => {
     const stdout = await runner.runOrThrow('gh', ['api', '--paginate', path, '--jq', '.[]']);
@@ -112,7 +114,14 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
         body: { default_workflow_permissions: defaultPermissions, can_approve_pull_request_reviews: true },
       }),
 
-    hasRepositorySecret: async (name) => Boolean(await find(`${r}/actions/secrets/${name}`)),
+    hasRepositorySecret: async (name) => {
+      repositorySecrets ??= findAll(`${r}/actions/secrets?per_page=100`, '.secrets[]').then(
+        (secrets) => secrets?.map((secret) => secret.name) ?? [],
+      );
+      // A failed read is not kept, so the next call tries again
+      repositorySecrets.catch(() => (repositorySecrets = undefined));
+      return (await repositorySecrets).includes(name);
+    },
     hasOrganizationSecret: async (name) => {
       organizationSecrets ??= findAll(`${r}/actions/organization-secrets?per_page=100`, '.secrets[]').then(
         (secrets) => secrets?.map((secret) => secret.name) ?? [],
@@ -121,12 +130,14 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
     },
 
     // gh encrypts the value with the repository's key; it is sent on stdin, never as an argument
-    setSecret: (name, value, environment) =>
-      runner.runOrThrow(
+    setSecret: (name, value, environment) => {
+      if (!environment) repositorySecrets = undefined;
+      return runner.runOrThrow(
         'gh',
         ['secret', 'set', name, '--repo', repository, ...(environment ? ['--env', environment] : [])],
         { input: value },
-      ),
+      );
+    },
     deleteSecret: (name, environment) =>
       runner.runOrThrow('gh', ['secret', 'delete', name, '--repo', repository, '--env', environment]),
     setVariable: (name, value, environment) =>

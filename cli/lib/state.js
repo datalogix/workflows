@@ -80,15 +80,16 @@ export async function collectState(github, root, { detected = null, options = {}
 
   const read = (what, promise) => readOrFail(github, what, promise);
 
-  const [rulesets, remote, login] = await Promise.all([
-    read('rulesets', github.rulesets()),
+  // The ruleset is read as soon as the list has its id, not after the slowest of the other reads
+  const [[rulesets, ruleset], remote, login] = await Promise.all([
+    read('rulesets', github.rulesets()).then(async (list) => {
+      const summary = list?.find((candidate) => candidate.name === RULESET_NAME);
+      return [list, summary ? await read('ruleset', github.ruleset(summary.id)) : null];
+    }),
     // What only that stack and kind needs (an app's environments, labels and secrets)
     detected?.module.read ? detected.module.read(github, read, { current: local.current, ...options }) : {},
     github.login().catch(() => null),
   ]);
-
-  const summary = rulesets?.find((ruleset) => ruleset.name === RULESET_NAME);
-  const ruleset = summary ? await read('ruleset', github.ruleset(summary.id)) : null;
 
   return {
     // What the stack's module does not read keeps its empty value

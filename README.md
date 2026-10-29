@@ -48,7 +48,7 @@ issue ──► Claude plans / implements ──► pull request
                                             │
                               you approve (if risky) and merge
                                             │
-                     staging (deploy + 10 min watch) ──► production (deploy + 10 min watch)
+                     staging (deploy + 5 min watch) ──► production (deploy + 5 min watch)
                                                                    │
                                      health check fails ──► automatic rollback + issue
                                      Nightwatch problem ──► issue + Claude's diagnosis ──► you: `claude` or `rollback`

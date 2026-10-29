@@ -13,6 +13,16 @@ const WRANGLER = ['--yes', 'wrangler@4'];
 const WORKER = 'incident-relay';
 const NAMESPACE = 'incident-relay-secrets';
 
+/**
+ * The worker of an owner's relay. One per owner, since a worker accepts a single ALLOWED_OWNER and two organizations on
+ * one Cloudflare account would otherwise replace each other's. A relay already deployed (its `url`) keeps its worker, so
+ * the webhooks set in the providers keep working: the one in its workers.dev URL, else the single name used before.
+ */
+export function relayWorker(owner, url = '') {
+  if (!url) return `${WORKER}-${owner.toLowerCase()}`;
+  return /^https:\/\/([a-z0-9-]+)\.[a-z0-9-]+\.workers\.dev(\/|$)/i.exec(url)?.[1].toLowerCase() ?? WORKER;
+}
+
 export const RELAY_REPO = '.github';
 export const RELAY_PATH = 'workflows/relay.json';
 export const NO_RELAY = { url: '', namespaceId: '', owner: '', configured: false };
@@ -149,9 +159,10 @@ export async function relayNamespace(runner = run) {
  * wrangler.toml made from relay/wrangler.toml, and stores the GitHub token when given (on stdin). Returns the
  * worker's URL.
  */
-export async function deployRelay({ namespaceId, owner, token }, runner = run) {
+export async function deployRelay({ namespaceId, owner, token, worker = relayWorker(owner) }, runner = run) {
   const template = await readFile(join(packageRoot, 'relay', 'wrangler.toml'), 'utf8');
   const config = template
+    .replace(/^(name\s*=\s*)"[^"]*"/m, `$1"${worker}"`)
     .replace(/(\[\[kv_namespaces\]\][^[]*?\bid\s*=\s*)"[^"]*"/s, `$1"${namespaceId}"`)
     .replace(/(ALLOWED_OWNER\s*=\s*)"[^"]*"/, `$1"${owner}"`);
   const deployed = await wrangler(['deploy'], {
@@ -166,7 +177,7 @@ export async function deployRelay({ namespaceId, owner, token }, runner = run) {
   const url = /https:\/\/[\w.-]+\.workers\.dev/.exec(deployed.stdout)?.[0];
   if (!url) throw new Error('wrangler deployed the relay but printed no workers.dev URL');
   if (token) {
-    const secret = await wrangler(['secret', 'put', 'GITHUB_TOKEN', '--name', WORKER], { runner, input: token });
+    const secret = await wrangler(['secret', 'put', 'GITHUB_TOKEN', '--name', worker], { runner, input: token });
     if (secret.code !== 0) throw wranglerError(secret);
   }
   return url;

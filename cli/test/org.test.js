@@ -81,6 +81,7 @@ test('creates the .github repository with the issue forms and deploys the relay'
     namespaceId: 'a'.repeat(32),
     owner: 'datalogix',
     token: 'github_pat_abc',
+    worker: 'incident-relay-datalogix',
   });
   expect(JSON.parse((await organization.file('.github', relayFile)).content)).toStrictEqual({
     url: WORKER_URL,
@@ -110,11 +111,21 @@ test('changes only the forms that differ and keeps the relay unless asked to upd
 });
 
 test('updates the relay in its namespace, keeping its token when none is given', async () => {
-  const organization = fakeOrganization({ files: {} });
+  const relay = { ...RELAY, url: 'https://incident-relay.datalogix.workers.dev' };
+  const content = '{"url": "https://incident-relay.datalogix.workers.dev"}';
+  const organization = fakeOrganization({ files: { 'workflows/relay.json': content } });
   clack.password.mockResolvedValue('');
-  expect(await run(organization, { relay: RELAY })).toBe(0);
+  expect(await run(organization, { relay })).toBe(0);
   expect(relayNamespace).not.toHaveBeenCalled();
-  expect(deployRelay).toHaveBeenCalledWith({ namespaceId: 'id', owner: 'datalogix', token: '' });
+  // The worker deployed before, so the webhooks keep their URL
+  expect(deployRelay).toHaveBeenCalledWith({
+    namespaceId: 'id',
+    owner: 'datalogix',
+    token: '',
+    worker: 'incident-relay',
+  });
+  // relay.json read once, its sha used for the update
+  expect(organization.calls).toContainEqual(['file', 'workflows/relay.json', 'sha-workflows/relay.json']);
 });
 
 test('skips the relay when no token is given, and logs in to Cloudflare only to deploy it', async () => {
