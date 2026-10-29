@@ -1,0 +1,7 @@
+{
+  "name": "js",
+  "description": "Datalogix conventions and commands for JavaScript and TypeScript projects (Next, Nuxt)",
+  "author": {
+    "name": "Datalogix"
+  }
+}

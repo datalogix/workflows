@@ -16,6 +16,11 @@
       "name": "laravel",
       "source": "./plugins/laravel",
       "description": "Datalogix conventions and commands for Laravel projects"
+    },
+    {
+      "name": "js",
+      "source": "./plugins/js",
+      "description": "Datalogix conventions and commands for JavaScript and TypeScript projects"
     }
   ]
 }
