@@ -91,8 +91,12 @@ watch_health() {
     code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$HEALTH_URL" 2>/dev/null || true)
     if [ "$code" = 200 ]; then
       fails=0
-      # A healthy watch is otherwise silent for minutes
-      echo "Health check $check/$((minutes * 2)): HTTP 200"
+      # A healthy watch is otherwise silent for minutes. Errors extend the window past the planned checks
+      if ((check > minutes * 2)); then
+        echo "Health check $check (past the $((minutes * 2)) planned, following errors): HTTP 200"
+      else
+        echo "Health check $check/$((minutes * 2)): HTTP 200"
+      fi
     else
       fails=$((fails + 1))
       echo "::warning::$HEALTH_URL answered HTTP ${code:-000} ($fails in a row)"
