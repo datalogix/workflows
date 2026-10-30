@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
-import { dropsProductionBranch } from '../kinds/project/index.js';
+import { dropsProductionBranch, PROJECT_CHECKS } from '../kinds/project/index.js';
 import { hasSecret, loadRelayConfig } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
@@ -732,6 +732,39 @@ test('makes the production branch the default branch again when the project leav
   );
 });
 
+test('keeps the former production branch in the ruleset when it could not become the default branch again', async (t) => {
+  const root = await tempRoot(t, 'setup-');
+  const github = fakeGitHub({
+    setDefaultBranch: async () => {
+      throw new Error('HTTP 403');
+    },
+  });
+  const answers = { ...branchAnswers, branches: false, developmentBranch: undefined, productionBranch: undefined };
+  const state = {
+    ...APP_STATE,
+    defaultBranch: 'develop',
+    current: { deploy: 'forge', staging: true, productionBranch: 'main' },
+    productionBranchStatus: { name: 'main', exists: true },
+    ruleset: {
+      id: 7,
+      name: 'datalogix',
+      conditions: { ref_name: { include: ['~DEFAULT_BRANCH', 'refs/heads/main'], exclude: [] } },
+    },
+  };
+
+  const results = byTitle(await runResults(setupTasks(answers, { github, root, state, relay })));
+
+  expect(results['Default branch'].ok).toBe(false);
+  expect(results.Ruleset).toBe('skipped: main stays protected until it is the default branch again');
+  expect(github.calls.filter(([name]) => name === 'ruleset')).toStrictEqual([]);
+
+  // Once main is the default branch, ~DEFAULT_BRANCH protects it
+  const restored = fakeGitHub();
+  expect(byTitle(await runResults(setupTasks(answers, { github: restored, root, state, relay }))).Ruleset).toBe(
+    'no longer protects main',
+  );
+});
+
 test('tells about the former production branch only when the default branch did not become it', () => {
   const answers = { ...branchAnswers, branches: false, developmentBranch: undefined, productionBranch: undefined };
   const leaving = {
@@ -1382,6 +1415,41 @@ test('tells to run protect again when the layers change what the ruleset should 
       (step) => step.includes('run protect again'),
     ),
   ).toContain('does not require pipeline / security / security yet');
+});
+
+test('reads the layers setup does not ask about from the workflow file for the ruleset', async () => {
+  const { rulesetBody } = await import('../lib/ruleset.js');
+  const state = {
+    ...APP_STATE,
+    current: { ...APP_STATE.current, tests: false },
+    ruleset: rulesetBody(['pipeline / security / security', 'pipeline / gate / gate']),
+  };
+
+  const steps = nextSteps({ ...branchAnswers, securityReview: true, riskGate: true }, { relay, results: [], state });
+
+  expect(steps).not.toContainEqual(expect.stringContaining('run protect again'));
+});
+
+test('tells to protect the branches only when there is no ruleset yet', async () => {
+  const { rulesetBody } = await import('../lib/ruleset.js');
+  const answers = { ...branchAnswers, branches: false, securityReview: true, riskGate: true };
+  const protect = (state, extra = {}) =>
+    nextSteps({ ...answers, ...extra }, { relay, results: [], state }).filter((step) =>
+      step.includes('workflows#v2 protect'),
+    );
+
+  expect(protect(APP_STATE)).toStrictEqual([
+    expect.stringMatching(/^After the first pull request shows its checks, protect the default branch:/),
+  ]);
+  // Run again on a project whose ruleset is already right: nothing to protect
+  const right = { ...APP_STATE, ruleset: rulesetBody(Object.values(PROJECT_CHECKS)) };
+  expect(protect(right)).toStrictEqual([]);
+  // A project that is no longer maintained alone needs the code owners' approval
+  expect(protect(right, { solo: false })).toStrictEqual([
+    expect.stringContaining('the ruleset does not require code owner approval yet'),
+  ]);
+  const team = { ...APP_STATE, ruleset: rulesetBody(Object.values(PROJECT_CHECKS), { codeOwners: true }) };
+  expect(protect(team, { solo: false })).toStrictEqual([]);
 });
 
 test('says the pull request of the workflow file fails the security review', async () => {

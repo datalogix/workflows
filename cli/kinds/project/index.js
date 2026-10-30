@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
-import { includedRefs, protectsBranch, requiredChecks } from '../../lib/ruleset.js';
+import { includedRefs, protectsBranch, requiredChecks, requiresCodeOwners } from '../../lib/ruleset.js';
 import { checksOn, readOrFail } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
@@ -54,6 +54,8 @@ const PROJECT_STATE = {
   // The app's locale (e.g. pt_BR), read by the stack's inspect: the suggested domain ends with .com.br for pt_BR
   locale: null,
 };
+
+const CLAUDE_INSTALL = 'https://github.com/apps/claude/installations/new';
 
 export const deploys = (a) => Boolean(a.deploy) && a.deploy !== 'none';
 const twoBranches = (a) => Boolean(a.branches && a.productionBranch);
@@ -161,7 +163,7 @@ function withRelay(step) {
       await step.then(answers, ctx);
       const owner = ownerOf(answers.repository);
       const other = ctx.relayOwner !== undefined && ctx.relayOwner.toLowerCase() !== owner.toLowerCase();
-      if (ctx.relay === undefined || ctx.relay === null || other) await loadRelay(ctx, owner);
+      if (ctx.relay == null || other) await loadRelay(ctx, owner);
     },
   };
 }
@@ -632,6 +634,109 @@ function renderWorkflow(answers, state) {
   return renderProjectWorkflow({ ...answers, productionBranch }, state.workflow ?? '', developmentBranch);
 }
 
+/** Creates the missing development and production branches and makes the development branch the default one. */
+function branchesTask(github, state, { developmentBranch, productionBranch }) {
+  return {
+    id: 'branches',
+    title: 'Branches',
+    run: async () => {
+      // A missing production branch starts from what production runs today: the former production branch when it
+      // is renamed, else the default branch (on the first setup). A missing development branch starts from the
+      // default branch, where the latest work is
+      const created = [];
+      const former = existingProductionBranch(state);
+      // collectState already read the former production branch
+      const known =
+        former && state.productionBranchStatus.sha
+          ? { [former]: { commit: { sha: state.productionBranchStatus.sha } } }
+          : {};
+      const lookup = (name) => known[name] ?? github.branch(name);
+      const [development, production, defaultHead, formerHead] = await Promise.all([
+        lookup(developmentBranch),
+        lookup(productionBranch),
+        lookup(state.defaultBranch),
+        former && former !== productionBranch ? lookup(former) : null,
+      ]);
+      const sources = {
+        [productionBranch]:
+          formerHead ?? (state.defaultBranch !== developmentBranch ? defaultHead : null) ?? development,
+        [developmentBranch]: defaultHead ?? production,
+      };
+      for (const [name, branch] of [
+        [productionBranch, production],
+        [developmentBranch, development],
+      ]) {
+        if (branch) continue;
+        const source = sources[name];
+        if (!source) throw new Error(`Neither ${developmentBranch} nor ${productionBranch} exists`);
+        await github.createBranch(name, source.commit.sha);
+        created.push(name);
+      }
+      const defaultChanged = state.defaultBranch !== developmentBranch;
+      if (defaultChanged) await github.setDefaultBranch(developmentBranch);
+      const changes = [
+        ...created.map((name) => `created ${name}`),
+        ...(defaultChanged ? [`${developmentBranch} is the default branch`] : []),
+      ];
+      // nextSteps reads data, never the text
+      return { detail: changes.length ? changes.join(', ') : 'unchanged', data: { created, defaultChanged } };
+    },
+  };
+}
+
+/**
+ * Updates the branches of an existing ruleset: adds the production branch when its release pull requests run the checks,
+ * and removes a former production branch. Null when nothing changes.
+ */
+function rulesetTask(github, state, { answers, productionBranch, formerProduction, storesApp, done }) {
+  // The ruleset follows ~DEFAULT_BRANCH to the development branch: keep production protected when its release pull
+  // requests run the checks, so only with the App (otherwise nextSteps explains why it stays unprotected). A former
+  // production branch the ruleset protects leaves it
+  const addsProduction =
+    twoBranches(answers) && (state.releaseApp || storesApp) && !protectsBranch(state.ruleset, productionBranch);
+  const { productionBranch: previous } = state.current ?? {};
+  const leaving =
+    previous && previous !== productionBranch && protectsBranch(state.ruleset, previous) ? previous : null;
+  if (!state.ruleset || (!addsProduction && !leaving)) return null;
+  return {
+    title: 'Ruleset',
+    run: async () => {
+      // Requiring the checks without the App would leave every release waiting
+      const adds = addsProduction && (state.releaseApp || done.appStored);
+      // ~DEFAULT_BRANCH protects the former production branch only once it is the default branch again
+      const drops =
+        leaving && (leaving !== formerProduction || state.defaultBranch === formerProduction || done.restored)
+          ? leaving
+          : null;
+      if (!adds && !drops)
+        return leaving
+          ? `skipped: ${leaving} stays protected until it is the default branch again`
+          : 'skipped: the release GitHub App secrets were not stored';
+      const { id, name, target, enforcement, bypass_actors, rules, conditions } = state.ruleset;
+      const { include = [], exclude = [] } = conditions?.ref_name ?? {};
+      await github.updateRuleset(id, {
+        name,
+        target,
+        enforcement,
+        bypass_actors,
+        rules,
+        conditions: {
+          ref_name: {
+            include: includedRefs(include, {
+              add: adds ? [`refs/heads/${productionBranch}`] : [],
+              remove: drops ? [drops] : [],
+            }),
+            exclude,
+          },
+        },
+      });
+      return [adds && `protects ${productionBranch}`, drops && `no longer protects ${drops}`]
+        .filter(Boolean)
+        .join(', ');
+    },
+  };
+}
+
 /** The changes the answers lead to, as tasks for the progress bar. */
 function setupTasks(stack, answers, { github, root, state, relay, probe = healthStatus }) {
   const tasks = [];
@@ -652,61 +757,17 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
 
   tasks.push(codeOwnersTask(answers, { root, state }));
 
-  if (twoBranches(answers)) {
-    tasks.push({
-      id: 'branches',
-      title: 'Branches',
-      run: async () => {
-        // A missing production branch starts from what production runs today: the former production branch when it
-        // is renamed, else the default branch (on the first setup). A missing development branch starts from the
-        // default branch, where the latest work is
-        const created = [];
-        const former = existingProductionBranch(state);
-        // collectState already read the former production branch
-        const known =
-          former && state.productionBranchStatus.sha
-            ? { [former]: { commit: { sha: state.productionBranchStatus.sha } } }
-            : {};
-        const lookup = (name) => known[name] ?? github.branch(name);
-        const [development, production, defaultHead, formerHead] = await Promise.all([
-          lookup(developmentBranch),
-          lookup(productionBranch),
-          lookup(state.defaultBranch),
-          former && former !== productionBranch ? lookup(former) : null,
-        ]);
-        const sources = {
-          [productionBranch]:
-            formerHead ?? (state.defaultBranch !== developmentBranch ? defaultHead : null) ?? development,
-          [developmentBranch]: defaultHead ?? production,
-        };
-        for (const [name, branch] of [
-          [productionBranch, production],
-          [developmentBranch, development],
-        ]) {
-          if (branch) continue;
-          const source = sources[name];
-          if (!source) throw new Error(`Neither ${developmentBranch} nor ${productionBranch} exists`);
-          await github.createBranch(name, source.commit.sha);
-          created.push(name);
-        }
-        const defaultChanged = state.defaultBranch !== developmentBranch;
-        if (defaultChanged) await github.setDefaultBranch(developmentBranch);
-        const changes = [
-          ...created.map((name) => `created ${name}`),
-          ...(defaultChanged ? [`${developmentBranch} is the default branch`] : []),
-        ];
-        // nextSteps reads data, never the text
-        return { detail: changes.length ? changes.join(', ') : 'unchanged', data: { created, defaultChanged } };
-      },
-    });
-  }
+  if (twoBranches(answers)) tasks.push(branchesTask(github, state, { developmentBranch, productionBranch }));
 
+  // What the Default branch and Release GitHub App tasks did, which the Ruleset task after them needs
+  const done = { restored: false, appStored: false };
   if (formerProduction && state.defaultBranch !== formerProduction) {
     tasks.push({
       id: 'defaultBranch',
       title: 'Default branch',
       run: async () => {
         await github.setDefaultBranch(formerProduction);
+        done.restored = true;
         return `${formerProduction} is the default branch again`;
       },
     });
@@ -759,8 +820,6 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
     });
   }
 
-  // Set by the Release GitHub App task when it stores the secrets, which the Ruleset task after it needs
-  let appStored = false;
   const storesApp = twoBranches(answers) && Boolean(answers.releaseAppClientId?.trim() && answers.releaseAppKey);
   if (storesApp) {
     tasks.push({
@@ -770,7 +829,7 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
         // Read when applying, so the key never stays in the answers; sent on stdin like every secret
         await github.setSecret('RELEASE_APP_CLIENT_ID', answers.releaseAppClientId.trim());
         await github.setSecret('RELEASE_APP_PRIVATE_KEY', readKey(answers.releaseAppKey));
-        appStored = true;
+        done.appStored = true;
         return 'stored as repository secrets';
       },
     });
@@ -793,45 +852,8 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
     });
   }
 
-  // The ruleset follows ~DEFAULT_BRANCH to the development branch: keep production protected when its release pull
-  // requests run the checks, so only with the App (otherwise nextSteps explains why it stays unprotected). A former
-  // production branch the ruleset protects leaves it
-  const addsProduction =
-    twoBranches(answers) && (state.releaseApp || storesApp) && !protectsBranch(state.ruleset, productionBranch);
-  const { productionBranch: previous } = state.current ?? {};
-  const leaving =
-    previous && previous !== productionBranch && protectsBranch(state.ruleset, previous) ? previous : null;
-  if (state.ruleset && (addsProduction || leaving)) {
-    tasks.push({
-      title: 'Ruleset',
-      run: async () => {
-        // Requiring the checks without the App would leave every release waiting
-        const adds = addsProduction && (state.releaseApp || appStored);
-        if (!adds && !leaving) return 'skipped: the release GitHub App secrets were not stored';
-        const { id, name, target, enforcement, bypass_actors, rules, conditions } = state.ruleset;
-        const { include = [], exclude = [] } = conditions?.ref_name ?? {};
-        await github.updateRuleset(id, {
-          name,
-          target,
-          enforcement,
-          bypass_actors,
-          rules,
-          conditions: {
-            ref_name: {
-              include: includedRefs(include, {
-                add: adds ? [`refs/heads/${productionBranch}`] : [],
-                remove: leaving ? [leaving] : [],
-              }),
-              exclude,
-            },
-          },
-        });
-        return [adds && `protects ${productionBranch}`, leaving && `no longer protects ${leaving}`]
-          .filter(Boolean)
-          .join(', ');
-      },
-    });
-  }
+  const ruleset = rulesetTask(github, state, { answers, productionBranch, formerProduction, storesApp, done });
+  if (ruleset) tasks.push(ruleset);
 
   for (const environment of environments) {
     tasks.push({
@@ -911,6 +933,51 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
   }
 
   return tasks;
+}
+
+/** What the monitoring relay still needs before problems reach GitHub as issues. */
+function relayNextSteps(stack, answers, { relay, relayRegistered, results }) {
+  if (!relay.configured) {
+    return [
+      `The monitoring relay of ${ownerOf(answers.repository)} is not set up, so problems will not reach GitHub until an organization admin runs:\n  ${cyan(ORG)}`,
+    ];
+  } else if (!relayAccepts(relay, answers.repository)) {
+    return [
+      `The monitoring relay only accepts repositories of ${bold(relay.owner)}, so problems of ${answers.repository} will not reach GitHub. Deploy it again for ${ownerOf(answers.repository)}:\n  ${cyan(ORG)}`,
+    ];
+  } else if (!relaySupported()) {
+    return [
+      `Point the ${stack.monitoring.name} webhook to ${cyan(webhookUrl(relay, stack.monitoring.id, answers.repository))} and store its signing secret in the relay by hand (relay/README.md in datalogix/workflows): setup cannot do it on Windows.`,
+    ];
+  } else if (
+    (!answers.webhookSecret?.trim() && relayRegistered !== true) ||
+    results.some((result) => result.id === 'monitoringRelay' && !result.ok)
+  ) {
+    return [
+      `Point the ${stack.monitoring.name} webhook to ${cyan(webhookUrl(relay, stack.monitoring.id, answers.repository))} and run setup again to store its signing secret.`,
+    ];
+  }
+  return [];
+}
+
+/** What it takes for the Claude GitHub App to reach the repository. */
+function claudeAppNextSteps(answers, state) {
+  const owner = ownerOf(answers.repository);
+  const claudeInstall = cyan(CLAUDE_INSTALL);
+  if (state.claudeApp === 'none') {
+    return [
+      `Install the Claude GitHub App on ${bold(owner)}, or the Claude workflows (mentions, reviews, fix-ci, incidents) cannot act:\n  ${claudeInstall}`,
+    ];
+  } else if (state.claudeApp === 'selected') {
+    return [
+      `The Claude GitHub App reaches only selected repositories of ${bold(owner)}: add ${bold(answers.repository)} in its settings (${bold('Settings > GitHub Apps > Claude > Configure')}), or the Claude workflows cannot act on it.`,
+    ];
+  } else if (state.claudeApp === null) {
+    return [
+      `Could not see the GitHub Apps of ${bold(owner)} (it takes an organization admin and ${cyan('gh auth refresh -s admin:org')}): make sure the Claude GitHub App reaches ${bold(answers.repository)}:\n  ${claudeInstall}`,
+    ];
+  }
+  return [];
 }
 
 /** What is left to do by hand after the tasks ran. */
@@ -1005,28 +1072,7 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
 
   steps.push(...stack.deployNextSteps(answers, { twoBranches: twoBranches(answers), results }));
 
-  if (answers.incidents) {
-    if (!relay.configured) {
-      steps.push(
-        `The monitoring relay of ${ownerOf(answers.repository)} is not set up, so problems will not reach GitHub until an organization admin runs:\n  ${cyan(ORG)}`,
-      );
-    } else if (!relayAccepts(relay, answers.repository)) {
-      steps.push(
-        `The monitoring relay only accepts repositories of ${bold(relay.owner)}, so problems of ${answers.repository} will not reach GitHub. Deploy it again for ${ownerOf(answers.repository)}:\n  ${cyan(ORG)}`,
-      );
-    } else if (!relaySupported()) {
-      steps.push(
-        `Point the ${stack.monitoring.name} webhook to ${cyan(webhookUrl(relay, stack.monitoring.id, answers.repository))} and store its signing secret in the relay by hand (relay/README.md in datalogix/workflows): setup cannot do it on Windows.`,
-      );
-    } else if (
-      (!answers.webhookSecret?.trim() && relayRegistered !== true) ||
-      results.some((result) => result.id === 'monitoringRelay' && !result.ok)
-    ) {
-      steps.push(
-        `Point the ${stack.monitoring.name} webhook to ${cyan(webhookUrl(relay, stack.monitoring.id, answers.repository))} and run setup again to store its signing secret.`,
-      );
-    }
-  }
+  if (answers.incidents) steps.push(...relayNextSteps(stack, answers, { relay, relayRegistered, results }));
 
   if (answers.incidents || answers.monitoringMarkers) {
     steps.push(
@@ -1051,36 +1097,26 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
     );
   }
 
-  const owner = ownerOf(answers.repository);
-  const claudeInstall = cyan('https://github.com/apps/claude/installations/new');
-  if (state.claudeApp === 'none') {
-    steps.push(
-      `Install the Claude GitHub App on ${bold(owner)}, or the Claude workflows (mentions, reviews, fix-ci, incidents) cannot act:\n  ${claudeInstall}`,
-    );
-  } else if (state.claudeApp === 'selected') {
-    steps.push(
-      `The Claude GitHub App reaches only selected repositories of ${bold(owner)}: add ${bold(answers.repository)} in its settings (${bold('Settings > GitHub Apps > Claude > Configure')}), or the Claude workflows cannot act on it.`,
-    );
-  } else if (state.claudeApp === null) {
-    steps.push(
-      `Could not see the GitHub Apps of ${bold(owner)} (it takes an organization admin and ${cyan('gh auth refresh -s admin:org')}): make sure the Claude GitHub App reaches ${bold(answers.repository)}:\n  ${claudeInstall}`,
-    );
-  }
+  steps.push(...claudeAppNextSteps(answers, state));
 
   steps.push(...stack.nextSteps(answers, { state, results }));
 
-  // A layer turned off whose check the ruleset still requires: every pull request would wait for it
+  // What protect would change in an existing ruleset: a layer turned off whose check it still requires (every pull
+  // request would wait for it), one turned on, or a project that is no longer maintained alone. Layers setup does not
+  // ask about (tests) come from the workflow file
   if (state.ruleset) {
-    const expected = checksOn(stack.checks, answers);
+    const expected = checksOn(stack.checks, { ...state.current, ...answers });
     const required = requiredChecks(state.ruleset);
     const stale = required.filter((check) => Object.values(stack.checks).includes(check) && !expected.includes(check));
     const missing = expected.filter((check) => !required.includes(check));
-    if (stale.length || missing.length) {
+    const codeOwners = answers.solo === false && !requiresCodeOwners(state.ruleset);
+    if (stale.length || missing.length || codeOwners) {
       steps.push(
         `Once the workflow file is merged, run protect again: the ruleset ${[
           stale.length &&
             `still requires ${stale.map((check) => bold(check)).join(', ')}, which no longer runs, so every pull request would wait`,
           missing.length && `does not require ${missing.map((check) => bold(check)).join(', ')} yet`,
+          codeOwners && 'does not require code owner approval yet',
         ]
           .filter(Boolean)
           .join(', and ')}:\n  ${cyan(PROTECT)}`,
@@ -1088,11 +1124,11 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
     }
   }
 
-  if (state.canProtect) {
+  if (state.canProtect && !state.ruleset) {
     steps.push(
-      `After the first pull request shows its checks, protect the ${twoBranches(answers) ? 'branches' : 'default branch'}:\n  ${cyan('npx --allow-git=root github:datalogix/workflows#v2 protect')}`,
+      `After the first pull request shows its checks, protect the ${twoBranches(answers) ? 'branches' : 'default branch'}:\n  ${cyan(PROTECT)}`,
     );
-  } else {
+  } else if (!state.canProtect) {
     steps.push(
       'Private repository on GitHub Free: branches cannot be protected, so the checks do not block merges and anyone with write access can push. Always merge through pull requests.',
     );
@@ -1185,6 +1221,57 @@ async function readProject(stack, github, read, { current, release }) {
   };
 }
 
+/** The production branch of a project with two branches: it exists, deploys, and gets its release pull requests. */
+function productionBranchItems({ ok, warn, error }, state) {
+  const productionBranch = state.current?.productionBranch;
+  if (!productionBranch) return;
+  const pushed = pushBranches(state.workflow ?? '');
+  const staging = state.current?.staging !== false;
+  if (state.productionBranchStatus && !state.productionBranchStatus.exists) {
+    error(`Branch ${productionBranch} does not exist, so production is never deployed`, SETUP);
+  } else if (!runsOnPush(pushed, productionBranch)) {
+    error(
+      `${WORKFLOW_PATH} does not run on pushes to ${productionBranch} (push.branches), so production is never deployed`,
+      SETUP,
+    );
+  } else if (state.defaultBranch === productionBranch) {
+    error(
+      `${productionBranch} is the production branch and the default branch: staging and production deploy the same pushes`,
+      SETUP,
+    );
+  } else if (!staging) {
+    // Allowed by project.yml, but setup writes production-branch only with staging
+    warn(
+      `${productionBranch} deploys production, but staging is off: ${state.defaultBranch}, the default branch, deploys nothing`,
+      SETUP,
+    );
+  } else if (!runsOnPush(pushed, state.defaultBranch)) {
+    error(
+      `${WORKFLOW_PATH} does not run on pushes to ${state.defaultBranch} (push.branches), so staging is never deployed`,
+      SETUP,
+    );
+  } else {
+    ok(`${state.defaultBranch} deploys staging, ${productionBranch} deploys production`);
+  }
+  if (state.releaseApp) ok('Release pull requests opened by the release GitHub App');
+  else if (state.actionsPullRequests?.allowed === false)
+    error('GitHub Actions cannot open pull requests in this repository, so no release pull request is opened', SETUP);
+  // Reading the setting needs admin access
+  else if (!state.actionsPullRequests)
+    warn(
+      'Could not read whether GitHub Actions can open pull requests: without it, or the release GitHub App, no release pull request is opened',
+      'run check as a repository admin, or see Settings > Actions > General',
+    );
+  else ok('Release pull requests opened by GitHub Actions (their checks run only with the release GitHub App)');
+  // Unknown (undefined) without admin access to the repository
+  if (state.repo?.allow_merge_commit === false)
+    error(
+      'Merge commits are off, so release pull requests can only be squashed and the branches diverge',
+      `${SETUP}, or allow them in Settings > General > Pull Requests`,
+    );
+  else if (state.repo?.allow_merge_commit) ok('Merge commits allowed, for the release pull requests');
+}
+
 async function healthStatus(url) {
   try {
     const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000) });
@@ -1226,13 +1313,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
 
   // Label names are case-insensitive on GitHub
   const labels = new Set(state.labels.map((name) => name.toLowerCase()));
-  const deployed =
-    (state.current?.deploy ?? 'none') === 'none'
-      ? []
-      : state.current?.staging === false
-        ? ['production']
-        : ['production', 'staging'];
-  const missingLabels = labelsFor(deployed)
+  const missingLabels = labelsFor(environments)
     .map((label) => label.name)
     .filter((name) => !labels.has(name));
   if (missingLabels.length) error(`Missing labels: ${missingLabels.join(', ')}`, SETUP);
@@ -1242,14 +1323,13 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   else if (state.claudeToken.organization) ok('CLAUDE_CODE_OAUTH_TOKEN (organization secret)');
   else error('CLAUDE_CODE_OAUTH_TOKEN is not available to this repository', SETUP);
 
-  const claudeInstall = 'https://github.com/apps/claude/installations/new';
   if (state.claudeApp === 'all') ok('Claude GitHub App (every repository)');
   else if (state.claudeApp === 'selected')
     warn(
       'The Claude GitHub App reaches only selected repositories: without this one, the Claude workflows cannot act',
       'add it in Settings > GitHub Apps > Claude > Configure',
     );
-  else if (state.claudeApp === 'none') error('The Claude GitHub App is not installed', claudeInstall);
+  else if (state.claudeApp === 'none') error('The Claude GitHub App is not installed', CLAUDE_INSTALL);
   else
     warn(
       'Could not see whether the Claude GitHub App reaches this repository',
@@ -1279,57 +1359,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
           'check the domain, and that basic auth or IP rules do not block it',
         );
     }
-    const productionBranch = state.current?.productionBranch;
-    if (productionBranch) {
-      const pushed = pushBranches(state.workflow ?? '');
-      const staging = state.current?.staging !== false;
-      if (state.productionBranchStatus && !state.productionBranchStatus.exists) {
-        error(`Branch ${productionBranch} does not exist, so production is never deployed`, SETUP);
-      } else if (!runsOnPush(pushed, productionBranch)) {
-        error(
-          `${WORKFLOW_PATH} does not run on pushes to ${productionBranch} (push.branches), so production is never deployed`,
-          SETUP,
-        );
-      } else if (state.defaultBranch === productionBranch) {
-        error(
-          `${productionBranch} is the production branch and the default branch: staging and production deploy the same pushes`,
-          SETUP,
-        );
-      } else if (!staging) {
-        // Allowed by project.yml, but setup writes production-branch only with staging
-        warn(
-          `${productionBranch} deploys production, but staging is off: ${state.defaultBranch}, the default branch, deploys nothing`,
-          SETUP,
-        );
-      } else if (!runsOnPush(pushed, state.defaultBranch)) {
-        error(
-          `${WORKFLOW_PATH} does not run on pushes to ${state.defaultBranch} (push.branches), so staging is never deployed`,
-          SETUP,
-        );
-      } else {
-        ok(`${state.defaultBranch} deploys staging, ${productionBranch} deploys production`);
-      }
-      if (state.releaseApp) ok('Release pull requests opened by the release GitHub App');
-      else if (state.actionsPullRequests?.allowed === false)
-        error(
-          'GitHub Actions cannot open pull requests in this repository, so no release pull request is opened',
-          SETUP,
-        );
-      // Reading the setting needs admin access
-      else if (!state.actionsPullRequests)
-        warn(
-          'Could not read whether GitHub Actions can open pull requests: without it, or the release GitHub App, no release pull request is opened',
-          'run check as a repository admin, or see Settings > Actions > General',
-        );
-      else ok('Release pull requests opened by GitHub Actions (their checks run only with the release GitHub App)');
-      // Unknown (undefined) without admin access to the repository
-      if (state.repo?.allow_merge_commit === false)
-        error(
-          'Merge commits are off, so release pull requests can only be squashed and the branches diverge',
-          `${SETUP}, or allow them in Settings > General > Pull Requests`,
-        );
-      else if (state.repo?.allow_merge_commit) ok('Merge commits allowed, for the release pull requests');
-    }
+    productionBranchItems(report, state);
 
     stack.evaluateDeploy(report, state);
   }
