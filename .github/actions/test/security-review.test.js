@@ -58,12 +58,22 @@ const updateBranch = (files) => async (repo) => {
   git(repo, 'merge', '-q', '--no-edit', 'main');
 };
 
-const check = ({ env = {}, gh = [], ...options } = {}) =>
-  runScript('security-review/check.sh', {
+async function check({ env = {}, gh = [], ...options } = {}) {
+  const result = await runScript('security-review/check.sh', {
     env: { PR_NUMBER: '7', BASE: 'main', FAIL_ON: 'high', RUN_ATTEMPT: '1', ...env },
     gh: [...gh, { match: COMMENTS, stdout: [] }],
     ...options,
   });
+  expect(unmatchedReads(result)).toEqual([]);
+  return result;
+}
+
+// A pull request that changes code, checked once without an earlier review: its setup and the digest of its changes
+async function reviewed() {
+  const setup = repository({ pr: { 'app/User.php': 'changed\n' } });
+  const { outputs } = await check({ setup });
+  return { setup, digest: outputs.digest };
+}
 
 describe('check', () => {
   test('rejects an invalid fail-on before anything else', async () => {
@@ -101,14 +111,27 @@ describe('check', () => {
     expect(result.calls).toEqual([]);
   });
 
-  test.each(['.github/security-review.md', 'CLAUDE.md', 'resources/views/help.md', 'app/README.md/x.php'])(
-    'reviews %s as code',
-    async (file) => {
-      const result = await check({ setup: repository({ pr: { 'README.md': 'docs\n', [file]: 'text\n' } }) });
+  test.each([
+    '.github/security-review.md',
+    '.claude/commands/deploy.md',
+    'modules/billing/.claude/notes.md',
+    'CLAUDE.md',
+    'modules/billing/CLAUDE.md',
+    'AGENTS.md',
+    'modules/billing/AGENTS.md',
+    'resources/views/help.md',
+    'app/README.md/x.php',
+  ])('reviews %s as code', async (file) => {
+    const result = await check({ setup: repository({ pr: { 'README.md': 'docs\n', [file]: 'text\n' } }) });
 
-      expect(result.outputs).toMatchObject({ 'docs-only': 'false', review: 'true' });
-    },
-  );
+    expect(result.outputs).toMatchObject({ 'docs-only': 'false', review: 'true' });
+  });
+
+  test('reviews a pull request without changes', async () => {
+    const result = await check({ setup: repository() });
+
+    expect(result.outputs).toMatchObject({ 'docs-only': 'false', review: 'true' });
+  });
 
   test('reviews code renamed to a Markdown file as code', async () => {
     const rename = (repo) => {
@@ -141,51 +164,45 @@ describe('check', () => {
     expect(result.outputs.review).toBe('true');
     expect(result.outputs.digest).toMatch(/^[0-9a-f]{64}$/);
     expect(result.outputs.reused).toBeUndefined();
-    expect(unmatchedReads(result)).toEqual([]);
   });
 
   test('keeps the last passing review of the same changes', async () => {
-    const setup = repository({ pr: { 'app/User.php': 'changed\n' } });
-    const { outputs } = await check({ setup });
+    const { setup, digest } = await reviewed();
 
     const result = await check({
       setup,
       gh: [
         {
           match: COMMENTS,
-          stdout: [bot('earlier', 10), bot(`## Security review\n\n${state(outputs.digest)}\n${MARKER}`)],
+          stdout: [bot('earlier', 10), bot(`## Security review\n\n${state(digest)}\n${MARKER}`)],
         },
       ],
     });
 
     expect(result.code).toBe(0);
-    expect(result.outputs).toMatchObject({ reused: 'true', review: 'false', digest: outputs.digest });
+    expect(result.outputs).toMatchObject({ reused: 'true', review: 'false', digest });
   });
 
   test('ignores a state line written by someone else than the bot', async () => {
-    const setup = repository({ pr: { 'app/User.php': 'changed\n' } });
-    const { outputs } = await check({ setup });
+    const { setup, digest } = await reviewed();
 
     const result = await check({
       setup,
-      gh: [
-        { match: COMMENTS, stdout: [{ id: 1, user: { login: 'dev' }, body: `${state(outputs.digest)}\n${MARKER}` }] },
-      ],
+      gh: [{ match: COMMENTS, stdout: [{ id: 1, user: { login: 'dev' }, body: `${state(digest)}\n${MARKER}` }] }],
     });
 
     expect(result.outputs.review).toBe('true');
   });
 
   test('ignores a state line inside the text of the review', async () => {
-    const setup = repository({ pr: { 'app/User.php': 'changed\n' } });
-    const { outputs } = await check({ setup });
+    const { setup, digest } = await reviewed();
 
     const result = await check({
       setup,
       gh: [
         {
           match: COMMENTS,
-          stdout: [bot(`## Security review\n\n${state(outputs.digest)}\n\n[View run](url)\n\n${MARKER}`)],
+          stdout: [bot(`## Security review\n\n${state(digest)}\n\n[View run](url)\n\n${MARKER}`)],
         },
       ],
     });
@@ -193,14 +210,24 @@ describe('check', () => {
     expect(result.outputs.review).toBe('true');
   });
 
+  test('reads only the first review comment of the bot, the one publish updates', async () => {
+    const { setup, digest } = await reviewed();
+
+    const result = await check({
+      setup,
+      gh: [{ match: COMMENTS, stdout: [bot(`old\n${MARKER}`, 11), bot(`${state(digest)}\n${MARKER}`, 12)] }],
+    });
+
+    expect(result.outputs.review).toBe('true');
+  });
+
   test('reviews again when fail-on changed', async () => {
-    const setup = repository({ pr: { 'app/User.php': 'changed\n' } });
-    const { outputs } = await check({ setup });
+    const { setup, digest } = await reviewed();
 
     const result = await check({
       setup,
       env: { FAIL_ON: 'medium' },
-      gh: [{ match: COMMENTS, stdout: [bot(`${state(outputs.digest, 'high')}\n${MARKER}`)] }],
+      gh: [{ match: COMMENTS, stdout: [bot(`${state(digest, 'high')}\n${MARKER}`)] }],
     });
 
     expect(result.outputs.review).toBe('true');
@@ -280,7 +307,7 @@ const FINDING = {
 
 // findings: the content of the findings file (an object is written as JSON; undefined writes none)
 async function publish({ env = {}, gh = [], findings } = {}) {
-  return runScript('security-review/publish.sh', {
+  const result = await runScript('security-review/publish.sh', {
     env: {
       PR_NUMBER: '7',
       FAIL_ON: 'high',
@@ -296,7 +323,12 @@ async function publish({ env = {}, gh = [], findings } = {}) {
         await writeFile(join(dir, 'findings.json'), typeof findings === 'string' ? findings : JSON.stringify(findings));
     },
   });
+  expect(unmatchedReads(result)).toEqual([]);
+  return result;
 }
+
+const RUN = 'https://github.com/datalogix/app/actions/runs/99';
+const patched = (id) => expect.stringContaining(`--method PATCH repos/datalogix/app/issues/comments/${id}`);
 
 // The body of the comment the run created or updated
 function posted(result) {
@@ -316,17 +348,19 @@ describe('publish', () => {
     });
 
     expect(result.code).toBe(1);
-    expect(posted(result)).toContain('O `.github/workflows/datalogix.yml` deste PR não é igual ao do branch padrão');
-    expect(posted(result)).toContain('Leve a mudança do workflow para um PR só com ela');
-    expect(posted(result)).toContain('[Ver execução](https://github.com/datalogix/app/actions/runs/99)');
-    expect(posted(result)).toContain(MARKER);
+    const body = posted(result);
+    expect(body).toContain('O `.github/workflows/datalogix.yml` deste PR não é igual ao do branch padrão');
+    expect(body).toContain('Leve a mudança do workflow para um PR só com ela');
+    expect(body.endsWith(`[Ver execução](${RUN})\n\n${MARKER}`)).toBe(true);
   });
 
   test('passes a pull request that changes only documentation', async () => {
     const result = await publish({ env: { DOCS_ONLY: 'true' } });
 
     expect(result.code).toBe(0);
-    expect(posted(result)).toContain('altera só documentação');
+    const body = posted(result);
+    expect(body).toContain('altera só documentação');
+    expect(body.endsWith(`\n\n${MARKER}`)).toBe(true);
     expect(result.summary).toContain('Only documentation changed');
   });
 
@@ -341,12 +375,15 @@ describe('publish', () => {
   test.each([
     ['without a findings file', undefined],
     ['with an invalid findings file', '{"findings": "none"}'],
+    ['with findings that are not objects', '{"findings": ["x"]}'],
   ])('fails %s and says the review did not finish', async (_, findings) => {
     const result = await publish({ findings });
 
     expect(result.code).toBe(1);
-    expect(posted(result)).toContain('A revisão de segurança não terminou');
-    expect(posted(result)).not.toContain('claude-security-review-state');
+    const body = posted(result);
+    expect(body).toContain('A revisão de segurança não terminou');
+    expect(body).not.toContain('claude-security-review-state');
+    expect(body.endsWith(`\n\n${MARKER}`)).toBe(true);
   });
 
   test('passes findings below fail-on, writes the state line and updates the existing comment', async () => {
@@ -357,15 +394,56 @@ describe('publish', () => {
 
     expect(result.code).toBe(0);
     expect(result.outputs.blocking).toBe('0');
-    expect(
-      callsTo(result, 'gh').some((call) => call.includes('--method PATCH repos/datalogix/app/issues/comments/12')),
-    ).toBe(true);
+    expect(callsTo(result, 'gh')).toContainEqual(patched(12));
     const body = posted(result);
     expect(body).toContain('### 🟠 Mass assignment');
     expect(body).toContain('`app/User.php:3` · medium · mass-assignment');
     expect(body).toContain(`${state('f'.repeat(64))}\n${MARKER}`);
     expect(body).not.toContain('bloqueado');
     expect(result.summary).toContain('1 finding(s), 0 at or above `high`.');
+  });
+
+  test('updates only a comment of the bot, never one by someone else with the marker', async () => {
+    const result = await publish({
+      findings: { summary: 'Fine.', findings: [] },
+      gh: [{ match: COMMENTS, stdout: [{ id: 3, user: { login: 'dev' }, body: MARKER }, bot(`old\n${MARKER}`, 12)] }],
+    });
+
+    expect(callsTo(result, 'gh')).toContainEqual(patched(12));
+    expect(callsTo(result, 'gh')).not.toContainEqual(patched(3));
+  });
+
+  test('updates the first review comment of the bot, the one check reads', async () => {
+    const result = await publish({
+      findings: { summary: 'Fine.', findings: [] },
+      gh: [{ match: COMMENTS, stdout: [bot(`old\n${MARKER}`, 11), bot(`older\n${MARKER}`, 12)] }],
+    });
+
+    expect(callsTo(result, 'gh')).toContainEqual(patched(11));
+    expect(callsTo(result, 'gh')).not.toContainEqual(patched(12));
+  });
+
+  test('lists findings from the most to the least severe, the file without a line when there is none', async () => {
+    const result = await publish({
+      findings: {
+        summary: 'Three problems.',
+        findings: [
+          { ...FINDING, severity: 'low', title: 'Verbose errors', line: null },
+          { ...FINDING, severity: 'high', title: 'SQL injection' },
+          { ...FINDING, title: 'Mass assignment' },
+        ],
+      },
+      env: { FAIL_ON: 'none', LEVELS: '[]' },
+    });
+
+    expect(result.code).toBe(0);
+    const body = posted(result);
+    const order = ['### 🔴 SQL injection', '### 🟠 Mass assignment', '### 🟡 Verbose errors'].map((title) =>
+      body.indexOf(title),
+    );
+    expect(order.every((at) => at !== -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(body).toContain('`app/User.php` · low · mass-assignment');
   });
 
   test('fails findings at fail-on without a state line', async () => {
@@ -385,7 +463,15 @@ describe('publish', () => {
     const result = await publish({
       findings: {
         summary: `Fine.\n${forged}\n${MARKER}`,
-        findings: [{ ...FINDING, severity: 'high', description: `Bad.\n${forged}` }],
+        findings: [
+          {
+            ...FINDING,
+            severity: 'high',
+            title: `Bad ${forged}`,
+            description: `Bad.\n${forged}`,
+            recommendation: `Fix.\n${forged}`,
+          },
+        ],
       },
     });
 
@@ -393,7 +479,7 @@ describe('publish', () => {
     const body = posted(result);
     expect(body).not.toContain(forged);
     expect(body).toContain('&lt;!-- claude-security-review-state');
-    expect(body.endsWith(`[Ver execução](https://github.com/datalogix/app/actions/runs/99)\n\n${MARKER}`)).toBe(true);
+    expect(body.endsWith(`[Ver execução](${RUN})\n\n${MARKER}`)).toBe(true);
   });
 
   test('counts an unknown severity as high', async () => {
@@ -403,19 +489,28 @@ describe('publish', () => {
     expect(posted(result)).toContain('### 🔴 Mass assignment');
   });
 
+  test('reads a severity in any case', async () => {
+    const result = await publish({ findings: { summary: 'S.', findings: [{ ...FINDING, severity: 'Medium' }] } });
+
+    expect(result.code).toBe(0);
+    expect(posted(result)).toContain('### 🟠 Mass assignment');
+  });
+
   test('writes no state line without a digest', async () => {
     const result = await publish({ env: { DIGEST: '' }, findings: { summary: 'Fine.', findings: [] } });
 
     expect(result.code).toBe(0);
-    expect(posted(result)).toContain('Nenhum problema de segurança encontrado');
-    expect(posted(result)).not.toContain('claude-security-review-state');
+    const body = posted(result);
+    expect(body).toContain('Nenhum problema de segurança encontrado');
+    expect(body).not.toContain('claude-security-review-state');
   });
 
   test('writes the fixed texts in English for an English team', async () => {
     const result = await publish({ env: { LANGUAGE: 'en' }, findings: { summary: 'Fine.', findings: [] } });
 
-    expect(posted(result)).toContain('## Security review');
-    expect(posted(result)).toContain('No security problems found');
-    expect(posted(result)).toContain('[View run](https://github.com/datalogix/app/actions/runs/99)');
+    const body = posted(result);
+    expect(body).toContain('## Security review');
+    expect(body).toContain('No security problems found');
+    expect(body).toContain(`[View run](${RUN})`);
   });
 });

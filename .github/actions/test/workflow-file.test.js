@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { callsTo, runScript } from './fakes.js';
+import { callsTo, runScript, unmatchedReads } from './fakes.js';
 
 const FILE = '.github/workflows/datalogix.yml';
 const AT_MERGE = `contents/${FILE.replaceAll('.', '\\.')}\\?ref=abc123`;
 const AT_MAIN = `contents/${FILE.replaceAll('.', '\\.')}\\?ref=main`;
 
-const workflowFile = ({ env = {}, gh = [] } = {}) =>
-  runScript('workflow-file/workflow-file.sh', {
+async function workflowFile({ env = {}, gh = [] } = {}) {
+  const result = await runScript('workflow-file/workflow-file.sh', {
     env: {
       GITHUB_WORKFLOW_REF: `datalogix/app/${FILE}@refs/pull/7/merge`,
       MERGE_SHA: 'abc123',
@@ -15,6 +15,9 @@ const workflowFile = ({ env = {}, gh = [] } = {}) =>
     },
     gh,
   });
+  expect(unmatchedReads(result)).toEqual([]);
+  return result;
+}
 
 const notFound = { code: 1, stderr: 'gh: Not Found (HTTP 404)' };
 
@@ -40,6 +43,7 @@ describe('workflow file', () => {
       ],
     });
 
+    expect(result.code).toBe(0);
     expect(result.outputs.changed).toBe('true');
     expect(result.stdout).toContain(`::warning::${FILE} in this pull request is not the same as on the default branch`);
   });
@@ -54,6 +58,20 @@ describe('workflow file', () => {
 
     expect(result.code).toBe(0);
     expect(result.outputs.changed).toBe('true');
+    expect(result.stdout).toContain(`::warning::${FILE} in this pull request is not the same as on the default branch`);
+  });
+
+  test('says unchanged when the pull request copy cannot be found', async () => {
+    const result = await workflowFile({
+      gh: [
+        { match: AT_MERGE, ...notFound },
+        { match: AT_MAIN, stdout: { sha: 'main' } },
+      ],
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.outputs.changed).toBe('false');
+    expect(result.stdout).not.toContain('::warning::');
   });
 
   test.each([
