@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
-import { includedRefs, protectsBranch, requiredChecks, requiresCodeOwners } from '../../lib/ruleset.js';
+import { driftPhrases, includedRefs, protectsBranch, rulesetDrift } from '../../lib/ruleset.js';
 import { checksOn, readOrFail } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
@@ -1103,25 +1103,20 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
 
   steps.push(...stack.nextSteps(answers, { state, results }));
 
-  // What protect would change in an existing ruleset: a layer turned off whose check it still requires (every pull
-  // request would wait for it), one turned on, or a project that is no longer maintained alone. Layers setup does not
-  // ask about (tests) come from the workflow file
+  // What protect would change in an existing ruleset. Layers setup does not ask about (tests) come from the workflow
+  // file; only a project no longer maintained alone changes the code owners (protect reads solo from the file)
   if (state.ruleset) {
-    const expected = checksOn(stack.checks, { ...state.current, ...answers });
-    const required = requiredChecks(state.ruleset);
-    const stale = required.filter((check) => Object.values(stack.checks).includes(check) && !expected.includes(check));
-    const missing = expected.filter((check) => !required.includes(check));
-    const codeOwners = answers.solo === false && !requiresCodeOwners(state.ruleset);
-    if (stale.length || missing.length || codeOwners) {
+    const phrases = driftPhrases(
+      rulesetDrift(state.ruleset, {
+        expected: checksOn(stack.checks, { ...state.current, ...answers }),
+        known: Object.values(stack.checks),
+        codeOwners: answers.solo === false ? true : null,
+      }),
+      bold,
+    );
+    if (phrases.length) {
       steps.push(
-        `Once the workflow file is merged, run protect again: the ruleset ${[
-          stale.length &&
-            `still requires ${stale.map((check) => bold(check)).join(', ')}, which no longer runs, so every pull request would wait`,
-          missing.length && `does not require ${missing.map((check) => bold(check)).join(', ')} yet`,
-          codeOwners && 'does not require code owner approval yet',
-        ]
-          .filter(Boolean)
-          .join(', and ')}:\n  ${cyan(PROTECT)}`,
+        `Once the workflow file is merged, run protect again: the ruleset ${phrases.join(', and ')}:\n  ${cyan(PROTECT)}`,
       );
     }
   }

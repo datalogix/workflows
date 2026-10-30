@@ -1,10 +1,10 @@
 import { codeOwnerItems, createReport, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
-import { requiresCodeOwners } from '../../lib/ruleset.js';
+import { driftPhrases, requiresCodeOwners, rulesetDrift } from '../../lib/ruleset.js';
 import { checksOn } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { NO_TESTS } from '../../lib/tools.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
-import { clack, cyan, dim, orExit, question } from '../../lib/ui.js';
+import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { PACKAGE_REF, packageAnswers, packageTemplate, renderPackageWorkflow } from './workflow.js';
 
 // What package.yml needs from a package, whatever its stack: the workflow file, the Codecov token, the ruleset and the
@@ -42,7 +42,12 @@ function setupSteps(stack) {
           }),
         ),
     },
-    soloStep({ subject: 'package' }),
+    // A ruleset that requires code owners tells a team; the question explains what a package changes
+    soloStep({
+      subject: 'package',
+      initial: (ctx) => !requiresCodeOwners(ctx.state.ruleset),
+      about: 'Changes to .github/ need no code owner approval',
+    }),
     codeOwnersStep(),
   ];
 }
@@ -76,7 +81,7 @@ async function setupWarnings(answers, ctx) {
 }
 
 /** What is left to do by hand after the tasks ran: commit, then protect. */
-function nextSteps(answers, { results, state }) {
+function nextSteps(checks, answers, { results, state }) {
   const steps = [];
   const changed = changedFiles(results, TASK_FILES);
   if (changed.length) {
@@ -91,12 +96,19 @@ function nextSteps(answers, { results, state }) {
   const protect = cyan(`${PROTECT} ${answers.solo ? '--solo' : '--no-solo'}`);
   if (!state.ruleset) {
     steps.push(`After the first pull request shows its checks, protect the default branch:\n  ${protect}`);
-  } else if (requiresCodeOwners(state.ruleset) === Boolean(answers.solo)) {
-    // The ruleset asks for code owner approval only in a package with more than one maintainer
-    steps.push(
-      `Update the ruleset: ${answers.solo ? 'you work alone, but it requires' : 'it does not require'} code owner approval:\n  ${protect}`,
-    );
+    return steps;
   }
+  // What protect would change, as check reports it: the code owner approval follows the solo answer, which protect
+  // gets as --solo or --no-solo
+  const phrases = driftPhrases(
+    rulesetDrift(state.ruleset, {
+      expected: checksOn(checks, { ...state.current, ...answers }),
+      known: Object.values(checks),
+      codeOwners: !answers.solo,
+    }),
+    bold,
+  );
+  if (phrases.length) steps.push(`Run protect again: the ruleset ${phrases.join(', and ')}:\n  ${protect}`);
   return steps;
 }
 
@@ -144,7 +156,7 @@ export function packageKind(stack) {
       steps: () => setupSteps(stack),
       tasks: setupTasks,
       warnings: setupWarnings,
-      nextSteps,
+      nextSteps: (answers, ctx) => nextSteps(checks, answers, ctx),
     },
     evaluate: (state) => evaluate(checks, state),
     /** Checks to require, from the workflow answers (state.current). */

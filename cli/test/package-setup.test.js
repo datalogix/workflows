@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import * as clack from '@clack/prompts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
@@ -14,6 +15,7 @@ import { byTitle, fakeGitHub, folder, PACKAGE_STATE, runResults, tempRoot } from
 vi.mock('@clack/prompts', async (importOriginal) => ({
   ...(await importOriginal()),
   progress: () => ({ start() {}, message() {}, advance() {}, stop() {} }),
+  confirm: vi.fn(async () => true),
 }));
 
 const { setup } = laravelPackage;
@@ -87,11 +89,47 @@ test('tells to protect the package only without a ruleset, or when it differs fr
   expect(protect({ solo: true }, rulesetBody(checks))).toStrictEqual([]);
   expect(protect({ solo: false }, rulesetBody(checks, { codeOwners: true }))).toStrictEqual([]);
   expect(protect({ solo: false }, rulesetBody(checks))).toStrictEqual([
-    expect.stringContaining('Update the ruleset: it does not require code owner approval'),
+    expect.stringContaining('Run protect again: the ruleset does not require code owner approval yet'),
   ]);
   expect(protect({ solo: true }, rulesetBody(checks, { codeOwners: true }))).toStrictEqual([
-    expect.stringContaining('you work alone, but it requires code owner approval'),
+    expect.stringContaining('requires code owner approval, but you work alone'),
   ]);
+});
+
+test('tells what check reports about the ruleset: a check of tests turned off, older approvals kept', () => {
+  const protect = (ruleset, current = null) =>
+    setup
+      .nextSteps({ solo: false }, { results: [], state: { ...PACKAGE_STATE, current, ruleset } })
+      .find((step) => step.includes('Run protect again'));
+  const checks = ['pipeline / tests / all-checks'];
+  expect(protect(rulesetBody(checks, { codeOwners: true }), { tests: false })).toContain(
+    'still requires pipeline / tests / all-checks, which no longer runs',
+  );
+  const kept = rulesetBody(checks, { codeOwners: true });
+  Object.assign(kept.rules.find((rule) => rule.type === 'pull_request').parameters, {
+    dismiss_stale_reviews_on_push: false,
+    require_last_push_approval: false,
+  });
+  expect(protect(kept)).toContain('keeps code owner approvals of older commits');
+  expect(protect({ ...rulesetBody(checks, { codeOwners: true }), enforcement: 'evaluate' })).toContain(
+    'is evaluate, so nothing is enforced',
+  );
+});
+
+test('suggests the solo answer the ruleset implies, with what it means for a package', async () => {
+  const step = setup.steps().find((candidate) => candidate.id === 'solo');
+  const asked = async (ruleset) => {
+    clack.confirm.mockClear();
+    await step.ask({ header: '', ctx: { state: { ...PACKAGE_STATE, ruleset } } });
+    return clack.confirm.mock.calls[0][0];
+  };
+  const checks = ['pipeline / tests / all-checks'];
+  expect((await asked(null)).initialValue).toBe(true);
+  expect((await asked(rulesetBody(checks))).initialValue).toBe(true);
+  // A team's ruleset: Enter keeps the code owners
+  expect((await asked(rulesetBody(checks, { codeOwners: true }))).initialValue).toBe(false);
+  expect((await asked(null)).message).toContain('Changes to .github/ need no code owner approval');
+  expect((await asked(null)).message).not.toContain('count as your approval');
 });
 
 test('tells to open a pull request on a protected branch', () => {

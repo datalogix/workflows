@@ -1415,6 +1415,13 @@ test('tells to run protect again when the layers change what the ruleset should 
       (step) => step.includes('run protect again'),
     ),
   ).toContain('does not require pipeline / security / security yet');
+  // What check reports about the ruleset, setup says too
+  const disabled = { ...state, ruleset: { ...state.ruleset, enforcement: 'disabled' } };
+  expect(
+    nextSteps({ ...branchAnswers, securityReview: true, riskGate: true }, { relay, results: [], state: disabled }).find(
+      (step) => step.includes('run protect again'),
+    ),
+  ).toContain('the ruleset is disabled, so nothing is enforced');
 });
 
 test('reads the layers setup does not ask about from the workflow file for the ruleset', async () => {

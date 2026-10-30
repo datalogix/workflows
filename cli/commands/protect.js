@@ -2,7 +2,7 @@ import { SETUP } from '../lib/evaluate.js';
 import { mergeRuleset, RULESET_NAME, rulesetBody } from '../lib/ruleset.js';
 import { clack, confirmFolder, dim, orExit } from '../lib/ui.js';
 import { readLocal } from '../lib/state.js';
-import { usesRef, WORKFLOW_PATH } from '../lib/workflow-file.js';
+import { refVersion, usesRef, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
 
 /**
@@ -20,7 +20,7 @@ export async function protect(ctx) {
   // The checks come from the workflow file of this version: without it, or on another one (a package still on v1),
   // they never run, and even --yes would leave every pull request waiting
   const version = local.workflow ? usesRef(local.workflow, module.ref) : null;
-  if (version !== module.ref.slice(module.ref.indexOf('@') + 1)) {
+  if (version !== refVersion(module.ref)) {
     clack.log.error(
       local.workflow
         ? `${WORKFLOW_PATH} does not call ${module.ref}, so its checks never run`

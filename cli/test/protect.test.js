@@ -101,17 +101,22 @@ test('keeps what was added to the existing ruleset by hand', async (t) => {
   expect(body.conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/release/*']);
 });
 
-test('keeps approvals required or stale approvals dismissed by hand', async (t) => {
+test('keeps approvals required, stale approvals dismissed or conversations resolved by hand', async (t) => {
   const handEdited = rulesetBody(ALL);
   Object.assign(handEdited.rules.find((rule) => rule.type === 'pull_request').parameters, {
     required_approving_review_count: 1,
     dismiss_stale_reviews_on_push: true,
+    required_review_thread_resolution: true,
+    // Protect's own, with the code owners: a solo project drops it, or nobody could approve its last push
+    require_last_push_approval: true,
   });
   const github = protectGitHub({ rulesets: [{ id: 9, ...handEdited }] });
   expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(0);
   const { parameters } = written(github).rules.find((rule) => rule.type === 'pull_request');
   expect(parameters.required_approving_review_count).toBe(1);
   expect(parameters.dismiss_stale_reviews_on_push).toBe(true);
+  expect(parameters.required_review_thread_resolution).toBe(true);
+  expect(parameters.require_last_push_approval).toBe(false);
 });
 
 test('stops without a workflow file, even with --yes: no check would ever run', async (t) => {

@@ -410,3 +410,42 @@ test('writes the layers, production, approvals and js inputs only when they leav
     parseInputs(content),
   );
 });
+
+test('reads the inputs of the pipeline job only, even after another job with inputs', async () => {
+  const other = '  other:\n    uses: ./.github/workflows/other.yml\n    with:\n      tests: false\n\n';
+  const workflow = (await renderProjectWorkflow({ deploy: 'forge', domain: 'app.test' })).replace(
+    '  pipeline:',
+    `${other}  pipeline:`,
+  );
+  expect(parseInputs(workflow)).toMatchObject({ deploy: 'forge' });
+  expect(parseInputs(workflow).tests).toBeUndefined();
+  // Setup keeps the other job's inputs out of the pipeline's
+  const rendered = await renderProjectWorkflow({ deploy: 'forge', domain: 'app.test' }, workflow);
+  expect(parseInputs(rendered).tests).toBeUndefined();
+});
+
+test('reads a push filter written on the push line, and a comment in column 0 inside on:', () => {
+  expect(pushBranches('on:\n  push: { branches: [main, develop] }\n  pull_request:\n')).toStrictEqual([
+    'main',
+    'develop',
+  ]);
+  expect(pushBranches('on:\n  push: {}\n')).toBe(null);
+  expect(pushBranches('on:\n  push: ~\n')).toBe(null);
+  expect(pushBranches('on:\n# deploys\n  push:\n    branches: [main]\n  pull_request:\n')).toStrictEqual(['main']);
+  expect(pushBranches('on:\n  push:\n# the branches that deploy\n    branches: [main]\n')).toStrictEqual(['main']);
+});
+
+test('counts as a comment of the with block only a line at the inputs indentation, not one of a multi-line value', () => {
+  const block = (lines) => `jobs:\n  pipeline:\n    uses: x\n    with:\n${lines}\n`;
+  expect(hasInputComments(block('      test-command: |\n        # run the suite\n        vendor/bin/pest'))).toBe(
+    false,
+  );
+  expect(hasInputComments(block('      # the suite\n      test-command: vendor/bin/pest'))).toBe(true);
+});
+
+test('reads quoted values with their escapes, as YAML does', () => {
+  expect(scalar("'it''s'")).toBe("it's");
+  expect(scalar('"say \\"hi\\""')).toBe('say "hi"');
+  expect(scalar('"a # b" # comment')).toBe('a # b');
+  expect(scalar("'' # empty")).toBe('');
+});

@@ -48,7 +48,7 @@ test('reports what a new project is missing', async () => {
   expect(errors).toContainEqual(expect.stringContaining('datalogix.yml is missing'));
   expect(errors).toContainEqual(expect.stringMatching(/^Missing labels/));
   expect(errors).toContainEqual(expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN'));
-  expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('not protected'));
+  expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('has no "datalogix" ruleset'));
   expect(titles(items, 'warn')).toContain('.github/CODEOWNERS has no owner for /.github/');
 });
 
@@ -426,9 +426,34 @@ test('reports a package without a workflow file, or with the project one', async
   ]);
 });
 
+test('reports a ruleset that is not enforced, leaves out the default branch or does not require pull requests', async () => {
+  const state = await stateFor({ deploy: 'none', solo: true, incidents: false });
+  const problems = async (ruleset) =>
+    (await run({ ...state, ruleset }))
+      .filter((item) => item.level !== 'ok' && /ruleset/.test(item.title))
+      .map((item) => `${item.level}: ${item.title}`);
+  expect(await problems(rulesetOf())).toStrictEqual([]);
+  expect(await problems({ ...rulesetOf(), enforcement: 'disabled' })).toStrictEqual([
+    'error: The "datalogix" ruleset is disabled: nothing is enforced',
+  ]);
+  expect(await problems({ ...rulesetOf(), enforcement: 'evaluate' })).toStrictEqual([
+    'error: The "datalogix" ruleset is evaluate: nothing is enforced',
+  ]);
+  const elsewhere = rulesetOf();
+  elsewhere.conditions.ref_name.include = ['refs/heads/release'];
+  expect(await problems(elsewhere)).toStrictEqual([
+    'warn: The "datalogix" ruleset does not apply to the default branch',
+  ]);
+  const noPullRequests = rulesetOf();
+  noPullRequests.rules = noPullRequests.rules.filter((rule) => rule.type !== 'pull_request');
+  expect(await problems(noPullRequests)).toStrictEqual([
+    'warn: The ruleset does not require pull requests, so anyone with write access can push',
+  ]);
+});
+
 test('warns about a package whose default branch is not protected', async () => {
   expect(titles(await run(packageState()), 'warn')).toStrictEqual([
-    'The default branch is not protected: the checks are only advice',
+    'The default branch has no "datalogix" ruleset, so its checks may be only advice',
   ]);
 });
 

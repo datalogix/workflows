@@ -63,7 +63,9 @@ export function mergeRuleset(existing, body, { unprotect = [] } = {}) {
   const other = (existing.rules ?? []).filter((candidate) => !MANAGED_RULES.includes(candidate.type));
   const pullRequest = rule(body, 'pull_request');
   const before = rule(existing, 'pull_request')?.parameters ?? {};
-  // Approvals required or stale approvals dismissed by hand are stricter than what setup writes, and stay
+  // Approvals required, stale approvals dismissed or conversations resolved by hand are stricter than what setup
+  // writes, and stay. The last push approval does not: protect sets it with the code owners, and it would block a
+  // project that one person now maintains
   const stricter = (parameters) => ({
     ...parameters,
     required_approving_review_count: Math.max(
@@ -72,6 +74,8 @@ export function mergeRuleset(existing, body, { unprotect = [] } = {}) {
     ),
     dismiss_stale_reviews_on_push:
       parameters.dismiss_stale_reviews_on_push || before.dismiss_stale_reviews_on_push === true,
+    required_review_thread_resolution:
+      parameters.required_review_thread_resolution || before.required_review_thread_resolution === true,
   });
   const merged = body.rules
     .filter((candidate) => candidate.type !== 'required_status_checks')
@@ -141,4 +145,44 @@ export function protectsBranch(ruleset, branch) {
 export function requiredChecks(ruleset) {
   const rule = ruleset?.rules?.find((candidate) => candidate.type === 'required_status_checks');
   return rule?.parameters?.required_status_checks?.map((check) => check.context) ?? [];
+}
+
+/**
+ * What protect would change in an existing ruleset, for check and setup to say the same: whether it is enforced on the
+ * default branch and requires pull requests, the `expected` checks it lacks, the checks of `known` (every check of the
+ * stack) it requires although their layer is off, and the code owner approval: `codeOwners` true or false is what
+ * protect would write (null leaves it as it is), and a required one that keeps older approvals is reported too.
+ */
+export function rulesetDrift(ruleset, { expected = [], known = [], codeOwners = null } = {}) {
+  const required = requiredChecks(ruleset);
+  const owners = requiresCodeOwners(ruleset);
+  const include = ruleset?.conditions?.ref_name?.include ?? [];
+  return {
+    enforcement: ruleset?.enforcement === 'active' ? null : (ruleset?.enforcement ?? 'disabled'),
+    defaultBranch: include.includes('~DEFAULT_BRANCH') || include.includes('~ALL'),
+    pullRequests: Boolean(ruleset?.rules?.some((rule) => rule.type === 'pull_request')),
+    missing: expected.filter((check) => !required.includes(check)),
+    stale: known.filter((check) => required.includes(check) && !expected.includes(check)),
+    codeOwners: codeOwners === true && !owners ? 'missing' : codeOwners === false && owners ? 'extra' : null,
+    staleApprovals: owners && codeOwners !== false && keepsStaleApprovals(ruleset),
+  };
+}
+
+/**
+ * The drift as phrases after "the ruleset", for the next steps of setup (empty when protect would change nothing).
+ * `emphasis` marks the check names.
+ */
+export function driftPhrases(drift, emphasis = (text) => text) {
+  const checks = (list) => list.map(emphasis).join(', ');
+  return [
+    drift.enforcement && `is ${drift.enforcement}, so nothing is enforced`,
+    !drift.defaultBranch && 'does not apply to the default branch',
+    !drift.pullRequests && 'does not require pull requests',
+    drift.stale.length &&
+      `still requires ${checks(drift.stale)}, which no longer runs, so every pull request would wait`,
+    drift.missing.length && `does not require ${checks(drift.missing)} yet`,
+    drift.codeOwners === 'missing' && 'does not require code owner approval yet',
+    drift.codeOwners === 'extra' && 'requires code owner approval, but you work alone',
+    drift.staleApprovals && 'keeps code owner approvals of older commits',
+  ].filter(Boolean);
 }
