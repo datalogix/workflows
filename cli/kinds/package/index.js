@@ -1,4 +1,5 @@
-import { codeOwnerItems, createReport, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
+import { codeOwnerItems, createReport, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
+import { requiresCodeOwners } from '../../lib/ruleset.js';
 import { checksOn } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { NO_TESTS } from '../../lib/tools.js';
@@ -25,9 +26,11 @@ const uploadsCoverage = ({ current }) =>
 function setupSteps(stack) {
   return [
     repositoryStep(),
+    ...(stack.steps?.() ?? []),
     {
       id: 'codecovToken',
-      when: (a, ctx) => !ctx.state.codecovToken && uploadsCoverage(ctx.state),
+      // After the stack's questions, which may turn the test suite off
+      when: (a, ctx) => !ctx.state.codecovToken && a.testRun !== NO_TESTS && uploadsCoverage(ctx.state),
       ask: async ({ header }) =>
         orExit(
           await clack.password({
@@ -39,7 +42,6 @@ function setupSteps(stack) {
           }),
         ),
     },
-    ...(stack.steps?.() ?? []),
     soloStep({ subject: 'package' }),
     codeOwnersStep(),
   ];
@@ -86,9 +88,15 @@ function nextSteps(answers, { results, state }) {
         : `Commit and push:\n  ${cyan(`${commit} && git push`)}`,
     );
   }
-  steps.push(
-    `After the first pull request shows its checks, protect the default branch:\n  ${cyan(`npx --allow-git=root github:datalogix/workflows#v2 protect ${answers.solo ? '--solo' : '--no-solo'}`)}`,
-  );
+  const protect = cyan(`${PROTECT} ${answers.solo ? '--solo' : '--no-solo'}`);
+  if (!state.ruleset) {
+    steps.push(`After the first pull request shows its checks, protect the default branch:\n  ${protect}`);
+  } else if (requiresCodeOwners(state.ruleset) === Boolean(answers.solo)) {
+    // The ruleset asks for code owner approval only in a package with more than one maintainer
+    steps.push(
+      `Update the ruleset: ${answers.solo ? 'you work alone, but it requires' : 'it does not require'} code owner approval:\n  ${protect}`,
+    );
+  }
   return steps;
 }
 
@@ -125,11 +133,13 @@ export function packageKind(stack) {
     inspect: stack.inspect,
     answers: packageAnswers,
     /** What collectState reads from GitHub for a package: whether it can read a Codecov token. */
-    read: async (github, read) => ({
-      codecovToken:
-        (await read('secrets', github.hasRepositorySecret('CODECOV_TOKEN'))) ||
-        (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false)),
-    }),
+    read: async (github, read) => {
+      const [repository, organization] = await Promise.all([
+        read('secrets', github.hasRepositorySecret('CODECOV_TOKEN')),
+        github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false),
+      ]);
+      return { codecovToken: repository || organization };
+    },
     setup: {
       steps: () => setupSteps(stack),
       tasks: setupTasks,

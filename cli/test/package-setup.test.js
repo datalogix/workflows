@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
 import { rulesetBody } from '../lib/ruleset.js';
+import { NO_TESTS } from '../lib/tools.js';
 import { collectState } from '../lib/state.js';
 import { parseInputs, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
@@ -67,6 +68,30 @@ test('asks for the Codecov token only when the package uploads coverage and cann
     const current = packageAnswers(parseInputs(`jobs:\n  pipeline:\n    with:\n      ${input}\n`));
     expect(step.when({}, { state: { codecovToken: false, current } })).toBe(false);
   }
+  // Asked after the test suite question, which may turn it off
+  const ids = setup.steps().map((candidate) => candidate.id);
+  expect(ids.indexOf('codecovToken')).toBeGreaterThan(ids.indexOf('testRun'));
+  expect(step.when({ testRun: NO_TESTS }, { state: { codecovToken: false } })).toBe(false);
+});
+
+test('tells to protect the package only without a ruleset, or when it differs from the solo answer', () => {
+  const protect = (answers, ruleset) =>
+    setup
+      .nextSteps(answers, { results: [], state: { ...PACKAGE_STATE, ruleset } })
+      .filter((step) => step.includes('workflows#v2 protect'));
+  const checks = ['pipeline / tests / all-checks'];
+
+  expect(protect({ solo: true }, null)).toStrictEqual([
+    expect.stringMatching(/^After the first pull request shows its checks, protect the default branch:/),
+  ]);
+  expect(protect({ solo: true }, rulesetBody(checks))).toStrictEqual([]);
+  expect(protect({ solo: false }, rulesetBody(checks, { codeOwners: true }))).toStrictEqual([]);
+  expect(protect({ solo: false }, rulesetBody(checks))).toStrictEqual([
+    expect.stringContaining('Update the ruleset: it does not require code owner approval'),
+  ]);
+  expect(protect({ solo: true }, rulesetBody(checks, { codeOwners: true }))).toStrictEqual([
+    expect.stringContaining('you work alone, but it requires code owner approval'),
+  ]);
 });
 
 test('tells to open a pull request on a protected branch', () => {
@@ -112,7 +137,11 @@ test('reads only what a package needs from GitHub', async (t) => {
     );
 
   // The fake fails on anything else: the labels, environments and Claude token of an app are not read
-  const state = await read({ hasRepositorySecret: async (name) => name === 'CODECOV_TOKEN' });
+  // Both secrets are read together, like an app's Claude token
+  const state = await read({
+    hasRepositorySecret: async (name) => name === 'CODECOV_TOKEN',
+    hasOrganizationSecret: async () => false,
+  });
   expect(state.codecovToken).toBe(true);
   expect(state.labels).toBe(undefined);
 

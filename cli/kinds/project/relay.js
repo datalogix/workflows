@@ -25,7 +25,7 @@ export function relayWorker(owner, url = '') {
 
 export const RELAY_REPO = '.github';
 export const RELAY_PATH = 'workflows/relay.json';
-export const NO_RELAY = { url: '', namespaceId: '', owner: '', configured: false };
+const NO_RELAY = { url: '', namespaceId: '', owner: '', configured: false };
 
 /** Relay settings from the text of relay.json; not configured without a URL and a namespace. */
 export function relayConfig(content) {
@@ -55,7 +55,7 @@ export function webhookUrl(relay, provider, repository) {
 /**
  * Runs wrangler in an empty private folder, so it never picks up a wrangler.toml from the project.
  * `prepare(dir)` returns the extra arguments and may write files in the folder, which is removed afterwards.
- * `runner` replaces shell.run in tests.
+ * `runner` replaces shell.run: runInteractive for login, a fake in tests.
  */
 async function wrangler(args, { prepare = async () => [], runner = run, input } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'datalogix-'));
@@ -112,7 +112,8 @@ export async function hasSecret(relay, provider, repository, runner = run) {
     runner,
   });
   if (result.code === 0) return result.stdout.trim() !== '' && !/^Value not found/im.test(result.stdout);
-  return /not found/i.test(`${result.stderr}${result.stdout}`) ? false : null;
+  // Only a missing key means not registered: a missing namespace (another Cloudflare account) means it cannot be read
+  return /\b(key|value) not found/i.test(`${result.stderr}${result.stdout}`) ? false : null;
 }
 
 /** Whether wrangler is logged in to Cloudflare. */
@@ -123,12 +124,7 @@ export async function cloudflareLoggedIn(runner = run) {
 
 /** Logs wrangler in to Cloudflare in the browser, attached to the terminal (it may print the link to open). */
 export async function cloudflareLogin(runner = runInteractive) {
-  const dir = await mkdtemp(join(tmpdir(), 'datalogix-'));
-  try {
-    return (await runner('npx', [...WRANGLER, 'login'], { cwd: dir })) === 0;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  return (await wrangler(['login'], { runner })) === 0;
 }
 
 /** The JSON array a wrangler command printed, past any banner around it. */

@@ -32,8 +32,9 @@ test('reads whether the relay has the secret of a repository', async (t) => {
   expect(await has({ stdout: 'Value not found for key\n' })).toBe(false);
   expect(await has({ stdout: '⛅️ wrangler 4.0.0\n-----\nValue not found for key\n' })).toBe(false);
   expect(await has({ code: 1, stderr: 'key not found' })).toBe(false);
-  // Anything else cannot tell
+  // Anything else cannot tell, such as a namespace of another Cloudflare account
   expect(await has({ code: 1, stderr: 'fetch failed' })).toBe(null);
+  expect(await has({ code: 1, stderr: 'namespace not found' })).toBe(null);
 
   const calls = runner({ stdout: 'x' });
   await hasSecret(relay, 'nightwatch', 'datalogix/app', calls);
