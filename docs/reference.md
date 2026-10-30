@@ -128,7 +128,7 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 
 Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every review, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
 
-A pull request that changes the calling workflow file (`.github/workflows/datalogix.yml`) is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until the default branch has the same file. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
+A pull request whose copy of the calling workflow file (`.github/workflows/datalogix.yml`) is not the same as the default branch's is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until both are the same. That is a pull request that changes the file or adds it; one that is only behind a change to it on the default branch is reviewed, as the run uses the merge commit. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 

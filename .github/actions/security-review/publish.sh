@@ -25,12 +25,12 @@ publish() {
   fi
 }
 
-# Running it again does not help: the workflow change has to reach the default branch first
+# Running it again does not help: the default branch and this pull request need the same workflow file first
 if [ "${WORKFLOW_CHANGED:-}" = true ]; then
-  echo "::error::This pull request changes $WORKFLOW_FILE, so Claude cannot review it"
+  echo "::error::$WORKFLOW_FILE in this pull request is not the same as on the default branch, so Claude cannot review it"
   publish "$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' "$title" \
-    "$(t "This pull request changes \`$WORKFLOW_FILE\`, so Claude does not review it: Claude only runs with the default branch's copy of the workflow file, so neither this security review nor the code review ran. This check fails until the default branch has the same workflow file." \
-      "Este PR altera \`$WORKFLOW_FILE\`, então o Claude não o revisa: ele só roda com a cópia do arquivo de workflow do branch padrão, e nem esta revisão de segurança nem o code review rodaram. Este check falha até o branch padrão ter o mesmo arquivo de workflow.")" \
+    "$(t "\`$WORKFLOW_FILE\` in this pull request is not the same as on the default branch, so Claude does not review it: Claude only runs with the default branch's copy of the workflow file, so neither this security review nor the code review ran. This check fails until both are the same." \
+      "O \`$WORKFLOW_FILE\` deste PR não é igual ao do branch padrão, então o Claude não o revisa: ele só roda com a cópia do arquivo de workflow do branch padrão, e nem esta revisão de segurança nem o code review rodaram. Este check falha até os dois serem iguais.")" \
     "$(t "Move the workflow change to a pull request of its own, reviewed by a person (an admin merges it past this check), then push to this pull request or re-run this job." \
       "Leve a mudança do workflow para um PR só com ela, revisado por uma pessoa (um admin faz o merge passando por este check), e depois envie um commit para este PR ou rode este job de novo.")" \
     "$view" "$marker")"
@@ -77,25 +77,29 @@ if [ "$blocking" -eq 0 ] && [ -n "${DIGEST:-}" ]; then
   state="<!-- claude-security-review-state: diff=$DIGEST fail-on=$FAIL_ON -->"
 fi
 
-body=$(jq -r --arg marker "$marker" --arg state "$state" --arg run "$run_url" --argjson blocking "$blocking" --argjson en "$english" '
+# Text written by Claude cannot hide a comment in the body, such as a state line read by check.sh
+body=$(jq -r --arg title "$title" --arg view "$view" --arg marker "$marker" --arg state "$state" \
+  --arg none "$(t "No security problems found in the changes of this PR." "Nenhum problema de segurança encontrado nas mudanças deste PR.")" \
+  --arg recommendation "$(t Recommendation Recomendação)" \
+  --arg blocked "$(t "This PR is blocked until the problems above are fixed. Ask \`@claude fix the security problems\`; if one is a false positive, record it in \`.github/security-review.md\`." \
+    "Este PR está bloqueado até que os problemas acima sejam corrigidos. Peça \`@claude corrija os problemas de segurança\`; se for um falso positivo, registre-o em \`.github/security-review.md\`.")" \
+  --argjson blocking "$blocking" '
   def icon: {"high": "🔴", "medium": "🟠", "low": "🟡"}[.] // "⚪";
+  def text: tostring | gsub("<!--"; "&lt;!--");
   [
-    (if $en then "## Security review" else "## Revisão de segurança" end),
+    $title,
     "",
-    .summary,
+    (.summary // "" | text),
     "",
-    (if (.findings | length) == 0 then
-       (if $en then "No security problems found in the changes of this PR." else "Nenhum problema de segurança encontrado nas mudanças deste PR." end)
+    (if (.findings | length) == 0 then $none
      else
        (.findings | sort_by({"high": 0, "medium": 1, "low": 2}[.severity] // 3)[] |
-         "### \(.severity | icon) \(.title)\n\n`\(.file)\(if .line then ":\(.line)" else "" end)` · \(.severity) · \(.category)\n\n\(.description)\n\n**\(if $en then "Recommendation" else "Recomendação" end):** \(.recommendation)\n")
+         "### \(.severity | icon) \(.title | text)\n\n`\(.file | text)\(if .line then ":\(.line | text)" else "" end)` · \(.severity) · \(.category | text)\n\n\(.description | text)\n\n**\($recommendation):** \(.recommendation | text)\n")
      end),
     "",
-    (if $blocking == 0 then empty
-     elif $en then "This PR is blocked until the problems above are fixed. Ask `@claude fix the security problems`; if one is a false positive, record it in `.github/security-review.md`."
-     else "Este PR está bloqueado até que os problemas acima sejam corrigidos. Peça `@claude corrija os problemas de segurança`; se for um falso positivo, registre-o em `.github/security-review.md`." end),
+    (if $blocking == 0 then empty else $blocked end),
     "",
-    (if $en then "[View run](\($run))" else "[Ver execução](\($run))" end),
+    $view,
     "",
     (if $state == "" then empty else $state end),
     $marker

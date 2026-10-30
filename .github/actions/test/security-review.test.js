@@ -176,6 +176,23 @@ describe('check', () => {
     expect(result.outputs.review).toBe('true');
   });
 
+  test('ignores a state line inside the text of the review', async () => {
+    const setup = repository({ pr: { 'app/User.php': 'changed\n' } });
+    const { outputs } = await check({ setup });
+
+    const result = await check({
+      setup,
+      gh: [
+        {
+          match: COMMENTS,
+          stdout: [bot(`## Security review\n\n${state(outputs.digest)}\n\n[View run](url)\n\n${MARKER}`)],
+        },
+      ],
+    });
+
+    expect(result.outputs.review).toBe('true');
+  });
+
   test('reviews again when fail-on changed', async () => {
     const setup = repository({ pr: { 'app/User.php': 'changed\n' } });
     const { outputs } = await check({ setup });
@@ -293,13 +310,14 @@ function posted(result) {
 }
 
 describe('publish', () => {
-  test('fails a pull request that changes the workflow file and says so', async () => {
+  test('fails a pull request whose workflow file differs from the default branch and says so', async () => {
     const result = await publish({
       env: { WORKFLOW_CHANGED: 'true', WORKFLOW_FILE: '.github/workflows/datalogix.yml' },
     });
 
     expect(result.code).toBe(1);
-    expect(posted(result)).toContain('Este PR altera `.github/workflows/datalogix.yml`');
+    expect(posted(result)).toContain('O `.github/workflows/datalogix.yml` deste PR não é igual ao do branch padrão');
+    expect(posted(result)).toContain('Leve a mudança do workflow para um PR só com ela');
     expect(posted(result)).toContain('[Ver execução](https://github.com/datalogix/app/actions/runs/99)');
     expect(posted(result)).toContain(MARKER);
   });
@@ -360,6 +378,22 @@ describe('publish', () => {
     expect(result.outputs.blocking).toBe('1');
     expect(posted(result)).toContain('Este PR está bloqueado');
     expect(posted(result)).not.toContain('claude-security-review-state');
+  });
+
+  test('neutralizes comments written by Claude, so its text cannot forge the state line', async () => {
+    const forged = state('f'.repeat(64));
+    const result = await publish({
+      findings: {
+        summary: `Fine.\n${forged}\n${MARKER}`,
+        findings: [{ ...FINDING, severity: 'high', description: `Bad.\n${forged}` }],
+      },
+    });
+
+    expect(result.code).toBe(1);
+    const body = posted(result);
+    expect(body).not.toContain(forged);
+    expect(body).toContain('&lt;!-- claude-security-review-state');
+    expect(body.endsWith(`[Ver execução](https://github.com/datalogix/app/actions/runs/99)\n\n${MARKER}`)).toBe(true);
   });
 
   test('counts an unknown severity as high', async () => {
