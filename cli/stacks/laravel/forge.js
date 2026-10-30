@@ -78,9 +78,14 @@ export function forgeSiteTask(api, site, environment) {
       const { data } = await api.get(`${sitePath(site)}/deployments/script`);
       const script = data.attributes.content ?? '';
       const updated = withCommitCheckout(script);
+      // First, whatever the script: with Push to deploy on, every push reaches the site before its tests
+      if (site.pushToDeploy) {
+        await api.delete(`${sitePath(site)}/deployments/push-to-deploy`);
+        changes.push('Push to deploy off');
+      }
       if (updated === null) {
         throw new Error(
-          'the deploy script has neither cd $FORGE_RELEASE_DIRECTORY nor git pull origin $FORGE_SITE_BRANCH: change it by hand',
+          `${changes.length ? `${changes.join(', ')}; ` : ''}the deploy script has neither cd $FORGE_RELEASE_DIRECTORY nor git pull origin $FORGE_SITE_BRANCH: change it by hand`,
         );
       }
       if (updated !== script) {
@@ -89,10 +94,6 @@ export function forgeSiteTask(api, site, environment) {
           auto_source: data.attributes.auto_source,
         });
         changes.push('deploy script checks out the commit');
-      }
-      if (site.pushToDeploy) {
-        await api.delete(`${sitePath(site)}/deployments/push-to-deploy`);
-        changes.push('Push to deploy off');
       }
       return changes.length ? changes.join(', ') : 'unchanged';
     },

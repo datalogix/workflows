@@ -58,7 +58,9 @@ const PROJECT_STATE = {
 const CLAUDE_INSTALL = 'https://github.com/apps/claude/installations/new';
 
 export const deploys = (a) => Boolean(a.deploy) && a.deploy !== 'none';
-const twoBranches = (a) => Boolean(a.branches && a.productionBranch);
+export const twoBranches = (a) => Boolean(a.branches && a.productionBranch);
+/** The GitHub environments the answers deploy to. */
+export const environmentsOf = (a) => (deploys(a) ? (a.staging ? ['production', 'staging'] : ['production']) : []);
 // The production branch of the current workflow file, when it exists
 const existingProductionBranch = (state) =>
   state.productionBranchStatus?.exists ? state.productionBranchStatus.name : null;
@@ -740,7 +742,7 @@ function rulesetTask(github, state, { answers, productionBranch, formerProductio
 /** The changes the answers lead to, as tasks for the progress bar. */
 function setupTasks(stack, answers, { github, root, state, relay, probe = healthStatus }) {
   const tasks = [];
-  const environments = deploys(answers) ? (answers.staging ? ['production', 'staging'] : ['production']) : [];
+  const environments = environmentsOf(answers);
   const domains = { production: answers.domain?.trim(), staging: answers.stagingDomain?.trim() };
   const hooks = {
     production: answers.deployHooks?.production ?? answers.productionHook,

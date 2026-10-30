@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { deploys, projectKind } from '../../kinds/project/index.js';
+import { deploys, environmentsOf, projectKind, twoBranches } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from './cloud.js';
@@ -140,14 +140,13 @@ const PROVIDERS = {
 };
 
 const withToken = (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]) && Boolean(a.deployToken?.trim());
-const environmentsOf = (a) => (a.staging ? ['production', 'staging'] : ['production']);
 
 /**
  * The branch an environment deploys: with two branches, the development one to staging and the production one to
  * production; otherwise the default branch (null: whatever the site has).
  */
 function branchOf(a, environment, state) {
-  if (a.branches && a.productionBranch) return environment === 'staging' ? a.developmentBranch : a.productionBranch;
+  if (twoBranches(a)) return environment === 'staging' ? a.developmentBranch : a.productionBranch;
   return state.defaultBranch ?? null;
 }
 
@@ -192,6 +191,20 @@ const deployTokenStep = {
   },
 };
 
+/**
+ * The site (or environment) suggested for an environment: one on its branch named after it, else one on its branch not
+ * named after the other environment (without two branches both deploy the same branch), else one named after it.
+ */
+export function suggestedTarget(targets, environment, branch) {
+  const other = environment === 'staging' ? 'production' : 'staging';
+  const named = (target, name) => target.name.toLowerCase().includes(name);
+  return (
+    targets.find((target) => target.branch === branch && named(target, environment)) ??
+    targets.find((target) => target.branch === branch && !named(target, other)) ??
+    targets.find((target) => named(target, environment))
+  );
+}
+
 /** Which site (or environment) of the target an environment deploys to; with Forge, its deploy hook comes along. */
 function deploySiteStep(environment) {
   return {
@@ -201,11 +214,7 @@ function deploySiteStep(environment) {
       const provider = PROVIDERS[answers.deploy];
       const taken = environment === 'staging' ? answers.productionSite : null;
       const targets = ctx.deployTargets.filter((target) => target !== taken);
-      const branch = branchOf(answers, environment, ctx.state);
-      const initial =
-        targets.find((target) => target.branch === branch && target.name.toLowerCase().includes(environment)) ??
-        targets.find((target) => target.branch === branch) ??
-        targets.find((target) => target.name.toLowerCase().includes(environment));
+      const initial = suggestedTarget(targets, environment, branchOf(answers, environment, ctx.state));
       const index = orExit(
         await clack.select({
           message: question(header, `${provider.name} ${provider.kind} of ${environment}`),
@@ -278,14 +287,14 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
     .map((environment) => `${environment}: ${resultOf(environment).detail}`);
   const where =
     answers.deploy === 'forge'
-      ? 'the Forge site'
+      ? 'the environment of the Forge site'
       : answers.deploy === 'cloud'
-        ? 'the Laravel Cloud environment'
-        : 'the server';
+        ? 'the environment variables of the Laravel Cloud environment'
+        : 'the environment of the server';
   if (!deploys(answers) || left.length) {
     steps.push(
       [
-        `Set ${bold('NIGHTWATCH_TOKEN')} (the application's token in Nightwatch) in the environment of ${where}${left.length ? ` of ${left.map((environment) => bold(environment)).join(' and ')}` : ''}, if it is not there yet.`,
+        `Set ${bold('NIGHTWATCH_TOKEN')} (the application's token in Nightwatch) in ${where}${left.length ? ` of ${left.map((environment) => bold(environment)).join(' and ')}` : ''}, if it is not there yet.`,
         ...(problems.length ? [dim(`  Setup could not do it through the API (${problems.join('; ')}).`)] : []),
       ].join('\n'),
     );
@@ -295,7 +304,7 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
 
 /** The branch a Cloud environment must track: both with two branches, staging otherwise (Forge gets it in the hook). */
 function cloudBranch(answers, environment, state) {
-  if (answers.branches && answers.productionBranch) return branchOf(answers, environment, state);
+  if (twoBranches(answers)) return branchOf(answers, environment, state);
   return environment === 'staging' ? branchOf(answers, environment, state) : null;
 }
 
