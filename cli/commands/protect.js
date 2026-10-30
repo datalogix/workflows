@@ -1,12 +1,14 @@
+import { SETUP } from '../lib/evaluate.js';
 import { mergeRuleset, RULESET_NAME, rulesetBody } from '../lib/ruleset.js';
 import { clack, confirmFolder, dim, orExit } from '../lib/ui.js';
 import { readLocal } from '../lib/state.js';
+import { usesRef, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
 
 /**
  * Creates or updates the ruleset of the default branch, requiring only the checks of the layers the workflow file turns
- * on (checksOn), and first looks for them on the latest pull request. The stack's module may protect another branch (a Laravel app's production
- * branch, with the release GitHub App).
+ * on (checksOn), and first looks for them on the latest pull request. The stack's module may protect another branch
+ * (a Laravel app's production branch, with the release GitHub App).
  */
 export async function protect(ctx) {
   await confirmFolder(ctx, ctx.repository);
@@ -15,6 +17,18 @@ export async function protect(ctx) {
   const { module } = detected;
   const local = await readLocal(detected, ctx.root);
   const { current } = local;
+  // The checks come from the workflow file of this version: without it, or on another one (a package still on v1),
+  // they never run, and even --yes would leave every pull request waiting
+  const version = local.workflow ? usesRef(local.workflow, module.ref) : null;
+  if (version !== module.ref.slice(module.ref.indexOf('@') + 1)) {
+    clack.log.error(
+      local.workflow
+        ? `${WORKFLOW_PATH} does not call ${module.ref}, so its checks never run`
+        : `${WORKFLOW_PATH} is missing, so no check runs`,
+    );
+    clack.outro(`Run setup first, then protect once its pull request shows the checks: ${SETUP}`);
+    return 1;
+  }
   const checks = module.requiredChecks(local);
 
   const rulesets = await github.rulesets();

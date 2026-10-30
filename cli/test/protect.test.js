@@ -114,12 +114,12 @@ test('keeps approvals required or stale approvals dismissed by hand', async (t) 
   expect(parameters.dismiss_stale_reviews_on_push).toBe(true);
 });
 
-test('requires every check and code owner approval without a workflow file', async (t) => {
+test('stops without a workflow file, even with --yes: no check would ever run', async (t) => {
   const github = protectGitHub();
-  expect(await run(await folder(t, {}, 'protect-'), github)).toBe(0);
-  const body = written(github);
-  expect(requiredChecks(body)).toStrictEqual(ALL);
-  expect(requiresCodeOwners(body)).toBe(true);
+  expect(await run(await folder(t, {}, 'protect-'), github)).toBe(1);
+  expect(github.calls).toStrictEqual([]);
+  expect(clack.log.error).toHaveBeenCalledWith(`${WORKFLOW_PATH} is missing, so no check runs`);
+  expect(clack.outro).toHaveBeenCalledWith(expect.stringMatching(/^Run setup first/));
 });
 
 test('protects anyway with --yes when no pull request ran the checks yet', async (t) => {
@@ -130,14 +130,20 @@ test('protects anyway with --yes when no pull request ran the checks yet', async
   expect(clack.log.warn).toHaveBeenCalledWith(expect.stringContaining('No pull request has run the checks yet:'));
 });
 
-test('protects a package folder without a workflow file with the package check', async (t) => {
-  // The folder tells the kind: a composer.json of a Laravel package
-  const root = await folder(
+test('stops on a package still on another version of the workflow, pointing at setup', async (t) => {
+  const root = await packageFolder(t);
+  const v1 = await folder(
     t,
-    { 'composer.json': JSON.stringify({ require: { 'illuminate/support': '^12.0' } }) },
+    { [WORKFLOW_PATH]: (await renderPackageWorkflow('', 'main')).replace('package.yml@v2', 'package.yml@v1') },
     'protect-',
   );
   const github = protectGitHub({ latest: { number: 3, names: [PACKAGE_CHECK] } });
+  expect(await run(v1, github, { flags: { yes: true, solo: true } })).toBe(1);
+  expect(github.calls).toStrictEqual([]);
+  expect(clack.log.error).toHaveBeenCalledWith(
+    `${WORKFLOW_PATH} does not call datalogix/workflows/.github/workflows/package.yml@v2, so its checks never run`,
+  );
+  // On v2 it protects
   expect(await run(root, github, { flags: { yes: true, solo: true } })).toBe(0);
   expect(requiredChecks(written(github))).toStrictEqual([PACKAGE_CHECK]);
 });

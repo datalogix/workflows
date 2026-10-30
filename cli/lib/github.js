@@ -1,9 +1,13 @@
 import { run, runOrThrow } from './shell.js';
 
+// The host of every call: the login is checked on github.com, and GH_HOST would otherwise send the calls (and the
+// secrets) to another one
+const HOST = 'github.com';
+
 /** The REST calls both clients share, through gh: a request, a GET that is null on 404, and the same over every page. */
 function rest(runner) {
   const api = async (path, { method = 'GET', body } = {}) => {
-    const args = ['api', '--method', method, path];
+    const args = ['api', '--hostname', HOST, '--method', method, path];
     if (body !== undefined) args.push('--input', '-');
     const stdout = await runner.runOrThrow('gh', args, {
       input: body === undefined ? undefined : JSON.stringify(body),
@@ -13,7 +17,7 @@ function rest(runner) {
 
   // GET that returns null on 404 instead of failing
   const find = async (path) => {
-    const result = await runner.run('gh', ['api', path]);
+    const result = await runner.run('gh', ['api', '--hostname', HOST, path]);
     if (result.code === 0) return result.stdout.trim() ? JSON.parse(result.stdout) : null;
     if (/HTTP 404|Not Found/i.test(result.stderr)) return null;
     throw new Error(`gh api ${path}: ${result.stderr.trim()}`);
@@ -21,7 +25,7 @@ function rest(runner) {
 
   // find over every page: the objects jq picks from each one (`.items[]`), null on 404
   const findAll = async (path, jq) => {
-    const result = await runner.run('gh', ['api', '--paginate', path, '--jq', jq]);
+    const result = await runner.run('gh', ['api', '--hostname', HOST, '--paginate', path, '--jq', jq]);
     if (result.code === 0)
       return result.stdout
         .split('\n')
@@ -31,7 +35,28 @@ function rest(runner) {
     throw new Error(`gh api ${path}: ${result.stderr.trim()}`);
   };
 
-  return { api, find, findAll };
+  // The GitHub Apps installed on an organization ({ app_slug, repository_selection }), or null when gh cannot see them:
+  // only organization admins with the admin:org scope can, and never for a user
+  const installations = async (owner) => {
+    const result = await runner.run('gh', [
+      'api',
+      '--hostname',
+      HOST,
+      '--paginate',
+      `orgs/${owner}/installations`,
+      '--jq',
+      '.installations[] | { app_slug, repository_selection }',
+    ]);
+    if (result.code === 0)
+      return result.stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+    if (/admin:org|HTTP 403|HTTP 404|Not Found/i.test(result.stderr)) return null;
+    throw new Error(`gh api orgs/${owner}/installations: ${result.stderr.trim()}`);
+  };
+
+  return { api, find, findAll, installations };
 }
 
 /**
@@ -39,7 +64,7 @@ function rest(runner) {
  * Takes a runner so tests can replace gh.
  */
 export function createGitHub(repository, runner = { run, runOrThrow }) {
-  const { api, find, findAll } = rest(runner);
+  const { api, find, findAll, installations } = rest(runner);
 
   // Private repositories on GitHub Free have no rulesets or branch protection
   const PLAN_LIMIT = /Upgrade to GitHub Pro|make this repository public/i;
@@ -50,15 +75,9 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
   // Names of the repository's own secrets, also fetched once (and again after one is stored or deleted)
   let repositorySecrets;
 
-  const paginate = async (path) => {
-    const stdout = await runner.runOrThrow('gh', ['api', '--paginate', path, '--jq', '.[]']);
-    return stdout
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-  };
-
   const r = `repos/${repository}`;
+  // The repository for gh secret and gh variable, on the same host as the API calls
+  const target = `${HOST}/${repository}`;
 
   return {
     repository,
@@ -71,15 +90,9 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
     // How the Claude GitHub App reaches the owner's repositories: 'all', 'selected' or 'none' (not installed); null
     // when gh cannot see the installations (only organization admins with the admin:org scope can, never for a user)
     async claudeApp() {
-      const result = await runner.run('gh', [
-        'api',
-        '--paginate',
-        `orgs/${repository.split('/')[0]}/installations`,
-        '--jq',
-        '.installations[] | select(.app_slug == "claude") | .repository_selection',
-      ]);
-      if (result.code !== 0) return null;
-      return result.stdout.split('\n').find(Boolean) ?? 'none';
+      const apps = await installations(repository.split('/')[0]);
+      if (apps === null) return null;
+      return apps.find((app) => app.app_slug === 'claude')?.repository_selection ?? 'none';
     },
 
     // Each path segment encoded: the name comes from the workflow file and may hold #, % or ?
@@ -89,7 +102,7 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
     login: async () => (await find('user'))?.login ?? null,
 
     labels: async () =>
-      (await paginate(`${r}/labels?per_page=100`)).map((label) => ({
+      ((await findAll(`${r}/labels?per_page=100`, '.[]')) ?? []).map((label) => ({
         name: label.name,
         description: label.description,
       })),
@@ -126,6 +139,7 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
       organizationSecrets ??= findAll(`${r}/actions/organization-secrets?per_page=100`, '.secrets[]').then(
         (secrets) => secrets?.map((secret) => secret.name) ?? [],
       );
+      organizationSecrets.catch(() => (organizationSecrets = undefined));
       return (await organizationSecrets).includes(name);
     },
 
@@ -134,14 +148,14 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
       if (!environment) repositorySecrets = undefined;
       return runner.runOrThrow(
         'gh',
-        ['secret', 'set', name, '--repo', repository, ...(environment ? ['--env', environment] : [])],
+        ['secret', 'set', name, '--repo', target, ...(environment ? ['--env', environment] : [])],
         { input: value },
       );
     },
     deleteSecret: (name, environment) =>
-      runner.runOrThrow('gh', ['secret', 'delete', name, '--repo', repository, '--env', environment]),
+      runner.runOrThrow('gh', ['secret', 'delete', name, '--repo', target, '--env', environment]),
     setVariable: (name, value, environment) =>
-      runner.runOrThrow('gh', ['variable', 'set', name, '--repo', repository, '--env', environment, '--body', value]),
+      runner.runOrThrow('gh', ['variable', 'set', name, '--repo', target, '--env', environment, '--body', value]),
 
     // Only the repository's own: rulesets inherited from the organization cannot be changed through it. Null when
     // the plan does not offer rulesets for this repository
@@ -173,28 +187,22 @@ export function createGitHub(repository, runner = { run, runOrThrow }) {
  * gh.
  */
 export function createOrganization(organization, runner = { run, runOrThrow }) {
-  const { api, find } = rest(runner);
+  const { api, find, installations } = rest(runner);
   const o = `orgs/${organization}`;
 
   return {
     organization,
 
-    // The plan's name (free, team, enterprise), or null when gh cannot see it (only members see it)
-    plan: async () => (await find(o))?.plan?.name ?? null,
+    // The organization, with its plan when gh may see it (members only); null for a user or one gh cannot see
+    details: () => find(o),
+    // The gh login's role in it ('admin' or 'member') once the membership is active, else null
+    role: async () => {
+      const membership = await find(`user/memberships/orgs/${organization}`);
+      return membership?.state === 'active' ? membership.role : null;
+    },
 
     // Slugs of the GitHub Apps installed on the organization, or null without the admin:org scope (or not an admin)
-    async installedApps() {
-      const result = await runner.run('gh', [
-        'api',
-        '--paginate',
-        `${o}/installations`,
-        '--jq',
-        '.installations[].app_slug',
-      ]);
-      if (result.code === 0) return result.stdout.split('\n').filter(Boolean);
-      if (/admin:org|HTTP 403|HTTP 404|Not Found/i.test(result.stderr)) return null;
-      throw new Error(`gh api ${o}/installations: ${result.stderr.trim()}`);
-    },
+    installedApps: async () => (await installations(organization))?.map((app) => app.app_slug) ?? null,
 
     repo: (name) => find(`repos/${organization}/${name}`),
     // With a first commit, so files can be added through the contents API right away

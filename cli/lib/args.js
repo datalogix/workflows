@@ -49,6 +49,7 @@ export function parseArgs(argv) {
 
     const [rawName, inline] = arg.slice(2).split(/=(.*)/s);
     if (rawName.startsWith('no-') && BOOLEAN.includes(rawName.slice(3))) {
+      if (inline !== undefined) throw new Error(`--${rawName} takes no value`);
       flags[rawName.slice(3)] = false;
     } else if (BOOLEAN.includes(rawName)) {
       flags[rawName] = inline === undefined ? true : booleanValue(rawName, inline);
@@ -66,7 +67,8 @@ export function parseArgs(argv) {
   if (flags.repo !== undefined && !isRepository(flags.repo)) {
     throw new Error('--repo must be owner/repo');
   }
-  if (flags.org !== undefined && !/^[\w-]+$/.test(flags.org)) {
+  // GitHub's rule for organization names: letters, digits and single hyphens between them
+  if (flags.org !== undefined && !/^[a-z\d](?:[a-z\d]|-(?=[a-z\d]))*$/i.test(flags.org)) {
     throw new Error('--org must be an organization name');
   }
   if (flags.kind !== undefined && !['app', 'package'].includes(flags.kind)) {
@@ -105,7 +107,7 @@ Options (each one skips its question in setup)
   --production auto|manual    Deploy production automatically, or only from Run workflow
   --github-deployments / --no-github-deployments  Record each deploy in the repository's Deployments
   --incidents / --no-incidents  Turn problems of the monitoring service (laravel: Nightwatch) into GitHub issues
-  --solo / --no-solo          You work alone on the project (protect: on the package)
+  --solo / --no-solo          You work alone on the project (protect: packages only; apps read the workflow file)
   --approvals-medium 1        Human approvals a medium-risk pull request needs (team projects)
   --approvals-high 1          Human approvals a high-risk pull request needs (team projects)
   --layers review,security-review,risk-gate,fix-ci  Claude workflows and risk gate on pull requests (none turns all off)
@@ -118,6 +120,6 @@ Options (each one skips its question in setup)
   --yes                       Do not ask for confirmation before applying
   --help                      Show this help
 
-On Windows, setup does not store the monitoring service's signing secret in the relay:
-store it by hand as relay/README.md in datalogix/workflows explains.
+On Windows, org does not deploy the monitoring relay, and setup does not store the monitoring service's signing
+secret in it: store it by hand as relay/README.md in datalogix/workflows explains.
 `;

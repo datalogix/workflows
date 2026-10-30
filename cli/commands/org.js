@@ -13,7 +13,7 @@ import {
 } from '../kinds/project/relay.js';
 import { SETUP } from '../lib/evaluate.js';
 import { packageRoot } from '../lib/project.js';
-import { bold, clack, cyan, dim, orExit, runTasks } from '../lib/ui.js';
+import { bold, clack, cyan, dim, logResults, orExit, runTasks } from '../lib/ui.js';
 
 // What every project of an organization shares: the Claude GitHub App, the issue forms of its .github repository and
 // the monitoring relay
@@ -101,8 +101,14 @@ export async function org(ctx) {
   spinner.start(`Reading ${name}`);
   let plan, apps, repository, forms, current, relayFile;
   try {
-    [plan, apps, repository, forms, relayFile] = await Promise.all([
-      organization.plan(),
+    // Before anything is asked: only an admin of an organization can create its repository and see its apps
+    const [details, role] = await Promise.all([organization.details(), organization.role()]);
+    if (!details)
+      throw new Error(`${name} is not an organization, or your gh login cannot see it: org sets up organizations`);
+    if (role !== 'admin')
+      throw new Error(`org takes an admin of ${name}, and your gh login is ${role ? `a ${role}` : 'not a member'}`);
+    plan = details.plan?.name ?? null;
+    [apps, repository, forms, relayFile] = await Promise.all([
       organization.installedApps(),
       organization.repo(RELAY_REPO),
       issueForms(),
@@ -118,18 +124,26 @@ export async function org(ctx) {
     throw error;
   }
   spinner.stop(`Read ${name}`);
-  const relay = ctx.relay ?? relayConfig(relayFile?.content);
+  const relay = relayConfig(relayFile?.content);
 
   const left = [];
   if (apps?.includes('claude')) clack.log.success('Claude GitHub App installed');
   else {
     if (apps === null) {
       clack.log.warn(
-        `Could not see the GitHub Apps of ${name}: it takes an organization admin and the admin:org scope (${cyan('gh auth refresh -s admin:org')})`,
+        `Could not see the GitHub Apps of ${name}: it takes the admin:org scope (${cyan('gh auth refresh -s admin:org')})`,
       );
     } else clack.log.error('The Claude GitHub App is not installed');
     left.push(
       `Make sure the Claude GitHub App is installed on ${bold(name)}, for all repositories:\n  ${cyan(CLAUDE_APP)}`,
+    );
+  }
+
+  // GitHub uses the issue forms of a public .github repository only
+  if (repository?.private) {
+    clack.log.warn(`${name}/${RELAY_REPO} is private, so its issue forms reach no repository`);
+    left.push(
+      `Make ${bold(`${name}/${RELAY_REPO}`)} public in its settings: GitHub uses its issue forms only then, and setup reads the relay settings from it.`,
     );
   }
 
@@ -173,8 +187,11 @@ export async function org(ctx) {
   });
 
   if (!relaySupported()) {
-    clack.log.warn('The monitoring relay cannot be deployed from Windows');
-    left.push('Run org from macOS or Linux to deploy the monitoring relay.');
+    if (relay.configured) clack.log.success(`Monitoring relay at ${relay.url} (updating it takes macOS or Linux)`);
+    else {
+      clack.log.warn('The monitoring relay cannot be deployed from Windows');
+      left.push('Run org from macOS or Linux to deploy the monitoring relay.');
+    }
   } else if (!relay.configured) {
     const token = await askToken(name, 'to skip the relay (no problems become issues)');
     if (token) tasks.push(relayTask(organization, relay, relayFile, token));
@@ -199,18 +216,25 @@ export async function org(ctx) {
     return 1;
   }
 
-  // Before the progress bar: logging in opens the browser and may print a link
+  // Before the progress bar: logging in opens the browser and may print a link. Without it only the relay is left
+  let loggedOut = false;
   if (tasks.some((task) => task.id === 'relay') && !(await cloudflareLoggedIn())) {
     clack.log.info('Log in to Cloudflare in the browser, where the relay runs');
-    if (!(await cloudflareLogin())) throw new Error('Could not log in to Cloudflare: run npx wrangler login');
+    if (!(await cloudflareLogin())) {
+      loggedOut = true;
+      tasks.splice(
+        tasks.findIndex((task) => task.id === 'relay'),
+        1,
+      );
+      clack.log.error('Could not log in to Cloudflare, so the monitoring relay is left as it is');
+      left.push(
+        `Log in to Cloudflare (${cyan('npx wrangler login')}) and run org again to deploy the monitoring relay.`,
+      );
+    }
   }
 
   const results = await runTasks(tasks);
-  for (const result of results) {
-    const line = `${result.title}  ${dim(result.detail)}`;
-    if (result.ok) clack.log.success(line);
-    else clack.log.error(line);
-  }
+  logResults(results);
 
   const token = 'Generate the Claude token with claude setup-token';
   if (plan === 'free') {
@@ -225,7 +249,7 @@ export async function org(ctx) {
   left.push(`Set up each project from its folder:\n  ${cyan(SETUP)}`);
   clack.note(left.map((step, index) => `${index + 1}. ${step}`).join('\n\n'), 'Left to do by hand');
 
-  const ok = results.every((result) => result.ok);
+  const ok = !loggedOut && results.every((result) => result.ok);
   clack.outro(ok ? `${name} is set up` : 'Finished with problems: fix them and run org again');
   return ok ? 0 : 1;
 }

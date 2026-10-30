@@ -37,6 +37,12 @@ test('accepts the stack and an app or package kind', () => {
   expect(() => parseArgs(['setup', '--kind', 'library'])).toThrow('--kind must be app or package');
   expect(parseArgs(['org', '--org', 'datalogix']).flags).toStrictEqual({ org: 'datalogix' });
   expect(() => parseArgs(['org', '--org', 'datalogix/app'])).toThrow('--org must be an organization name');
+  // GitHub's rule: letters, digits and single hyphens between them
+  expect(parseArgs(['org', '--org', 'data-logix2']).flags).toStrictEqual({ org: 'data-logix2' });
+  for (const name of ['-datalogix', 'datalogix-', 'data--logix', 'data_logix']) {
+    expect(() => parseArgs(['org', '--org', name])).toThrow('--org must be an organization name');
+  }
+  expect(() => parseArgs(['--no-staging=true'])).toThrow('--no-staging takes no value');
 });
 
 test('takes a flag that follows a value option as a missing value', () => {

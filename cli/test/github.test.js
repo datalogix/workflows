@@ -35,7 +35,7 @@ test('encodes a branch name in the API path, keeping its slashes', async () => {
   const paths = [];
   const github = createGitHub('datalogix/app', {
     run: async (command, args) => {
-      paths.push(args[1]);
+      paths.push(args.at(-1));
       return { code: 0, stdout: '{}', stderr: '' };
     },
     runOrThrow: async () => expect.unreachable('runOrThrow'),
@@ -48,7 +48,7 @@ test('encodes a branch name in the API path, keeping its slashes', async () => {
 function recorder(answers = {}) {
   const calls = [];
   const answer = (args) => {
-    const path = args.find((arg) => arg.startsWith('repos/') || arg === 'user');
+    const path = args.find((arg) => /^(repos|orgs|user)(\/|$)/.test(arg));
     return { code: 0, stdout: '', stderr: '', ...(answers[path] ?? {}) };
   };
   return {
@@ -66,10 +66,10 @@ test('sends secrets on stdin, never as an argument', async () => {
   expect(runner.calls).toStrictEqual([
     [
       'gh',
-      ['secret', 'set', 'DEPLOY_HOOK', '--repo', 'datalogix/app', '--env', 'production'],
+      ['secret', 'set', 'DEPLOY_HOOK', '--repo', 'github.com/datalogix/app', '--env', 'production'],
       { input: 'https://hook/s3cret' },
     ],
-    ['gh', ['secret', 'set', 'CLAUDE_CODE_OAUTH_TOKEN', '--repo', 'datalogix/app'], { input: 'token' }],
+    ['gh', ['secret', 'set', 'CLAUDE_CODE_OAUTH_TOKEN', '--repo', 'github.com/datalogix/app'], { input: 'token' }],
   ]);
 });
 
@@ -81,12 +81,12 @@ test('sends a request body as JSON on stdin, to the ruleset endpoints protect us
   expect(runner.calls).toStrictEqual([
     [
       'gh',
-      ['api', '--method', 'POST', 'repos/datalogix/app/rulesets', '--input', '-'],
+      ['api', '--hostname', 'github.com', '--method', 'POST', 'repos/datalogix/app/rulesets', '--input', '-'],
       { input: '{"name":"datalogix"}' },
     ],
     [
       'gh',
-      ['api', '--method', 'PUT', 'repos/datalogix/app/rulesets/7', '--input', '-'],
+      ['api', '--hostname', 'github.com', '--method', 'PUT', 'repos/datalogix/app/rulesets/7', '--input', '-'],
       { input: '{"name":"datalogix"}' },
     ],
   ]);
@@ -118,23 +118,46 @@ test('reads the organization secrets once per command, none when it cannot see t
   expect(await github.hasOrganizationSecret('CODECOV_TOKEN')).toBe(true);
   expect(await github.hasOrganizationSecret('RELEASE_APP_ID')).toBe(true);
   expect(await github.hasOrganizationSecret('CLAUDE_CODE_OAUTH_TOKEN')).toBe(false);
-  expect(runner.calls).toStrictEqual([['gh', ['api', '--paginate', path, '--jq', '.secrets[]'], undefined]]);
+  expect(runner.calls).toStrictEqual([
+    ['gh', ['api', '--hostname', 'github.com', '--paginate', path, '--jq', '.secrets[]'], undefined],
+  ]);
 
   const hidden = createGitHub('datalogix/app', recorder({ [path]: { code: 1, stderr: 'gh: Not Found (HTTP 404)' } }));
   expect(await hidden.hasOrganizationSecret('CODECOV_TOKEN')).toBe(false);
+
+  // A failed read is not kept, so the next call tries again
+  let attempts = 0;
+  const flaky = createGitHub('datalogix/app', {
+    run: async () =>
+      ++attempts === 1
+        ? { code: 1, stdout: '', stderr: 'HTTP 502' }
+        : { code: 0, stdout: '{"name":"CODECOV_TOKEN"}\n', stderr: '' },
+    runOrThrow: async () => expect.unreachable('runOrThrow'),
+  });
+  await expect(flaky.hasOrganizationSecret('CODECOV_TOKEN')).rejects.toThrow('HTTP 502');
+  expect(await flaky.hasOrganizationSecret('CODECOV_TOKEN')).toBe(true);
 });
 
 test('reads the rulesets of the repository it was created for', async () => {
   const runner = recorder({ 'repos/datalogix/app/rulesets?per_page=100&includes_parents=false': { stdout: '[]' } });
   expect(await createGitHub('datalogix/app', runner).rulesets()).toStrictEqual([]);
   expect(runner.calls).toStrictEqual([
-    ['gh', ['api', 'repos/datalogix/app/rulesets?per_page=100&includes_parents=false'], undefined],
+    [
+      'gh',
+      ['api', '--hostname', 'github.com', 'repos/datalogix/app/rulesets?per_page=100&includes_parents=false'],
+      undefined,
+    ],
   ]);
 });
 
 test('reads the apps of an organization, null when gh cannot see them', async () => {
   const apps = (result) => createOrganization('datalogix', runner(result)).installedApps();
-  expect(await apps({ stdout: 'claude\ncodecov\n' })).toStrictEqual(['claude', 'codecov']);
+  expect(
+    await apps({
+      stdout:
+        '{"app_slug":"claude","repository_selection":"all"}\n{"app_slug":"codecov","repository_selection":"all"}\n',
+    }),
+  ).toStrictEqual(['claude', 'codecov']);
   expect(await apps({ code: 1, stderr: 'This API operation needs the "admin:org" scope.' })).toBe(null);
   expect(await apps({ code: 1, stderr: 'gh: Must have admin rights (HTTP 403)' })).toBe(null);
   await expect(apps({ code: 1, stderr: 'gh: Bad credentials (HTTP 401)' })).rejects.toThrow('Bad credentials');
@@ -152,7 +175,7 @@ test('reads and writes the files of an organization repository as base64', async
   const write = recorder();
   await createOrganization('datalogix', write).putFile('.github', 'workflows/relay.json', 'hi', 'chore: x', 'abc');
   const [[, args, { input }]] = write.calls;
-  expect(args).toStrictEqual(['api', '--method', 'PUT', path, '--input', '-']);
+  expect(args).toStrictEqual(['api', '--hostname', 'github.com', '--method', 'PUT', path, '--input', '-']);
   expect(JSON.parse(input)).toStrictEqual({
     message: 'chore: x',
     content: Buffer.from('hi').toString('base64'),
@@ -163,9 +186,39 @@ test('reads and writes the files of an organization repository as base64', async
 test('tells how the Claude GitHub App reaches the repositories, and null when gh cannot see it', async () => {
   const claudeApp = (result) => createGitHub('datalogix/app', runner(result)).claudeApp();
 
-  expect(await claudeApp({ stdout: 'selected\n' })).toBe('selected');
-  expect(await claudeApp({ stdout: '' })).toBe('none');
+  expect(await claudeApp({ stdout: '{"app_slug":"claude","repository_selection":"selected"}\n' })).toBe('selected');
+  expect(await claudeApp({ stdout: '{"app_slug":"codecov","repository_selection":"all"}\n' })).toBe('none');
   expect(await claudeApp({ code: 1, stderr: 'gh: Must have admin rights (HTTP 403)' })).toBe(null);
+  // Another failure is not taken for a missing app
+  await expect(claudeApp({ code: 1, stderr: 'gh: Bad credentials (HTTP 401)' })).rejects.toThrow('Bad credentials');
+});
+
+test('reads the organization and the role of the gh login in it', async () => {
+  const organization = (answers) => createOrganization('datalogix', recorder(answers));
+  const membership = 'user/memberships/orgs/datalogix';
+  const answers = (state, role) => ({ [membership]: { stdout: JSON.stringify({ state, role }) } });
+  expect(await organization(answers('active', 'admin')).role()).toBe('admin');
+  expect(await organization(answers('active', 'member')).role()).toBe('member');
+  expect(await organization(answers('pending', 'admin')).role()).toBe(null);
+  expect(await organization({ [membership]: { code: 1, stderr: 'gh: Not Found (HTTP 404)' } }).role()).toBe(null);
+  expect(
+    await organization({ 'orgs/datalogix': { stdout: '{"login":"datalogix","plan":{"name":"team"}}' } }).details(),
+  ).toStrictEqual({ login: 'datalogix', plan: { name: 'team' } });
+});
+
+test('calls github.com whatever host gh would pick by default (GH_HOST)', async () => {
+  const runner = recorder();
+  const github = createGitHub('datalogix/app', runner);
+  await github.repo();
+  await github.labels();
+  await github.setVariable('HEALTH_URL', 'https://app.test/up', 'production');
+  await github.deleteSecret('NIGHTWATCH_TOKEN', 'production');
+  await createOrganization('datalogix', runner).installedApps();
+  for (const [, args] of runner.calls) {
+    if (args[0] === 'api') expect(args.slice(0, 3)).toStrictEqual(['api', '--hostname', 'github.com']);
+    else expect(args[args.indexOf('--repo') + 1]).toBe('github.com/datalogix/app');
+  }
+  expect(runner.calls).toHaveLength(5);
 });
 
 test('reads the repository secrets once, again after storing one, and fails when they cannot be read', async () => {
