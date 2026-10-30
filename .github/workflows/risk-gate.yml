@@ -23,7 +23,7 @@ on:
       extra-high-risk-paths:
         type: string
         default: ""
-        description: More patterns (one per line) that make a PR high risk, added to high-risk-paths (e.g. the project's payment code)
+        description: More patterns (one per line, * also matches /) that make a PR high risk, added to high-risk-paths (e.g. app/Services/Payment/*)
       low-risk-paths:
         type: string
         default: |

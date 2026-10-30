@@ -57,7 +57,7 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | Input   | Default | Description                                                                                |
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
 | `stack` | `laravel` | Stack of the package, which picks its tests; only `laravel` is supported (another one fails the run) |
-| `tests` | `true`  | Run the test suite; it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
+| `tests` | `true`  | Run the test suite across the matrix, Pint, PHPStan and the lint command; it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 
 Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
 
@@ -179,7 +179,7 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | `issue`           | `0`       | Issue that asked for the rollback; gets the result as a comment and loses the `rollback` label  |
 | `rollback-label`  | `rollback`| Label removed from that issue after a rollback                                                  |
 | `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud |
-| `watch-minutes`   | `5`       | Minutes to watch the health URL                                                                 |
+| `watch-minutes`   | `3`       | Minutes to watch the health URL                                                                 |
 | `max-failures`    | `3`       | Consecutive failed checks (every 30 seconds) that trigger the rollback                          |
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |
 | `github-deployments` | `true` | Record the deploy in the repository's **Deployments**; `false` still uses the environment (custom deployment protection rules need the record: with them, `false` fails the job) |

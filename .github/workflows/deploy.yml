@@ -33,7 +33,7 @@ on:
         description: Seconds to wait after triggering the deploy before watching (0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first)
       watch-minutes:
         type: number
-        default: 5
+        default: 3
         description: Minutes to watch the health URL after the deploy
       max-failures:
         type: number
