@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
-import { dropsProductionBranch, PROJECT_CHECKS } from '../kinds/project/index.js';
+import { dropsProductionBranch, environmentsOf, PROJECT_CHECKS } from '../kinds/project/index.js';
 import { hasSecret, loadRelayConfig, registerSecret } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
@@ -1393,6 +1393,30 @@ describe('setup tasks', () => {
 });
 
 describe('next steps', () => {
+  test('tells that protect drops the code owners of a project now maintained alone, not its older approvals', () => {
+    const team = rulesetBody(Object.values(PROJECT_CHECKS), { codeOwners: true });
+    Object.assign(team.rules.find((rule) => rule.type === 'pull_request').parameters, {
+      dismiss_stale_reviews_on_push: false,
+      require_last_push_approval: false,
+    });
+    const protect = (solo) =>
+      nextSteps(
+        { ...noDeployAnswers, solo, securityReview: true, riskGate: true },
+        { relay, results: [], state: { ...APP_STATE, ruleset: team } },
+      ).find((step) => step.includes('run protect again'));
+    expect(protect(true)).toContain('requires code owner approval, but you work alone');
+    expect(protect(true)).not.toContain('keeps code owner approvals of older commits');
+    expect(protect(false)).toContain('keeps code owner approvals of older commits');
+  });
+
+  test('deploys to staging unless the answers or the workflow file turn it off', () => {
+    expect(environmentsOf({ deploy: 'forge', staging: true })).toStrictEqual(['production', 'staging']);
+    // A workflow file without the staging input keeps project.yml's default, on
+    expect(environmentsOf({ deploy: 'forge' })).toStrictEqual(['production', 'staging']);
+    expect(environmentsOf({ deploy: 'forge', staging: false })).toStrictEqual(['production']);
+    expect(environmentsOf({ deploy: 'none', staging: true })).toStrictEqual([]);
+  });
+
   test('commits only the files the tasks changed', () => {
     const answers = { ...noDeployAnswers, databaseCheck: true };
     const commit = (results) =>

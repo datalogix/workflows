@@ -42,21 +42,22 @@ export function workflowItems(report, state, { ref, kind, fix }) {
 /**
  * The ruleset requires the expected checks and none that never reports: `known` are every check of the stack.
  * `branches(report)` adds the items of other protected branches and returns { ok, label } for the final line.
+ * Returns the drift (rulesetDrift, with `codeOwners`) for codeOwnerItems, or null without a ruleset to compare.
  */
-export function rulesetItems(report, state, { expected, known, branches = () => ({ ok: true }) }) {
+export function rulesetItems(report, state, { expected, known, codeOwners = null, branches = () => ({ ok: true }) }) {
   if (!state.canProtect) {
     report.warn(
       'Private repository on GitHub Free: branches cannot be protected, so the checks are only advice and anyone with write access can push',
       'GitHub Team (or Pro), or a public repository',
     );
-    return;
+    return null;
   }
   if (!state.ruleset) {
     // Another ruleset, one of the organization or classic branch protection may still protect it
     report.warn(`The default branch has no "${RULESET_NAME}" ruleset, so its checks may be only advice`, PROTECT);
-    return;
+    return null;
   }
-  const drift = rulesetDrift(state.ruleset, { expected, known });
+  const drift = rulesetDrift(state.ruleset, { expected, known, codeOwners, defaultBranch: state.defaultBranch });
   if (drift.enforcement)
     report.error(`The "${RULESET_NAME}" ruleset is ${drift.enforcement}: nothing is enforced`, PROTECT);
   if (!drift.defaultBranch) report.warn(`The "${RULESET_NAME}" ruleset does not apply to the default branch`, PROTECT);
@@ -73,19 +74,20 @@ export function rulesetItems(report, state, { expected, known, branches = () => 
   const right =
     !drift.enforcement && drift.defaultBranch && drift.pullRequests && !drift.missing.length && !drift.stale.length;
   if (right && other.ok) report.ok(other.label ?? 'Default branch protected');
+  return drift;
 }
 
 /**
  * Code owners of .github/: without their approval, a pull request could change its own workflow file to lower the
  * checks. `requireApproval`: true (a team project) reports a ruleset that does not require that approval, false (one
- * maintainer) needs no code owners unless the ruleset requires them, null when unknown.
+ * maintainer) needs no code owners unless the ruleset requires them, null when unknown. `drift` is what rulesetItems
+ * returned, computed with the same requireApproval.
  */
-export function codeOwnerItems(report, state, { requireApproval, hint }) {
+export function codeOwnerItems(report, state, { requireApproval, hint, drift = null }) {
   if (state.codeOwners) report.ok(`Code owners of .github/: ${state.codeOwners.join(' ')}`);
   else if (requireApproval !== false || requiresCodeOwners(state.ruleset)) {
     report.warn(`${CODEOWNERS_PATH} has no owner for /.github/`, hint);
   }
-  const drift = state.ruleset ? rulesetDrift(state.ruleset, { codeOwners: requireApproval || null }) : null;
   if (drift?.codeOwners === 'missing') {
     report.warn(
       'The ruleset does not require code owner approval, so a pull request can lower its own checks',

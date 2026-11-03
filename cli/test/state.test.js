@@ -125,6 +125,16 @@ test('treats optional reads it cannot do as not set', async (t) => {
   const state = await collectState(stateGitHub({ hasOrganizationSecret: fail, login: fail }), root, { detected: app });
   expect(state.claudeToken.organization).toBe(false);
   expect(state.login).toBe(null);
+
+  // The Claude GitHub App too, when gh fails to read the installations (a 502, the network): check warns instead
+  const unseen = await collectState(
+    stateGitHub({ claudeApp: async () => Promise.reject(new Error('HTTP 502')) }),
+    root,
+    {
+      detected: app,
+    },
+  );
+  expect(unseen.claudeApp).toBe(null);
 });
 
 test('reads what a production branch needs, on a plan without rulesets', async (t) => {

@@ -66,6 +66,15 @@ test('finds a ruleset that is not enforced on the default branch, or without pul
   expect(rulesetDrift(all).defaultBranch).toBe(true);
   const other = { ...body, conditions: { ref_name: { include: ['refs/heads/main'], exclude: [] } } };
   expect(rulesetDrift(other).defaultBranch).toBe(false);
+  // Named by its ref, it applies; excluded, it does not
+  expect(rulesetDrift(other, { defaultBranch: 'main' }).defaultBranch).toBe(true);
+  const excluded = { ...body, conditions: { ref_name: { include: ['~ALL'], exclude: ['~DEFAULT_BRANCH'] } } };
+  expect(rulesetDrift(excluded, { defaultBranch: 'main' }).defaultBranch).toBe(false);
+  const excludedByName = {
+    ...body,
+    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: ['refs/heads/main'] } },
+  };
+  expect(rulesetDrift(excludedByName, { defaultBranch: 'main' }).defaultBranch).toBe(false);
   const drift = rulesetDrift({ ...body, rules: [] });
   expect(drift.pullRequests).toBe(false);
   expect(driftPhrases(drift)).toContain('does not require pull requests');

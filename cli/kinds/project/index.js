@@ -60,7 +60,8 @@ const CLAUDE_INSTALL = 'https://github.com/apps/claude/installations/new';
 export const deploys = (a) => Boolean(a.deploy) && a.deploy !== 'none';
 export const twoBranches = (a) => Boolean(a.branches && a.productionBranch);
 /** The GitHub environments the answers deploy to. */
-export const environmentsOf = (a) => (deploys(a) ? (a.staging ? ['production', 'staging'] : ['production']) : []);
+export const environmentsOf = (a) =>
+  deploys(a) ? (a.staging !== false ? ['production', 'staging'] : ['production']) : [];
 // The production branch of the current workflow file, when it exists
 const existingProductionBranch = (state) =>
   state.productionBranchStatus?.exists ? state.productionBranchStatus.name : null;
@@ -1104,13 +1105,14 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
   steps.push(...stack.nextSteps(answers, { state, results }));
 
   // What protect would change in an existing ruleset. Layers setup does not ask about (tests) come from the workflow
-  // file; only a project no longer maintained alone changes the code owners (protect reads solo from the file)
+  // file, and the code owner approval follows the solo answer, which protect reads from it
   if (state.ruleset) {
     const phrases = driftPhrases(
       rulesetDrift(state.ruleset, {
         expected: checksOn(stack.checks, { ...state.current, ...answers }),
         known: Object.values(stack.checks),
-        codeOwners: answers.solo === false ? true : null,
+        codeOwners: !answers.solo,
+        defaultBranch: state.defaultBranch,
       }),
       bold,
     );
@@ -1196,8 +1198,8 @@ async function readProject(stack, github, read, { current, release }) {
           sha: branch?.commit?.sha ?? null,
         }))
       : null,
-    // Optional: null when gh cannot see the organization's GitHub Apps
-    github.claudeApp(),
+    // Optional: null when gh cannot see the organization's GitHub Apps, or the read fails (check and nextSteps say so)
+    github.claudeApp().catch(() => null),
   ]);
 
   return {
@@ -1287,8 +1289,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   // below await them in their usual order. A failure is kept for the await, not reported as unhandled meanwhile
   const started = (promise) => (promise.catch(() => {}), promise);
   const deploy = state.current?.deploy ?? 'none';
-  const environments =
-    deploy === 'none' ? [] : state.current?.staging === false ? ['production'] : ['production', 'staging'];
+  const environments = environmentsOf(state.current ?? {});
   const probes = Object.fromEntries(
     environments
       .filter((name) => state.environments[name].exists && state.environments[name].healthUrl)
@@ -1366,9 +1367,11 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   if (state.current?.incidents !== false || markers) stack.evaluateMonitoring?.(report, state);
 
   // The production branch is protected only when the release GitHub App runs the checks of its release pull requests
-  rulesetItems(report, state, {
+  const requireApproval = state.current ? !state.current.solo : null;
+  const drift = rulesetItems(report, state, {
     expected: checksOn(stack.checks, state.current),
     known: Object.values(stack.checks),
+    codeOwners: requireApproval || null,
     branches: () => {
       const productionBranch = deployedProductionBranch(state.current);
       // A production branch that is the default branch is reported above, and ~DEFAULT_BRANCH covers it
@@ -1393,7 +1396,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
     },
   });
 
-  codeOwnerItems(report, state, { requireApproval: state.current ? !state.current.solo : null, hint: SETUP });
+  codeOwnerItems(report, state, { requireApproval, hint: SETUP, drift });
 
   if (state.current?.incidents !== false) {
     if (!relay.configured) {

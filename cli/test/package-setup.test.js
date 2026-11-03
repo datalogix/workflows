@@ -74,6 +74,10 @@ test('asks for the Codecov token only when the package uploads coverage and cann
   const ids = setup.steps().map((candidate) => candidate.id);
   expect(ids.indexOf('codecovToken')).toBeGreaterThan(ids.indexOf('testRun'));
   expect(step.when({ testRun: NO_TESTS }, { state: { codecovToken: false } })).toBe(false);
+  // A test command answered now replaces the file's none
+  const none = { codecovToken: false, current: { testCommand: NO_TESTS } };
+  expect(step.when({ testRun: 'other' }, { state: none })).toBe(true);
+  expect(step.when({}, { state: none })).toBe(false);
 });
 
 test('tells to protect the package only without a ruleset, or when it differs from the solo answer', () => {

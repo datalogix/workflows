@@ -77,9 +77,9 @@ export async function protect(ctx) {
   }
 
   const existing = rulesets.find((ruleset) => ruleset.name === RULESET_NAME);
-  const codeOwners = await module.needsCodeOwners(current, ctx.flags);
-  const productionBranch = module.protectedBranch ? await module.protectedBranch(github, current) : null;
   const ruleset = existing ? await github.ruleset(existing.id) : null;
+  const codeOwners = await module.needsCodeOwners(current, ctx.flags, ruleset);
+  const productionBranch = module.protectedBranch ? await module.protectedBranch(github, current) : null;
   // In an app's ruleset, the production branch left without the release GitHub App leaves it. Other single branches
   // may have been added by hand or be a former production branch, which the ruleset cannot tell apart: they stay, with
   // a warning. Patterns (release/*) stay

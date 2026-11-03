@@ -19,9 +19,12 @@ export const PACKAGE_CHECKS = {
 // What the kind reads (readPackage), before it is read
 const PACKAGE_STATE = { codecovToken: false };
 
-/** Whether the package uploads a coverage report, so it needs a Codecov token: tests and coverage on. */
-const uploadsCoverage = ({ current }) =>
-  current?.tests !== false && current?.coverage !== false && current?.testCommand !== NO_TESTS;
+/**
+ * Whether the package uploads a coverage report, so it needs a Codecov token: tests and coverage on. A test suite
+ * answered in setup (testRun) replaces the file's.
+ */
+const uploadsCoverage = ({ current }, answers = {}) =>
+  current?.tests !== false && current?.coverage !== false && (answers.testRun ?? current?.testCommand) !== NO_TESTS;
 
 function setupSteps(stack) {
   return [
@@ -30,7 +33,7 @@ function setupSteps(stack) {
     {
       id: 'codecovToken',
       // After the stack's questions, which may turn the test suite off
-      when: (a, ctx) => !ctx.state.codecovToken && a.testRun !== NO_TESTS && uploadsCoverage(ctx.state),
+      when: (a, ctx) => !ctx.state.codecovToken && uploadsCoverage(ctx.state, a),
       ask: async ({ header }) =>
         orExit(
           await clack.password({
@@ -105,6 +108,7 @@ function nextSteps(checks, answers, { results, state }) {
       expected: checksOn(checks, { ...state.current, ...answers }),
       known: Object.values(checks),
       codeOwners: !answers.solo,
+      defaultBranch: state.defaultBranch,
     }),
     bold,
   );
@@ -116,7 +120,7 @@ function nextSteps(checks, answers, { results, state }) {
 async function evaluate(checks, state) {
   const report = createReport();
   workflowItems(report, state, { ref: PACKAGE_REF, kind: 'package', fix: SETUP });
-  rulesetItems(report, state, {
+  const drift = rulesetItems(report, state, {
     expected: checksOn(checks, state.current),
     known: Object.values(checks),
   });
@@ -127,7 +131,7 @@ async function evaluate(checks, state) {
   }
   // The workflow file does not say whether one person maintains the package (protect asks): a missing approval rule
   // is not reported, only one that keeps older approvals
-  codeOwnerItems(report, state, { requireApproval: null, hint: SETUP });
+  codeOwnerItems(report, state, { requireApproval: null, hint: SETUP, drift });
   return report.items;
 }
 
@@ -165,11 +169,17 @@ export function packageKind(stack) {
      * Whether code owners must approve changes to .github/: a package's workflow file does not say whether one person
      * maintains it, so --solo or a question does.
      */
-    async needsCodeOwners(current, flags) {
+    async needsCodeOwners(current, flags, ruleset = null) {
       if (flags.solo !== undefined) return !flags.solo;
       // Without a question, the safe choice: nobody can lower the checks without a code owner
       if (flags.yes) return true;
-      return !orExit(await clack.confirm({ message: 'Do you work alone on this package?', initialValue: true }));
+      // Like setup's question: a ruleset that requires code owners tells a team
+      return !orExit(
+        await clack.confirm({
+          message: 'Do you work alone on this package?',
+          initialValue: !requiresCodeOwners(ruleset),
+        }),
+      );
     },
   };
 }

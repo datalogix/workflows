@@ -124,7 +124,13 @@ export async function org(ctx) {
     throw error;
   }
   spinner.stop(`Read ${name}`);
-  const relay = relayConfig(relayFile?.content);
+  const stored = relayConfig(relayFile?.content);
+  // A relay of another owner (relay.json copied from another organization) rejects this one's repositories: it is
+  // deployed again for this organization
+  const foreign = stored.configured && stored.owner && stored.owner.toLowerCase() !== name.toLowerCase();
+  if (foreign)
+    clack.log.warn(`${RELAY_PATH} names a relay of ${stored.owner}, which rejects the repositories of ${name}`);
+  const relay = foreign ? { ...stored, configured: false } : stored;
 
   const left = [];
   if (apps?.includes('claude')) clack.log.success('Claude GitHub App installed');

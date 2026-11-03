@@ -317,6 +317,19 @@ test('asks whether one person maintains a package without --solo or --yes', asyn
   expect(requiresCodeOwners(written(github))).toBe(false);
 });
 
+test("suggests a team for a package whose ruleset requires code owners, like setup's question", async (t) => {
+  const root = await packageFolder(t);
+  const latest = { number: 1, names: [PACKAGE_CHECK] };
+  const team = { id: 9, ...rulesetBody([PACKAGE_CHECK], { codeOwners: true }) };
+  clack.confirm.mockResolvedValueOnce(false);
+  const github = protectGitHub({ latest, rulesets: [team] });
+  expect(await run(root, github, { flags: {}, repository: 'datalogix/package' })).toBe(0);
+  expect(clack.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'Do you work alone on this package?', initialValue: false }),
+  );
+  expect(requiresCodeOwners(written(github))).toBe(true);
+});
+
 test('does not require the package check when its tests are off', async (t) => {
   const github = protectGitHub({ latest: { number: 1, names: [] } });
   const root = await packageFolder(t, '    with:\n      tests: false\n');

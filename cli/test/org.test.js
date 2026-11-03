@@ -200,6 +200,21 @@ test('does not deploy the relay on Windows', async (t) => {
   expect(leftByHand()).not.toContain('to deploy the monitoring relay');
 });
 
+test("deploys the relay again when relay.json names another organization's", async () => {
+  const organization = fakeOrganization({
+    files: { 'workflows/relay.json': relayJson({ ...RELAY, owner: 'other' }) },
+  });
+  expect(await run(organization)).toBe(0);
+  expect(clack.log.warn).toHaveBeenCalledWith(
+    'workflows/relay.json names a relay of other, which rejects the repositories of datalogix',
+  );
+  // A worker and settings of its own
+  expect(deployRelay).toHaveBeenCalledWith(
+    expect.objectContaining({ owner: 'datalogix', worker: 'incident-relay-datalogix' }),
+  );
+  expect(organization.calls).toContainEqual(['file', 'workflows/relay.json', 'sha-workflows/relay.json']);
+});
+
 test('stops before asking anything for a user or an organization the gh login does not administer', async () => {
   const user = fakeOrganization({ details: null });
   await expect(run(user)).rejects.toThrow('datalogix is not an organization, or your gh login cannot see it');

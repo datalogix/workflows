@@ -152,14 +152,19 @@ export function requiredChecks(ruleset) {
  * default branch and requires pull requests, the `expected` checks it lacks, the checks of `known` (every check of the
  * stack) it requires although their layer is off, and the code owner approval: `codeOwners` true or false is what
  * protect would write (null leaves it as it is), and a required one that keeps older approvals is reported too.
+ * `defaultBranch` is its name, so a ruleset that names it rather than ~DEFAULT_BRANCH applies to it.
  */
-export function rulesetDrift(ruleset, { expected = [], known = [], codeOwners = null } = {}) {
+export function rulesetDrift(ruleset, { expected = [], known = [], codeOwners = null, defaultBranch = null } = {}) {
   const required = requiredChecks(ruleset);
   const owners = requiresCodeOwners(ruleset);
-  const include = ruleset?.conditions?.ref_name?.include ?? [];
+  const { include = [], exclude = [] } = ruleset?.conditions?.ref_name ?? {};
+  // The default branch by any name a ruleset gives it: ~DEFAULT_BRANCH, ~ALL or its own ref
+  const names = ['~DEFAULT_BRANCH', ...(defaultBranch ? [`refs/heads/${defaultBranch}`] : [])];
   return {
     enforcement: ruleset?.enforcement === 'active' ? null : (ruleset?.enforcement ?? 'disabled'),
-    defaultBranch: include.includes('~DEFAULT_BRANCH') || include.includes('~ALL'),
+    defaultBranch:
+      (include.includes('~ALL') || names.some((name) => include.includes(name))) &&
+      !names.some((name) => exclude.includes(name)),
     pullRequests: Boolean(ruleset?.rules?.some((rule) => rule.type === 'pull_request')),
     missing: expected.filter((check) => !required.includes(check)),
     stale: known.filter((check) => required.includes(check) && !expected.includes(check)),
