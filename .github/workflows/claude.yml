@@ -123,26 +123,7 @@ jobs:
       # triage access, and labels only need triage). A user without access to the repository (404) has no permission
       - name: Require write access
         id: access
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SENDER: ${{ github.event.sender.login }}
-        run: |
-          err=$(mktemp)
-          if ! permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission 2>"$err"); then
-            if ! grep -qE 'HTTP 404|Not Found' "$err"; then
-              echo "::error::Could not read the permission of $SENDER: $(head -n 1 "$err")"
-              exit 1
-            fi
-            permission=''
-          fi
-          case "$permission" in
-            admin | maintain | write) ;;
-            *)
-              echo "::notice::$SENDER needs write access for Claude to run (has '${permission:-none}')"
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
+        uses: datalogix/workflows/.github/actions/write-access@v2
 
       # A fork's code would run with write access and the Claude token: comments on fork PRs are ignored. Review
       # events carry the head repository; a comment on a PR (issue_comment) does not, so it is read from the API.
@@ -243,26 +224,7 @@ jobs:
       # job (adding a label only needs triage access)
       - name: Require write access
         id: access
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SENDER: ${{ github.event.sender.login }}
-        run: |
-          err=$(mktemp)
-          if ! permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission 2>"$err"); then
-            if ! grep -qE 'HTTP 404|Not Found' "$err"; then
-              echo "::error::Could not read the permission of $SENDER: $(head -n 1 "$err")"
-              exit 1
-            fi
-            permission=''
-          fi
-          case "$permission" in
-            admin | maintain | write) ;;
-            *)
-              echo "::notice::$SENDER needs write access for Claude to run (has '${permission:-none}')"
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
+        uses: datalogix/workflows/.github/actions/write-access@v2
 
       - name: Checkout code
         if: steps.access.outputs.skip != 'true'
