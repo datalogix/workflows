@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { issueForms, org, relayTokenUrl } from '../commands/org.js';
 import { cloudflareLoggedIn, cloudflareLogin, deployRelay, relayNamespace } from '../kinds/project/relay.js';
-import { onPlatform, RELAY } from './helpers.js';
+import { folder, onPlatform, RELAY } from './helpers.js';
 
 // Quiet, and answers the questions as each test says
 vi.mock('@clack/prompts', async (importOriginal) => ({
@@ -107,6 +107,7 @@ test('creates the .github repository with the issue forms and deploys the relay'
   expect(cloudflareLogin).not.toHaveBeenCalled();
   // GitHub Free: the Claude token goes in each project
   expect(leftByHand()).toContain('setup asks for it in each project');
+  expect(clack.outro).toHaveBeenCalledWith('datalogix is set up');
 });
 
 test('changes only the forms that differ and keeps the relay unless asked to update it', async () => {
@@ -243,8 +244,10 @@ test('goes on without the relay when the Cloudflare login fails', async () => {
   expect(await run(organization)).toBe(1);
   expect(deployRelay).not.toHaveBeenCalled();
   // The repository and the forms do not need Cloudflare
-  expect(organization.calls[0]).toStrictEqual(['repo', '.github']);
-  expect(organization.calls.length).toBeGreaterThan(1);
+  expect(organization.calls).toStrictEqual([
+    ['repo', '.github'],
+    ...(await formPaths()).map((path) => ['file', path, null]),
+  ]);
   expect(leftByHand()).toContain('npx wrangler login');
 });
 
@@ -257,4 +260,67 @@ test('links to a fine-grained token filled in for the relay', () => {
     contents: 'write',
     expires_in: '366',
   });
+  // GitHub limits the name to 40 characters
+  expect(new URL(relayTokenUrl('a'.repeat(45))).searchParams.get('name')).toBe('a'.repeat(40));
+});
+
+test('applies with --yes without asking, keeping a configured relay', async () => {
+  const organization = fakeOrganization({ files: { 'workflows/relay.json': relayJson(RELAY) } });
+  expect(await run(organization, { flags: { yes: true } })).toBe(0);
+  expect(clack.confirm).not.toHaveBeenCalled();
+  expect(clack.password).not.toHaveBeenCalled();
+  expect(deployRelay).not.toHaveBeenCalled();
+  expect(organization.calls).toStrictEqual((await formPaths()).map((path) => ['file', path, null]));
+});
+
+test('exits with 1 when a change fails', async () => {
+  clack.password.mockResolvedValue('');
+  const organization = {
+    ...fakeOrganization({ files: {} }),
+    putFile: async () => {
+      throw new Error('HTTP 409');
+    },
+  };
+  expect(await run(organization)).toBe(1);
+  expect(clack.outro).toHaveBeenCalledWith('Finished with problems: fix them and run org again');
+});
+
+test('accepts only a fine-grained token for the relay, or none', async () => {
+  await run(fakeOrganization());
+  const { validate } = clack.password.mock.calls[0][0];
+  expect(validate('ghp_x')).toBe('Paste a fine-grained token (github_pat_…)');
+  expect(validate('github_pat_abc')).toBeUndefined();
+  expect(validate('')).toBeUndefined();
+});
+
+test('does not write relay.json again when the update leaves it the same', async () => {
+  const forms = await issueForms();
+  const relay = { url: WORKER_URL, namespaceId: 'id', owner: 'datalogix' };
+  const organization = fakeOrganization({
+    files: {
+      ...Object.fromEntries(
+        Object.entries(forms).map(([file, content]) => [`.github/ISSUE_TEMPLATE/${file}`, content]),
+      ),
+      'workflows/relay.json': relayJson(relay),
+    },
+    plan: 'team',
+  });
+  expect(await run(organization)).toBe(0);
+  expect(deployRelay).toHaveBeenCalledOnce();
+  expect(organization.calls).toStrictEqual([]);
+});
+
+test('tells where the Claude token goes when the plan cannot be read', async () => {
+  clack.password.mockResolvedValue('');
+  await run(fakeOrganization({ files: {}, details: { login: 'datalogix' } }));
+  expect(leftByHand()).toContain('--org datalogix --visibility all');
+  expect(leftByHand()).toContain('(on GitHub Free, setup asks for it in each project instead)');
+
+  await run(fakeOrganization({ files: {}, plan: 'team' }));
+  expect(leftByHand()).not.toContain('on GitHub Free');
+});
+
+test('reads the issue forms of a folder in order, only the .yml files', async (t) => {
+  const dir = await folder(t, { 'b.yml': 'b', 'a.yml': 'a', 'README.md': 'readme' });
+  expect(await issueForms(dir)).toStrictEqual({ 'a.yml': 'a', 'b.yml': 'b' });
 });

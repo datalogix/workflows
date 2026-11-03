@@ -58,6 +58,22 @@ test('reads the installed tools and the scripts of composer.json', async (t) => 
   expect(scriptCommands({ a: ['@b'], b: ['@a', 'x'] }, 'a')).toStrictEqual(['x']);
 });
 
+test('reads PHPUnit, every PHPStan package, and only the commands of a script', async (t) => {
+  const tools = async (composer) => inspectTools(await folder(t, { 'composer.json': JSON.stringify(composer) }));
+  expect(await tools({ 'require-dev': { 'phpunit/phpunit': '^12' } })).toStrictEqual({
+    ...NO_TOOLS,
+    phpunit: true,
+  });
+  for (const name of ['phpstan/phpstan', 'nunomaduro/larastan']) {
+    expect((await tools({ 'require-dev': { [name]: '*' } })).phpstan, name).toBe(true);
+  }
+  // composer also takes objects in a script's list
+  expect((await tools({ scripts: { test: ['@php artisan test', { x: 1 }], one: 'pint' } })).scripts).toStrictEqual({
+    test: ['@php artisan test'],
+    one: ['pint'],
+  });
+});
+
 test('suggests a test command that does not lint again', async (t) => {
   const starter = await inspectTools(await folder(t, { 'composer.json': JSON.stringify(STARTER) }));
   expect(suggestedTests(starter, 'project')).toStrictEqual({ value: 'php artisan test', label: 'php artisan test' });
@@ -82,6 +98,8 @@ test('suggests the check scripts the chosen tools do not cover', async (t) => {
   expect(suggestedLint(starter, ['command'])).toBe('composer lint:check && composer types:check');
   expect(suggestedLint(starter, ['pint', 'command'])).toBe('composer types:check');
   expect(suggestedLint(starter, ['pint', 'phpstan', 'command'])).toBe('');
+  // A check script without commands suggests nothing
+  expect(suggestedLint({ ...NO_TOOLS, scripts: { check: [] } }, ['command'])).toBe('');
 });
 
 test('writes only the inputs that differ from the defaults', async () => {
@@ -98,7 +116,9 @@ test('writes only the inputs that differ from the defaults', async () => {
   // Not asked: the file keeps what it has
   const current = { pint: 'false', 'lint-command': "'composer a && composer b'", 'test-command': 'none' };
   expect(toolInputs({}, current)).toStrictEqual(current);
+});
 
+test('quotes a command only when YAML needs it, and refuses one it cannot write', () => {
   expect(commandValue('php artisan test')).toBe('php artisan test');
   expect(commandValue('composer lint:check')).toBe("'composer lint:check'");
   expect(validCommand('')).toBe('Type a command');
@@ -196,6 +216,11 @@ test('starts from the workflow file, and offers only what is installed', async (
   prompts.answers = [[], 'none'];
   await askSteps(toolSteps('project'), ctxWith({ ...NO_TOOLS, phpunit: true }, { testCommand: 'none' }));
   expect(prompts.asked[1].initialValue).toBe('none');
+  // Turned on again with another command: the command starts empty
+  prompts.asked = [];
+  prompts.answers = [[], 'other', 'vendor/bin/pest'];
+  await askSteps(toolSteps('project'), ctxWith({ ...NO_TOOLS, phpunit: true }, { testCommand: 'none' }));
+  expect(prompts.asked[2].initialValue).toBe('');
 });
 
 test('answers the questions from flags', async () => {
@@ -220,6 +245,12 @@ test('answers the questions from flags', async () => {
     phpstan: false,
     testRun: 'other',
     testCommand: 'vendor/bin/pest --parallel',
+  });
+
+  expect(await askSteps(toolSteps('project'), { ...ctxWith(installed), flags: { lint: ' none ' } })).toMatchObject({
+    lint: [],
+    pint: false,
+    phpstan: false,
   });
 
   await expect(askSteps(toolSteps('project'), { ...ctxWith(installed), flags: { lint: 'eslint' } })).rejects.toThrow(

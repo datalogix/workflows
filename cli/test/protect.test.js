@@ -65,6 +65,15 @@ test('creates the ruleset with every check and code owner approval for a team', 
   expect(requiredChecks(body)).toStrictEqual(ALL);
   expect(requiresCodeOwners(body)).toBe(true);
   expect(keepsStaleApprovals(body)).toBe(false);
+  // The latest pull request ran every check: nothing to warn about
+  expect(clack.log.warn).not.toHaveBeenCalled();
+  expect(clack.log.success).toHaveBeenCalledWith(
+    'Created the "datalogix" ruleset: pull requests and these checks are required',
+  );
+  expect(clack.log.message).toHaveBeenCalledWith(
+    'Changes to .github/ also need the approval of its code owners (.github/CODEOWNERS)',
+  );
+  expect(clack.outro).toHaveBeenCalledWith('Default branch protected');
 });
 
 test('updates the existing ruleset without code owners for a solo maintainer', async (t) => {
@@ -72,6 +81,10 @@ test('updates the existing ruleset without code owners for a solo maintainer', a
   expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(0);
   expect(github.calls[0].slice(0, 2)).toStrictEqual(['ruleset', 9]);
   expect(requiresCodeOwners(written(github))).toBe(false);
+  expect(clack.log.success).toHaveBeenCalledWith(
+    'Updated the "datalogix" ruleset: pull requests and these checks are required',
+  );
+  expect(clack.log.message).not.toHaveBeenCalledWith(expect.stringContaining('code owners'));
 });
 
 test('keeps what was added to the existing ruleset by hand', async (t) => {
@@ -206,6 +219,7 @@ test('protects the production branch with the default branch', async (t) => {
   const github = protectGitHub({ releaseApp: true });
   expect(await run(await project(t, production), github)).toBe(0);
   expect(written(github).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/main']);
+  expect(clack.outro).toHaveBeenCalledWith('Default branch and main protected');
 });
 
 test('leaves the production branch out without the release GitHub App', async (t) => {
@@ -222,7 +236,7 @@ test('takes the production branch out of the ruleset when the release GitHub App
   protectedBefore.conditions.ref_name.include.push('refs/heads/release/*');
   const github = protectGitHub({ rulesets: [{ id: 9, ...protectedBefore }] });
   expect(await run(await project(t, production), github)).toBe(0);
-  expect(github.calls[0].at(-1).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/release/*']);
+  expect(written(github).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/release/*']);
 });
 
 test('keeps other branches in the ruleset with a warning, as it cannot tell a renamed production branch', async (t) => {
@@ -230,7 +244,7 @@ test('keeps other branches in the ruleset with a warning, as it cannot tell a re
   before.conditions.ref_name.include.push('refs/heads/release/*');
   const github = protectGitHub({ rulesets: [{ id: 9, ...before }], releaseApp: true });
   expect(await run(await project(t, production), github)).toBe(0);
-  expect(github.calls.at(-1).at(-1).conditions.ref_name.include).toStrictEqual([
+  expect(written(github).conditions.ref_name.include).toStrictEqual([
     '~DEFAULT_BRANCH',
     'refs/heads/main',
     'refs/heads/release',
@@ -246,7 +260,7 @@ test('keeps branches added by hand when the production branch leaves the ruleset
   before.conditions.ref_name.include.push('refs/heads/develop');
   const github = protectGitHub({ rulesets: [{ id: 9, ...before }] });
   expect(await run(await project(t, production), github)).toBe(0);
-  expect(github.calls[0].at(-1).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/develop']);
+  expect(written(github).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/develop']);
 });
 
 test('stops when it cannot read the secrets of the release GitHub App', async (t) => {
@@ -274,6 +288,10 @@ test('changes nothing on a plan without rulesets', async (t) => {
   const github = protectGitHub({ rulesets: null });
   expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(1);
   expect(github.calls).toStrictEqual([]);
+  expect(clack.log.warn).toHaveBeenCalledWith(
+    expect.stringMatching(/^GitHub offers no rulesets or branch protection for private repositories on the Free plan:/),
+  );
+  expect(clack.outro).toHaveBeenCalledWith('Nothing was changed');
 });
 
 test('asks before protecting another repository than the folder', async (t) => {

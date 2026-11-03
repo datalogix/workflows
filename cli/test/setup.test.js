@@ -628,6 +628,19 @@ describe('setup steps', () => {
     expect(askedSteps(setupSteps(), branchAnswers, { state: { ...APP_STATE, nodeScripts: ['lint'] } })).toContain('js');
     expect(askedSteps(setupSteps(), branchAnswers)).not.toContain('js');
   });
+
+  test("offers the package.json scripts but npm init's test, starting from the workflow file", async (t) => {
+    const scripts = { test: 'echo "Error: no test specified" && exit 1', lint: 'eslint .', typecheck: 'tsc' };
+    const root = await folder(t, { 'package.json': JSON.stringify({ scripts }) }, 'setup-');
+    expect((await app.inspect(root)).nodeScripts).toStrictEqual(['typecheck', 'lint']);
+
+    const step = setupSteps().find((candidate) => candidate.id === 'js');
+    const ask = (current) =>
+      step.ask({ header: '1/1', ctx: { state: { ...APP_STATE, nodeScripts: ['lint'], current } } });
+    await ask(null);
+    await ask({ js: false });
+    expect(prompts.asked.map((options) => options.initialValue)).toStrictEqual([true, false]);
+  });
 });
 
 describe('setup tasks', () => {

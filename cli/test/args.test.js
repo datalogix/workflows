@@ -15,6 +15,9 @@ test('parses the command and its flags', () => {
   });
   expect(parseArgs(['--incidents=false']).flags).toStrictEqual({ incidents: false });
   expect(parseArgs(['--solo=yes', '--yes=0']).flags).toStrictEqual({ solo: true, yes: false });
+  expect(parseArgs(['--solo=1', '--js=no']).flags).toStrictEqual({ solo: true, js: false });
+  // Only the first = separates the name
+  expect(parseArgs(['--lint-command=composer a=b']).flags).toStrictEqual({ 'lint-command': 'composer a=b' });
   // Checked by the stack's question (setup), as each stack deploys elsewhere
   expect(parseArgs(['--deploy', 'heroku']).flags).toStrictEqual({ deploy: 'heroku' });
   expect(parseArgs(['--help']).command).toBe('help');
