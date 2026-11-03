@@ -28,13 +28,14 @@ See [Lint and test suite](app-tests.md#lint-and-test-suite) for `lint-command` a
 gh label create claude      --repo OWNER/REPO --color 1d76db --description "Claude implementa e abre um pull request" --force
 gh label create claude-plan --repo OWNER/REPO --color 0e8a16 --description "Claude publica um plano de implementação" --force
 gh label create no-review   --repo OWNER/REPO --color ededed --description "Pula a revisão do Claude" --force
+gh label create task        --repo OWNER/REPO --color fbca04 --description "Tarefa do gerenciador de tarefas" --force
 gh label create rollback    --repo OWNER/REPO --color b60205 --description "Reverte o ambiente para a versão anterior" --force
 # With deploy, one per environment (env:staging only with staging): rollback on an issue with one rolls that environment back
 gh label create env:production --repo OWNER/REPO --color c5def5 --description "Ambiente do problema; o label rollback reverte este ambiente" --force
 gh label create env:staging    --repo OWNER/REPO --color c5def5 --description "Ambiente do problema; o label rollback reverte este ambiente" --force
 ```
 
-For an English project (`language` starting with `en`), use the English descriptions: "Claude implements it and opens a pull request", "Claude posts an implementation plan", "Skips Claude's review", "Rolls the environment back to the previous release" and, for the `env:` labels, "Environment of the problem; the rollback label rolls this environment back".
+For an English project (`language` starting with `en`), use the English descriptions: "Claude implements it and opens a pull request", "Claude posts an implementation plan", "Skips Claude's review", "Task of the task manager", "Rolls the environment back to the previous release" and, for the `env:` labels, "Environment of the problem; the rollback label rolls this environment back".
 
 ## Claude token
 

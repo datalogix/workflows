@@ -13,7 +13,7 @@ The `tests` job of [`project`](../reference.md#project) calls `laravel-app-tests
 | `pnpm-lock.yaml` | `pnpm audit --audit-level high` |
 | `yarn.lock` | `yarn audit --level high` (Yarn 1) or `yarn npm audit --recursive --severity high` (Yarn 2+) |
 
-The Node audit fails only on high and critical advisories, as npm publishes many low ones, and includes the dev dependencies: in a Laravel app, Vite and the frontend libraries are usually there and end up in the bundle. On pull requests each audit runs only when its lockfile changes, so a new advisory does not block unrelated pull requests; the weekly run catches advisories published later. Without a lockfile, the audit is skipped.
+The Node audit fails only on high and critical advisories, as npm publishes many low ones, and includes the dev dependencies: in a Laravel app, Vite and the frontend libraries are usually there and end up in the bundle. On pull requests each audit runs only when its lockfile changes, so a new advisory does not block unrelated pull requests; the weekly run catches advisories published later. Without a lockfile, the audit is skipped. An audit that cannot compare the lockfile with the base branch, or a Yarn 1 audit that did not finish (the registry unreachable), fails instead of passing silently.
 
 ## Lint and test suite
 
@@ -81,4 +81,4 @@ For example:
 | `js`              | `true`             | Run the `typecheck`, `lint` and `test` scripts of `package.json` when they are defined    |
 | `timeout-minutes` | `30`               | Job timeout                                                                               |
 
-`project` passes `php-version`, `node-version`, `test-command` and `js`; call `laravel-app-tests` on its own for the others.
+`project` passes every input but `audit` and `timeout-minutes`; call `laravel-app-tests` on its own for those.

@@ -8,7 +8,7 @@ Steps 1 and 2 are required. Steps 3 and 4 are optional (the shared issue forms, 
 npx --allow-git=root github:datalogix/workflows#v2 org --org datalogix
 ```
 
-It checks the Claude GitHub App, creates the public `datalogix/.github` repository with the issue forms of this version, deploys the monitoring relay (it logs in to Cloudflare in the browser and asks for the relay's GitHub token, with a link that fills the token in), and lists what is left by hand. Running it again updates the issue forms, and the relay when you say so (also to replace its token). It stops before asking anything when the owner is not an organization or your `gh` login is not one of its admins, and tells you to make `.github` public when it is private.
+It checks the Claude GitHub App, creates the public `datalogix/.github` repository with the issue forms of this version, deploys the monitoring relay (it logs in to Cloudflare in the browser and asks for the relay's GitHub token, with a link that fills the token in), and lists what is left by hand. Running it again updates the issue forms, and the relay when you say so (also to replace its token). It stops before asking anything when the owner is not an organization or your `gh` login is not one of its admins, and tells you to make `.github` public when it is private. If the Cloudflare login fails, it still writes the issue forms and leaves the relay for the next run; a `relay.json` that names another organization's relay (copied from it) is replaced by a relay deployed for this one.
 
 ## 1. Install the Claude GitHub App
 

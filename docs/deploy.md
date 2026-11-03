@@ -4,7 +4,7 @@ With `deploy: forge` or `deploy: cloud`, `project` deploys the default branch af
 
 1. **Staging**: triggers the deploy of the exact commit, waits for the provider to finish (120 seconds on Forge, 300 on Cloud, which builds an image first; `settle-seconds` changes it) and calls the health URL every 30 seconds for 3 minutes (`watch-minutes`).
 2. **Production**: the same, only after staging stayed healthy. `watch-minutes` sets both watches; `staging-watch-minutes` shortens the staging one (e.g. `1`), so production follows sooner.
-3. **Rollback**: when the health checks fail three times in a row, the environment's last good release is redeployed, watched again, and an issue explains what happened. A failed staging deploy never reaches production; with a [production branch](#production-branch), pushes to that branch deploy production without staging.
+3. **Rollback**: when the health checks fail three times in a row, the environment's last good release is redeployed, watched again, and an issue explains what happened. A failed staging deploy never reaches production; with a [production branch](#production-branch), pushes to that branch deploy production without staging. A run of failed checks still open when the watch ends is followed until it recovers or reaches three, so a release failing at the end is not taken as healthy; the log marks those checks as past the planned ones.
 
 Setup is covered in [Adding a Laravel app](laravel/app.md): the setup command creates the environments, and [step 2](laravel/app.md#step-2-do-what-setup-cannot) covers Forge and Cloud.
 
