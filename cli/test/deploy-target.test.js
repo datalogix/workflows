@@ -31,13 +31,16 @@ const CLOUD = 'https://cloud.laravel.com/api';
 /**
  * A fake fetch: `routes` maps 'METHOD url' to the JSON body it answers (or { status, body }); every request is
  * recorded in `calls` ({ method, url, headers, body }), and one no route matches fails the test.
+ * `limit` is the most requests it answers.
  */
-function fakeFetch(routes) {
+function fakeFetch(routes, { limit = Infinity } = {}) {
   const calls = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, { method, headers, body }) => {
       calls.push({ method, url, headers, body: body ? JSON.parse(body) : undefined });
+      // A client that never stops fails here, not by running out of memory
+      if (calls.length > limit) throw new Error(`More than ${limit} requests`);
       const key = `${method} ${url}`;
       if (!(key in routes)) throw new Error(`No fake route for ${key}`);
       const route = routes[key];
@@ -144,11 +147,14 @@ test('tells a refused token apart from a token without the permission', async ()
 });
 
 test('sends JSON with the token, and gives up on a list of more than 50 pages', async () => {
-  const calls = fakeFetch({
-    [`GET ${FORGE}/loop`]: { data: [{ id: 1 }], links: { next: `${FORGE}/loop` } },
-    [`PUT ${FORGE}/a`]: { data: {} },
-    [`PATCH ${FORGE}/b`]: { data: {} },
-  });
+  const calls = fakeFetch(
+    {
+      [`GET ${FORGE}/loop`]: { data: [{ id: 1 }], links: { next: `${FORGE}/loop` } },
+      [`PUT ${FORGE}/a`]: { data: {} },
+      [`PATCH ${FORGE}/b`]: { data: {} },
+    },
+    { limit: 60 },
+  );
   const api = forgeApi('secret');
   await api.put('/a', { x: 1 });
   await api.patch('/b', { y: 2 });
