@@ -1,6 +1,6 @@
 import { CODEOWNERS_PATH } from './codeowners.js';
 import { requiresCodeOwners, RULESET_NAME, rulesetDrift } from './ruleset.js';
-import { refVersion, unversioned, usesRef, WORKFLOW_PATH } from './workflow-file.js';
+import { refStatus, refVersion, unversioned, WORKFLOW_PATH } from './workflow-file.js';
 
 // What check suggests running to fix an item
 export const SETUP = 'npx --allow-git=root github:datalogix/workflows#v2 setup';
@@ -18,24 +18,30 @@ export function createReport() {
   };
 }
 
-/** The workflow file calls the entry point (ref) of the project or package. Returns whether it does. */
+/**
+ * The workflow file calls the entry point (ref) of the project or package, at its major or one of its tags (refStatus).
+ * A branch or a commit (testing a change) is a warning. Returns whether it calls it.
+ */
 export function workflowItems(report, state, { ref, kind, fix }) {
   if (!state.workflow) {
     report.error(`${WORKFLOW_PATH} is missing`, fix);
     return false;
   }
-  const version = usesRef(state.workflow, ref);
-  if (version !== refVersion(ref)) {
-    // Another version of the same workflow: a major release (e.g. @v2 to @v3) needs the file updated
-    report.error(
-      version
-        ? `${WORKFLOW_PATH} calls ${unversioned(ref)}${version}: change it to ${ref}`
-        : `${WORKFLOW_PATH} does not call ${ref}`,
-      fix,
-    );
+  const { status, version } = refStatus(state.workflow, ref);
+  if (status === 'missing') {
+    report.error(`${WORKFLOW_PATH} does not call ${ref}`, fix);
     return false;
   }
-  report.ok(`${WORKFLOW_PATH} calls the ${kind} workflow`);
+  if (status === 'other-major') {
+    // A major release (e.g. @v2 to @v3) needs the file updated
+    report.error(`${WORKFLOW_PATH} calls ${unversioned(ref)}${version}: change it to ${ref}`, fix);
+    return false;
+  }
+  if (status === 'other-ref') {
+    report.warn(`${WORKFLOW_PATH} calls ${unversioned(ref)}${version}, not a release of ${refVersion(ref)}`, fix);
+  } else {
+    report.ok(`${WORKFLOW_PATH} calls the ${kind} workflow`);
+  }
   return true;
 }
 
@@ -70,9 +76,18 @@ export function rulesetItems(report, state, { expected, known, codeOwners = null
       PROTECT,
     );
   }
+  // One maintainer cannot approve as code owner: protect drops it
+  if (drift.codeOwners === 'extra') {
+    report.warn('The ruleset requires code owner approval, but the project is maintained alone', PROTECT);
+  }
   const other = branches(report);
   const right =
-    !drift.enforcement && drift.defaultBranch && drift.pullRequests && !drift.missing.length && !drift.stale.length;
+    !drift.enforcement &&
+    drift.defaultBranch &&
+    drift.pullRequests &&
+    !drift.missing.length &&
+    !drift.stale.length &&
+    drift.codeOwners !== 'extra';
   if (right && other.ok) report.ok(other.label ?? 'Default branch protected');
   return drift;
 }

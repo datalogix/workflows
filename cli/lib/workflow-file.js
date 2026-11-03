@@ -109,10 +109,14 @@ export function hasInputComments(content) {
   const block = inputsBlock(lines);
   if (!block) return false;
   if (/#/.test(lines[block.start])) return true;
+  // Whether the lines that follow belong to a block scalar (key: |, key: >-), whose deeper # lines are part of the
+  // value, which is written back
+  let scalarBlock = false;
   for (const line of lines.slice(block.start + 1, block.end)) {
-    // A deeper # line is part of a multi-line value (key: |), which is written back
-    if (/^ {0,6}#/.test(line)) return true;
-    if (line.trim() && !/^ {6}/.test(line)) return false;
+    const input = /^ {6}[\w-]+:\s*(.*)$/.exec(line);
+    if (input) scalarBlock = /^[|>][-+\d]*\s*(?:#.*)?$/.test(input[1]);
+    else if (/^ {0,6}#/.test(line) || (/^\s*#/.test(line) && !scalarBlock)) return true;
+    else if (line.trim() && !/^ {6}/.test(line)) return false;
   }
   return false;
 }
@@ -257,6 +261,20 @@ export function listOf(raw) {
 export function usesRef(content, ref) {
   const path = unversioned(ref).replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
   return new RegExp(`^\\s*(?:-\\s*)?uses:\\s*['"]?${path}([^\\s'"#]+)`, 'm').exec(lf(content))?.[1] ?? null;
+}
+
+/**
+ * How the file calls the reusable workflow `ref` (`owner/repo/path@v2`), as { status, version } with the version
+ * found: 'missing' without a file or a `uses:` of it, 'release' at the major of `ref` or one of its tags (`v2.1.0`),
+ * 'other-major' at another major or its tags (`v1`, `v3.0.0`), whose checks differ, and 'other-ref' at anything else
+ * (a branch or a commit, to test a change).
+ */
+export function refStatus(content, ref) {
+  const version = content ? usesRef(content, ref) : null;
+  if (!version) return { status: 'missing', version: null };
+  const major = /^v(\d+)(?:\.\d+\.\d+)?$/.exec(version)?.[1];
+  if (major === undefined) return { status: 'other-ref', version };
+  return { status: `v${major}` === refVersion(ref) ? 'release' : 'other-major', version };
 }
 
 /** The version of a workflow reference: `v2` of `owner/repo/path@v2`. */

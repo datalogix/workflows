@@ -12,6 +12,7 @@ import {
   pushBranches,
   runsOnPush,
   scalar,
+  refStatus,
   usesRef,
 } from '../lib/workflow-file.js';
 
@@ -264,11 +265,41 @@ test('reads the version of a reusable workflow from its uses key only', () => {
   expect(usesRef(`      - uses: ${ref}\n`, ref)).toBe('v2');
 });
 
+test('tells a release of the major from another major and from a branch or a commit', () => {
+  const ref = 'datalogix/workflows/.github/workflows/project.yml@v2';
+  const at = (version) => refStatus(`    uses: datalogix/workflows/.github/workflows/project.yml@${version}\n`, ref);
+  expect(at('v2')).toStrictEqual({ status: 'release', version: 'v2' });
+  expect(at('v2.10.3')).toStrictEqual({ status: 'release', version: 'v2.10.3' });
+  expect(at('v1')).toStrictEqual({ status: 'other-major', version: 'v1' });
+  expect(at('v3')).toStrictEqual({ status: 'other-major', version: 'v3' });
+  expect(at('v1.2.0')).toStrictEqual({ status: 'other-major', version: 'v1.2.0' });
+  expect(at('main')).toStrictEqual({ status: 'other-ref', version: 'main' });
+  expect(at('feat/gate')).toStrictEqual({ status: 'other-ref', version: 'feat/gate' });
+  expect(at('c771104')).toStrictEqual({ status: 'other-ref', version: 'c771104' });
+  expect(at('v2.1')).toStrictEqual({ status: 'other-ref', version: 'v2.1' });
+  expect(refStatus(null, ref)).toStrictEqual({ status: 'missing', version: null });
+  expect(refStatus('on: push\n', ref)).toStrictEqual({ status: 'missing', version: null });
+});
+
 test('finds comments in the with block', () => {
   expect(hasInputComments('jobs:\n  pipeline:\n    with:\n      # PHP of the server\n      php-version: "8.3"\n')).toBe(
     true,
   );
   expect(hasInputComments('jobs:\n  pipeline:\n    with:\n      php-version: "8.3" # server\n')).toBe(false);
+});
+
+test('tells a comment in the with block from a # line of a multi-line value', () => {
+  const block = (inputs) => hasInputComments(`jobs:\n  pipeline:\n    with:\n${inputs}`);
+  // Part of a block scalar, after blank or deeper lines too
+  expect(block('      extra: |\n        # not a comment\n      deploy: forge\n')).toBe(false);
+  expect(block('      extra: >-\n        first\n\n        # still the value\n')).toBe(false);
+  expect(block('      extra: |2 # kept\n        # the value\n')).toBe(false);
+  // A deeper comment after a single-line value is a comment
+  expect(block('      deploy: forge\n        # production only\n      staging: false\n')).toBe(true);
+  expect(block('      extra: |\n        value\n      deploy: forge\n          # prod\n')).toBe(true);
+  expect(block('      extra: "|"\n        # a comment\n')).toBe(true);
+  // A comment at the inputs' indentation ends the multi-line value
+  expect(block('      extra: |\n        value\n      # deploys\n      deploy: forge\n')).toBe(true);
 });
 
 test('reads the comment after an input value', () => {

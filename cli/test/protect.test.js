@@ -34,6 +34,7 @@ const protectGitHub = ({ rulesets = [], latest = { number: 3, names: ALL }, rele
     hasRepositorySecret: async (name) => releaseApp && name.startsWith('RELEASE_APP_'),
     hasOrganizationSecret: async () => false,
     claudeApp: async () => 'all',
+    repo: async () => ({ default_branch: 'main' }),
     ...methods,
   });
 
@@ -114,6 +115,22 @@ test('keeps what was added to the existing ruleset by hand', async (t) => {
   expect(body.conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/release/*']);
 });
 
+test('drops an exclude of the default branch, which check reports, and keeps the other excludes', async (t) => {
+  const excluded = rulesetBody(ALL);
+  excluded.conditions.ref_name.exclude.push('~DEFAULT_BRANCH', 'refs/heads/main', 'refs/heads/m*', 'refs/heads/wip/*');
+  const github = protectGitHub({ rulesets: [{ id: 9, ...excluded }] });
+  expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(0);
+  expect(written(github).conditions.ref_name.exclude).toStrictEqual(['refs/heads/wip/*']);
+  // With another default branch, its own name is what leaves
+  const trunk = protectGitHub({ rulesets: [{ id: 9, ...excluded }], repo: async () => ({ default_branch: 'trunk' }) });
+  expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), trunk)).toBe(0);
+  expect(written(trunk).conditions.ref_name.exclude).toStrictEqual([
+    'refs/heads/main',
+    'refs/heads/m*',
+    'refs/heads/wip/*',
+  ]);
+});
+
 test('keeps approvals required, stale approvals dismissed or conversations resolved by hand', async (t) => {
   const handEdited = rulesetBody(ALL);
   Object.assign(handEdited.rules.find((rule) => rule.type === 'pull_request').parameters, {
@@ -164,6 +181,57 @@ test('stops on a package still on another version of the workflow, pointing at s
   // On v2 it protects
   expect(await run(root, github, { flags: { yes: true, solo: true } })).toBe(0);
   expect(requiredChecks(written(github))).toStrictEqual([PACKAGE_CHECK]);
+});
+
+test('stops on another major of the workflow, even its tags, and with --yes', async (t) => {
+  for (const version of ['v1', 'v3', 'v1.2.0']) {
+    const root = await project(t, { deploy: 'none', solo: true, incidents: true }, (content) =>
+      content.replace('project.yml@v2', `project.yml@${version}`),
+    );
+    const github = protectGitHub();
+    expect(await run(root, github)).toBe(1);
+    expect(github.calls).toStrictEqual([]);
+  }
+  expect(clack.log.error).toHaveBeenCalledTimes(3);
+});
+
+test('protects a workflow file on a tag of its major', async (t) => {
+  const github = protectGitHub();
+  const root = await project(t, { deploy: 'none', solo: true, incidents: true }, (content) =>
+    content.replace('project.yml@v2', 'project.yml@v2.4.1'),
+  );
+  expect(await run(root, github, { flags: {} })).toBe(0);
+  expect(requiredChecks(written(github))).toStrictEqual(ALL);
+  expect(clack.log.warn).not.toHaveBeenCalled();
+  expect(clack.confirm).not.toHaveBeenCalled();
+});
+
+test('warns about a workflow file on a branch or a commit, and asks before protecting', async (t) => {
+  const root = await project(t, { deploy: 'none', solo: true, incidents: true }, (content) =>
+    content.replace('project.yml@v2', 'project.yml@fix-gate'),
+  );
+  const warning = expect.stringMatching(
+    /^\.github\/workflows\/datalogix\.yml calls datalogix\/workflows\/\.github\/workflows\/project\.yml@fix-gate, not a release of v2\./,
+  );
+  clack.confirm.mockResolvedValueOnce(false);
+  const declined = protectGitHub();
+  expect(await run(root, declined, { flags: {} })).toBe(1);
+  expect(declined.calls).toStrictEqual([]);
+  expect(clack.log.warn).toHaveBeenCalledWith(warning);
+  expect(clack.confirm).toHaveBeenCalledWith(expect.objectContaining({ initialValue: false }));
+
+  clack.confirm.mockResolvedValueOnce(true);
+  const accepted = protectGitHub();
+  expect(await run(root, accepted, { flags: {} })).toBe(0);
+  expect(requiredChecks(written(accepted))).toStrictEqual(ALL);
+
+  // --yes goes on with the warning
+  vi.clearAllMocks();
+  const yes = protectGitHub();
+  expect(await run(root, yes)).toBe(0);
+  expect(clack.confirm).not.toHaveBeenCalled();
+  expect(clack.log.warn).toHaveBeenCalledWith(warning);
+  expect(requiredChecks(written(yes))).toStrictEqual(ALL);
 });
 
 test('asks before protecting when the latest pull request did not run the checks, and stops on no', async (t) => {

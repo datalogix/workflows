@@ -250,7 +250,29 @@ test('changes nothing in a Forge site already set up, and fails on a script it c
   await expect(forgeSiteTask(forgeApi('token'), SITE, 'production').run()).rejects.toThrow(
     /^Push to deploy off; the deploy script has neither .*: change it by hand$/,
   );
-  expect(calls.map(({ method }) => method)).toStrictEqual(['GET', 'DELETE']);
+  expect(calls.map(({ method }) => method)).toStrictEqual(['DELETE', 'GET']);
+});
+
+test('says Push to deploy went off when the deploy script cannot be read or written', async () => {
+  const pushToDeploy = {
+    [`DELETE ${FORGE}/orgs/datalogix/servers/7/sites/1/deployments/push-to-deploy`]: { status: 202 },
+  };
+  fakeFetch({ ...pushToDeploy, [`GET ${SCRIPT_URL}`]: { status: 500, body: { message: 'Server Error' } } });
+  await expect(forgeSiteTask(forgeApi('token'), SITE, 'production').run()).rejects.toThrow(/^Push to deploy off; /);
+
+  const calls = fakeFetch({
+    ...pushToDeploy,
+    [`GET ${SCRIPT_URL}`]: { data: { attributes: { content: STANDARD_SCRIPT, auto_source: true } } },
+    [`PUT ${SCRIPT_URL}`]: { status: 422, body: { message: 'Invalid' } },
+  });
+  await expect(forgeSiteTask(forgeApi('token'), SITE, 'production').run()).rejects.toThrow(/^Push to deploy off; /);
+  expect(calls.map(({ method }) => method)).toStrictEqual(['DELETE', 'GET', 'PUT']);
+
+  // Without Push to deploy to turn off, the error is the request's own
+  fakeFetch({ [`GET ${SCRIPT_URL}`]: { status: 500, body: { message: 'Server Error' } } });
+  await expect(forgeSiteTask(forgeApi('token'), { ...SITE, pushToDeploy: false }, 'production').run()).rejects.toThrow(
+    /^(?!Push to deploy off)/,
+  );
 });
 
 test('fails on a Forge site without a deploy script', async () => {

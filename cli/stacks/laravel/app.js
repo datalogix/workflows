@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { deploys, environmentsOf, projectKind, twoBranches } from '../../kinds/project/index.js';
+import { answeredEnvironments, deploys, projectKind, twoBranches } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from './cloud.js';
@@ -213,7 +213,8 @@ export function suggestedTarget(targets, environment, branch) {
 function deploySiteStep(environment) {
   return {
     id: `${environment}Site`,
-    when: (a, ctx) => withToken(a) && environmentsOf(a).includes(environment) && Boolean(ctx.deployTargets?.length),
+    when: (a, ctx) =>
+      withToken(a) && answeredEnvironments(a).includes(environment) && Boolean(ctx.deployTargets?.length),
     ask: async ({ header, answers, ctx }) => {
       const provider = PROVIDERS[answers.deploy];
       const taken = environment === 'staging' ? answers.productionSite : null;
@@ -257,7 +258,7 @@ function deploySiteTasks(answers, { state }) {
   if (!withToken(answers)) return [];
   const provider = PROVIDERS[answers.deploy];
   const api = provider.api(answers.deployToken.trim());
-  return environmentsOf(answers)
+  return answeredEnvironments(answers)
     .filter((environment) => answers[`${environment}Site`])
     .flatMap((environment) => {
       const site = answers[`${environment}Site`];
@@ -284,7 +285,9 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
   }
   const resultOf = (environment) => results.find((result) => result.id === `nightwatchEnv:${environment}`);
   const left = deploys(answers)
-    ? environmentsOf(answers).filter((environment) => !resultOf(environment)?.ok || resultOf(environment).data?.missing)
+    ? answeredEnvironments(answers).filter(
+        (environment) => !resultOf(environment)?.ok || resultOf(environment).data?.missing,
+      )
     : [];
   const problems = left
     .filter((environment) => resultOf(environment) && !resultOf(environment).ok)
@@ -315,7 +318,7 @@ function cloudBranch(answers, environment, state) {
 /** What Forge or Laravel Cloud need by hand, so they deploy only what the workflows ask for: what setup did not do. */
 function deployNextSteps(answers, { twoBranches, results = [] }) {
   const resultOf = (environment) => results.find((result) => result.id === `deploySite:${environment}`);
-  const left = environmentsOf(answers).filter((environment) => !resultOf(environment)?.ok);
+  const left = answeredEnvironments(answers).filter((environment) => !resultOf(environment)?.ok);
   if (!left.length) return [];
   // Why the API did not do it: the token or the search failed, or the task of that environment did
   const problems = [

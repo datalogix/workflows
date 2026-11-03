@@ -59,9 +59,14 @@ const CLAUDE_INSTALL = 'https://github.com/apps/claude/installations/new';
 
 export const deploys = (a) => Boolean(a.deploy) && a.deploy !== 'none';
 export const twoBranches = (a) => Boolean(a.branches && a.productionBranch);
-/** The GitHub environments the answers deploy to. */
+/**
+ * The GitHub environments the workflow file's answers (state.current) deploy to: without the staging input,
+ * project.yml's default deploys staging.
+ */
 export const environmentsOf = (a) =>
   deploys(a) ? (a.staging !== false ? ['production', 'staging'] : ['production']) : [];
+/** The GitHub environments setup's answers deploy to: staging only when its question was answered yes. */
+export const answeredEnvironments = (a) => environmentsOf({ ...a, staging: a.staging === true });
 // The production branch of the current workflow file, when it exists
 const existingProductionBranch = (state) =>
   state.productionBranchStatus?.exists ? state.productionBranchStatus.name : null;
@@ -743,7 +748,7 @@ function rulesetTask(github, state, { answers, productionBranch, formerProductio
 /** The changes the answers lead to, as tasks for the progress bar. */
 function setupTasks(stack, answers, { github, root, state, relay, probe = healthStatus }) {
   const tasks = [];
-  const environments = environmentsOf(answers);
+  const environments = answeredEnvironments(answers);
   const domains = { production: answers.domain?.trim(), staging: answers.stagingDomain?.trim() };
   const hooks = {
     production: answers.deployHooks?.production ?? answers.productionHook,
@@ -1371,7 +1376,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   const drift = rulesetItems(report, state, {
     expected: checksOn(stack.checks, state.current),
     known: Object.values(stack.checks),
-    codeOwners: requireApproval || null,
+    codeOwners: requireApproval,
     branches: () => {
       const productionBranch = deployedProductionBranch(state.current);
       // A production branch that is the default branch is reported above, and ~DEFAULT_BRANCH covers it

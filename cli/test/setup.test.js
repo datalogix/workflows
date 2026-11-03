@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
-import { dropsProductionBranch, environmentsOf, PROJECT_CHECKS } from '../kinds/project/index.js';
+import { answeredEnvironments, dropsProductionBranch, environmentsOf, PROJECT_CHECKS } from '../kinds/project/index.js';
 import { hasSecret, loadRelayConfig, registerSecret } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
@@ -1438,6 +1438,29 @@ describe('next steps', () => {
     expect(environmentsOf({ deploy: 'forge' })).toStrictEqual(['production', 'staging']);
     expect(environmentsOf({ deploy: 'forge', staging: false })).toStrictEqual(['production']);
     expect(environmentsOf({ deploy: 'none', staging: true })).toStrictEqual([]);
+  });
+
+  test('creates no staging environment for answers that never turned staging on', async (t) => {
+    const root = await tempRoot(t, 'setup-');
+    const answers = {
+      repository: 'datalogix/app',
+      deploy: 'forge',
+      domain: 'app.example.com',
+      healthPath: '/up',
+      productionHook: 'https://forge.laravel.com/hook/1',
+      incidents: false,
+      solo: true,
+      codeOwners: '@ana',
+    };
+    // The questions skip it, so setup does not deploy it, while the workflow file's default does
+    expect(answeredEnvironments(answers)).toStrictEqual(['production']);
+    expect(answeredEnvironments({ ...answers, staging: true })).toStrictEqual(['production', 'staging']);
+    const titles = setupTasks(answers, { github: fakeGitHub(), root, state: APP_STATE, relay, probe: healthy }).map(
+      (task) => task.title,
+    );
+    expect(titles).toContain('Environment production');
+    expect(titles).not.toContain('Environment staging');
+    expect(nextSteps(answers, { relay, results: [], state: APP_STATE }).join('\n')).not.toContain('staging');
   });
 
   test('commits only the files the tasks changed', () => {

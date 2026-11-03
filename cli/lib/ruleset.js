@@ -55,9 +55,10 @@ const MANAGED_RULES = ['deletion', 'non_fast_forward', 'pull_request', 'required
  * The ruleset body with what was added to the existing ruleset outside setup: other rules, the parameters of the pull
  * request rule it does not set, required checks other than the pipeline's (a pipeline check of a layer turned off is
  * dropped), other bypass actors and branches. The branches in unprotect (a production branch that can no longer be
- * protected) leave it.
+ * protected) leave it, and so does an exclude that matches the default branch (`defaultBranch`, its name), which
+ * rulesetDrift reports.
  */
-export function mergeRuleset(existing, body, { unprotect = [] } = {}) {
+export function mergeRuleset(existing, body, { unprotect = [], defaultBranch = null } = {}) {
   if (!existing) return body;
   const rule = (ruleset, type) => ruleset.rules?.find((candidate) => candidate.type === type);
   const other = (existing.rules ?? []).filter((candidate) => !MANAGED_RULES.includes(candidate.type));
@@ -107,7 +108,12 @@ export function mergeRuleset(existing, body, { unprotect = [] } = {}) {
     conditions: {
       ref_name: {
         include: includedRefs(include, { add: body.conditions.ref_name.include, remove: unprotect }),
-        exclude: [...new Set([...body.conditions.ref_name.exclude, ...exclude])],
+        exclude: [
+          ...new Set([
+            ...body.conditions.ref_name.exclude,
+            ...exclude.filter((pattern) => !matchesDefaultBranch(pattern, defaultBranch)),
+          ]),
+        ],
       },
     },
     bypass_actors: [
@@ -116,6 +122,27 @@ export function mergeRuleset(existing, body, { unprotect = [] } = {}) {
     ],
     rules: [...merged, ...other],
   };
+}
+
+/**
+ * Whether a ref condition of a ruleset matches the default branch (`defaultBranch`, its name, when known):
+ * ~DEFAULT_BRANCH, ~ALL or a pattern of refs/heads/<name>, where * matches within a path segment and ** across them.
+ */
+export function matchesDefaultBranch(pattern, defaultBranch) {
+  if (pattern === '~DEFAULT_BRANCH' || pattern === '~ALL') return true;
+  if (!defaultBranch) return false;
+  const source = pattern.replace(/\*\*|\*|\?|\[[^\]]*\]|[.+(){}|^$\\]/g, (token) => {
+    if (token === '**') return '.*';
+    if (token === '*') return '[^/]*';
+    if (token === '?') return '[^/]';
+    // [!...] negates the class in fnmatch, [^...] in a regular expression
+    return token.startsWith('[') ? token.replace(/^\[!/, '[^') : `\\${token}`;
+  });
+  try {
+    return new RegExp(`^${source}$`).test(`refs/heads/${defaultBranch}`);
+  } catch {
+    return pattern === `refs/heads/${defaultBranch}`;
+  }
 }
 
 /** The refs in add, then the refs a ruleset includes without the branches in remove, without repeats. */
@@ -152,19 +179,19 @@ export function requiredChecks(ruleset) {
  * default branch and requires pull requests, the `expected` checks it lacks, the checks of `known` (every check of the
  * stack) it requires although their layer is off, and the code owner approval: `codeOwners` true or false is what
  * protect would write (null leaves it as it is), and a required one that keeps older approvals is reported too.
- * `defaultBranch` is its name, so a ruleset that names it rather than ~DEFAULT_BRANCH applies to it.
+ * `defaultBranch` is its name, so a ruleset that names it (or a pattern that matches it) rather than ~DEFAULT_BRANCH
+ * applies to it.
  */
 export function rulesetDrift(ruleset, { expected = [], known = [], codeOwners = null, defaultBranch = null } = {}) {
   const required = requiredChecks(ruleset);
   const owners = requiresCodeOwners(ruleset);
   const { include = [], exclude = [] } = ruleset?.conditions?.ref_name ?? {};
-  // The default branch by any name a ruleset gives it: ~DEFAULT_BRANCH, ~ALL or its own ref
-  const names = ['~DEFAULT_BRANCH', ...(defaultBranch ? [`refs/heads/${defaultBranch}`] : [])];
   return {
     enforcement: ruleset?.enforcement === 'active' ? null : (ruleset?.enforcement ?? 'disabled'),
+    // The default branch by any name a ruleset gives it: ~DEFAULT_BRANCH, ~ALL, its own ref or a pattern
     defaultBranch:
-      (include.includes('~ALL') || names.some((name) => include.includes(name))) &&
-      !names.some((name) => exclude.includes(name)),
+      include.some((pattern) => matchesDefaultBranch(pattern, defaultBranch)) &&
+      !exclude.some((pattern) => matchesDefaultBranch(pattern, defaultBranch)),
     pullRequests: Boolean(ruleset?.rules?.some((rule) => rule.type === 'pull_request')),
     missing: expected.filter((check) => !required.includes(check)),
     stale: known.filter((check) => required.includes(check) && !expected.includes(check)),

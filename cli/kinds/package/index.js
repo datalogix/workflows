@@ -150,10 +150,9 @@ export function packageKind(stack) {
     answers: packageAnswers,
     /** What collectState reads from GitHub for a package: whether it can read a Codecov token. */
     read: async (github, read) => {
-      const [repository, organization] = await Promise.all([
-        read('secrets', github.hasRepositorySecret('CODECOV_TOKEN')),
-        github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false),
-      ]);
+      // The organization's only when the repository has none: one that cannot be read counts as missing
+      const repository = await read('secrets', github.hasRepositorySecret('CODECOV_TOKEN'));
+      const organization = repository || (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false));
       return { codecovToken: repository || organization };
     },
     setup: {

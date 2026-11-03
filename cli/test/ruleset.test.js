@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { driftPhrases, keepsStaleApprovals, rulesetBody, rulesetDrift } from '../lib/ruleset.js';
+import { driftPhrases, keepsStaleApprovals, mergeRuleset, rulesetBody, rulesetDrift } from '../lib/ruleset.js';
 import { keepingStaleApprovals } from './helpers.js';
 
 const CHECKS = ['pipeline / tests / tests', 'pipeline / security / security', 'pipeline / gate / gate'];
@@ -70,6 +70,57 @@ test('finds a ruleset that is not enforced on the default branch, or without pul
   const drift = rulesetDrift({ ...body, rules: [] });
   expect(drift.pullRequests).toBe(false);
   expect(driftPhrases(drift)).toContain('does not require pull requests');
+});
+
+test('reads include and exclude patterns that match the default branch', () => {
+  const body = rulesetBody(CHECKS);
+  const on = (include, exclude = []) =>
+    rulesetDrift({ ...body, conditions: { ref_name: { include, exclude } } }, { defaultBranch: 'main' }).defaultBranch;
+  expect(on(['refs/heads/*'])).toBe(true);
+  expect(on(['refs/heads/ma*'])).toBe(true);
+  expect(on(['refs/heads/**'])).toBe(true);
+  expect(on(['refs/heads/ma?n'])).toBe(true);
+  expect(on(['refs/heads/[lm]ain'])).toBe(true);
+  expect(on(['refs/heads/release/*'])).toBe(false);
+  expect(on(['refs/heads/*/main'])).toBe(false);
+  expect(on(['refs/heads/[!m]ain'])).toBe(false);
+  // * stays within a segment, ** crosses them
+  expect(
+    rulesetDrift(
+      { ...body, conditions: { ref_name: { include: ['refs/heads/*'], exclude: [] } } },
+      {
+        defaultBranch: 'team/main',
+      },
+    ).defaultBranch,
+  ).toBe(false);
+  expect(
+    rulesetDrift(
+      { ...body, conditions: { ref_name: { include: ['refs/heads/**'], exclude: [] } } },
+      {
+        defaultBranch: 'team/main',
+      },
+    ).defaultBranch,
+  ).toBe(true);
+  expect(on(['~DEFAULT_BRANCH'], ['refs/heads/m*'])).toBe(false);
+  expect(on(['refs/heads/*'], ['refs/heads/**'])).toBe(false);
+  expect(on(['~DEFAULT_BRANCH'], ['refs/heads/release/*'])).toBe(true);
+  // Without the name, only ~DEFAULT_BRANCH and ~ALL are known to match
+  expect(
+    rulesetDrift({ ...body, conditions: { ref_name: { include: ['refs/heads/*'], exclude: [] } } }).defaultBranch,
+  ).toBe(false);
+});
+
+test('merges a ruleset without the excludes of the default branch', () => {
+  const existing = rulesetBody(CHECKS);
+  existing.conditions.ref_name.exclude = ['~DEFAULT_BRANCH', 'refs/heads/main', 'refs/heads/m*', 'refs/heads/tmp'];
+  const merged = (defaultBranch) =>
+    mergeRuleset(existing, rulesetBody(CHECKS), { defaultBranch }).conditions.ref_name.exclude;
+  expect(merged('main')).toStrictEqual(['refs/heads/tmp']);
+  expect(merged(null)).toStrictEqual(['refs/heads/main', 'refs/heads/m*', 'refs/heads/tmp']);
+  expect(
+    rulesetDrift(mergeRuleset(existing, rulesetBody(CHECKS), { defaultBranch: 'main' }), { defaultBranch: 'main' })
+      .defaultBranch,
+  ).toBe(true);
 });
 
 test('keeps older approvals only when neither a push dismisses them nor the last push needs one', () => {

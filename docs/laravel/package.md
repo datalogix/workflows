@@ -47,7 +47,7 @@ It ends with the commit to make and, without a ruleset, the `protect` command to
    npx --allow-git=root github:datalogix/workflows#v2 protect
    ```
 
-   It stops when the workflow file is missing or does not call `package.yml@v2` (a v1 file calls `laravel-tests.yml@v1`: run setup first). It requires pull requests and the `pipeline / tests / all-checks` check, and asks whether you work alone on the package (`--solo` / `--no-solo` answers it): with a team, changes to `.github/` also need the approval of its code owners (`.github/CODEOWNERS`).
+   It stops when the workflow file is missing or does not call `package.yml` at `v2` or one of its tags (`v2.1.0`), even with `--yes` (a v1 file calls `laravel-tests.yml@v1`: run setup first). A file that calls a branch or a commit (to test a change) gets a warning, and `protect` asks before going on (`--yes` goes on). It requires pull requests and the `pipeline / tests / all-checks` check, and asks whether you work alone on the package (`--solo` / `--no-solo` answers it): with a team, changes to `.github/` also need the approval of its code owners (`.github/CODEOWNERS`).
 
 To see what is missing, run `npx --allow-git=root github:datalogix/workflows#v2 check` from the package folder. In a package (its workflow file calls `package.yml`, or the folder looks like a Laravel package) it checks only the workflow file, the ruleset (as for an app: see [Checking the app](app.md#checking-the-app)), the Codecov token (unless `tests: false` or `coverage: false`) and the code owners of `.github/`.
 

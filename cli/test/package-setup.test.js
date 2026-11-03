@@ -179,13 +179,19 @@ test('reads only what a package needs from GitHub', async (t) => {
     );
 
   // The fake fails on anything else: the labels, environments and Claude token of an app are not read
-  // Both secrets are read together, like an app's Claude token
+  // The organization's secret is read only when the repository has none
+  const organizationReads = [];
+  const organizationSecret = async (name) => (organizationReads.push(name), false);
   const state = await read({
     hasRepositorySecret: async (name) => name === 'CODECOV_TOKEN',
-    hasOrganizationSecret: async () => false,
+    hasOrganizationSecret: organizationSecret,
   });
   expect(state.codecovToken).toBe(true);
   expect(state.labels).toBe(undefined);
+  expect(organizationReads).toStrictEqual([]);
+  const neither = await read({ hasRepositorySecret: async () => false, hasOrganizationSecret: organizationSecret });
+  expect(neither.codecovToken).toBe(false);
+  expect(organizationReads).toStrictEqual(['CODECOV_TOKEN']);
 
   // An organization secret works too; one that cannot be read counts as missing
   const organization = await read({

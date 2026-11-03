@@ -1,8 +1,8 @@
 import { SETUP } from '../lib/evaluate.js';
 import { mergeRuleset, RULESET_NAME, rulesetBody } from '../lib/ruleset.js';
 import { clack, confirmFolder, dim, orExit } from '../lib/ui.js';
-import { readLocal } from '../lib/state.js';
-import { refVersion, usesRef, WORKFLOW_PATH } from '../lib/workflow-file.js';
+import { readLocal, readOrFail } from '../lib/state.js';
+import { refStatus, refVersion, unversioned, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
 
 /**
@@ -17,10 +17,11 @@ export async function protect(ctx) {
   const { module } = detected;
   const local = await readLocal(detected, ctx.root);
   const { current } = local;
-  // The checks come from the workflow file of this version: without it, or on another one (a package still on v1),
-  // they never run, and even --yes would leave every pull request waiting
-  const version = local.workflow ? usesRef(local.workflow, module.ref) : null;
-  if (version !== refVersion(module.ref)) {
+  // The checks come from the workflow file of this major: without it, or on another one (a package still on v1), they
+  // never run, and even --yes would leave every pull request waiting. A branch or a commit (testing a change) may run
+  // other checks than the release: protect warns and asks first
+  const { status, version } = refStatus(local.workflow, module.ref);
+  if (status === 'missing' || status === 'other-major') {
     clack.log.error(
       local.workflow
         ? `${WORKFLOW_PATH} does not call ${module.ref}, so its checks never run`
@@ -28,6 +29,21 @@ export async function protect(ctx) {
     );
     clack.outro(`Run setup first, then protect once its pull request shows the checks: ${SETUP}`);
     return 1;
+  }
+  if (status === 'other-ref') {
+    clack.log.warn(
+      [
+        `${WORKFLOW_PATH} calls ${unversioned(module.ref)}${version}, not a release of ${refVersion(module.ref)}.`,
+        dim('Its checks may differ from the release, and change with it: point it back at the release once tested.'),
+      ].join('\n'),
+    );
+    if (
+      !ctx.flags.yes &&
+      !orExit(await clack.confirm({ message: 'Protect the default branch with that version?', initialValue: false }))
+    ) {
+      clack.outro('Nothing was changed');
+      return 1;
+    }
   }
   const checks = module.requiredChecks(local);
 
@@ -91,9 +107,13 @@ export async function protect(ctx) {
   const others = module.protectedBranch
     ? single.filter((branch) => branch !== productionBranch && branch !== deployed)
     : [];
+  // An exclude of the default branch leaves the ruleset, which needs its name
+  const defaultBranch = ruleset
+    ? ((await readOrFail(github, 'repository', github.repo()))?.default_branch ?? null)
+    : null;
   // Keeps what was added to the ruleset by hand (other rules, checks, bypass actors and patterns of branches)
   const body = ruleset
-    ? mergeRuleset(ruleset, rulesetBody(checks, { codeOwners, productionBranch }), { unprotect })
+    ? mergeRuleset(ruleset, rulesetBody(checks, { codeOwners, productionBranch }), { unprotect, defaultBranch })
     : rulesetBody(checks, { codeOwners, productionBranch });
   if (existing) await github.updateRuleset(existing.id, body);
   else await github.createRuleset(body);

@@ -130,6 +130,29 @@ test('tells to update a workflow file still on an older major', async () => {
   expect(titles(items, 'error')).toContain(`${WORKFLOW_PATH} calls ${older}: change it to ${PROJECT_REF}`);
 });
 
+test('accepts a tag of the major, and warns about a workflow file on a branch or a commit', async () => {
+  const on = async (version) =>
+    run(
+      await stateFor({ deploy: 'none', incidents: false }, {}, (content) =>
+        content.replace('project.yml@v2', `project.yml@${version}`),
+      ),
+    );
+  const tagged = await on('v2.3.0');
+  expect(titles(tagged, 'ok')).toContain(`${WORKFLOW_PATH} calls the project workflow`);
+  expect(titles(tagged, 'warn')).not.toContainEqual(expect.stringContaining(WORKFLOW_PATH));
+  for (const version of ['fix-gate', '0123abc']) {
+    const items = await on(version);
+    const at = PROJECT_REF.replace('@v2', `@${version}`);
+    expect(titles(items, 'warn')).toContain(`${WORKFLOW_PATH} calls ${at}, not a release of v2`);
+    expect(titles(items, 'error')).not.toContainEqual(expect.stringContaining(WORKFLOW_PATH));
+  }
+  for (const version of ['v3', 'v1.2.0']) {
+    const items = await on(version);
+    const at = PROJECT_REF.replace('@v2', `@${version}`);
+    expect(titles(items, 'error')).toContain(`${WORKFLOW_PATH} calls ${at}: change it to ${PROJECT_REF}`);
+  }
+});
+
 test('accepts the Claude token as an organization secret', async () => {
   const items = await run(
     { ...APP_STATE, claudeToken: { repository: false, organization: true } },
@@ -332,9 +355,34 @@ test('a team project needs code owner approvals given after the last push', asyn
   expect(titles(await run(state), 'warn')).not.toContainEqual(stale);
 
   expect(titles(await run({ ...state, ruleset: keepingStaleApprovals(state.ruleset) }), 'warn')).toContainEqual(stale);
-  // One person maintaining it does not make a code owner approval the ruleset still requires safe to keep
+  // One person maintaining it: the code owner approval the ruleset still requires is reported, as setup does, and
+  // protect drops it with the older approvals
   const solo = { ...state, current: { ...state.current, solo: true }, ruleset: keepingStaleApprovals(state.ruleset) };
-  expect(titles(await run(solo), 'warn')).toContainEqual(stale);
+  expect(titles(await run(solo), 'warn')).toContainEqual(
+    'The ruleset requires code owner approval, but the project is maintained alone',
+  );
+});
+
+test('reports a code owner approval a solo project cannot give, like setup, and not the branch as protected', async () => {
+  const state = await stateFor(
+    { deploy: 'none', solo: true, incidents: false },
+    { ruleset: rulesetOf(undefined, { codeOwners: true }), codeOwners: ['@ana'] },
+  );
+  const items = await run(state);
+  expect(items).toContainEqual({
+    level: 'warn',
+    title: 'The ruleset requires code owner approval, but the project is maintained alone',
+    hint: PROTECT,
+  });
+  expect(titles(items, 'ok')).not.toContain('Default branch protected');
+  // Without it, the branch is protected
+  expect(titles(await run({ ...state, ruleset: rulesetOf() }), 'ok')).toContain('Default branch protected');
+  // A team project with it is protected
+  const team = await stateFor(
+    { deploy: 'none', solo: false, incidents: false },
+    { ruleset: rulesetOf(undefined, { codeOwners: true }), codeOwners: ['@ana'] },
+  );
+  expect(titles(await run(team), 'ok')).toContain('Default branch protected');
 });
 
 test('warns without reading the relay on Windows', async (t) => {
