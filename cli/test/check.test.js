@@ -245,7 +245,7 @@ test('reports missing environments, hooks and health URLs', async () => {
   expect(errors).toContain('Environment staging is missing');
   // Nothing more about either: a missing environment has nothing else to check, nor a missing HEALTH_URL to probe
   expect(errors).toStrictEqual([
-    `Missing labels: ${LABELS.join(', ')}`,
+    `Missing labels: ${LABELS.filter((name) => name !== 'task').join(', ')}`,
     'CLAUDE_CODE_OAUTH_TOKEN is not available to this repository',
     'Environment production has no DEPLOY_HOOK secret',
     'Environment production has no HEALTH_URL variable',
@@ -603,6 +603,19 @@ test('warns about a missing Codecov token only when the package uploads coverage
   for (const value of ['false', "'false'", 'false # no codecov'])
     expect(await warns(`coverage: ${value}`)).toStrictEqual([]);
   expect(await warns('tests: false')).toStrictEqual([]);
+});
+
+test('only warns about the task label, which no workflow reads', async () => {
+  const others = LABELS.filter((name) => name !== 'task');
+  const state = await stateFor({ deploy: 'forge', solo: true, incidents: false }, { labels: others });
+  const items = await run(state, { repository: 'datalogix/app' });
+  expect(titles(items, 'error').filter((title) => title.startsWith('Missing labels'))).toStrictEqual([]);
+  expect(items).toContainEqual({
+    level: 'warn',
+    title: 'Missing labels: task (only the task manager uses it)',
+    hint: SETUP,
+  });
+  expect(titles(items, 'ok')).not.toContain('Labels');
 });
 
 test('requires the env label of each deployed environment only', async () => {

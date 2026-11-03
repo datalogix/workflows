@@ -1316,11 +1316,13 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
 
   // Label names are case-insensitive on GitHub
   const labels = new Set(state.labels.map((name) => name.toLowerCase()));
-  const missingLabels = labelsFor(environments)
-    .map((label) => label.name)
-    .filter((name) => !labels.has(name));
-  if (missingLabels.length) error(`Missing labels: ${missingLabels.join(', ')}`, SETUP);
-  else ok('Labels');
+  const missingLabels = labelsFor(environments).filter((label) => !labels.has(label.name.toLowerCase()));
+  const labelNames = (list) => list.map((label) => label.name).join(', ');
+  const needed = missingLabels.filter((label) => !label.optional);
+  const optional = missingLabels.filter((label) => label.optional);
+  if (needed.length) error(`Missing labels: ${labelNames(needed)}`, SETUP);
+  if (optional.length) warn(`Missing labels: ${labelNames(optional)} (only the task manager uses it)`, SETUP);
+  if (!missingLabels.length) ok('Labels');
 
   if (state.claudeToken.repository) ok('CLAUDE_CODE_OAUTH_TOKEN (repository secret)');
   else if (state.claudeToken.organization) ok('CLAUDE_CODE_OAUTH_TOKEN (organization secret)');
