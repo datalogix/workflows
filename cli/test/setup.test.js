@@ -759,7 +759,7 @@ describe('setup tasks', () => {
     };
     const state = {
       ...APP_STATE,
-      labels: ['Claude', 'CLAUDE-PLAN', 'no-review', 'Rollback', 'ENV:production', 'env:staging'],
+      labels: ['Claude', 'CLAUDE-PLAN', 'no-review', 'Task', 'Rollback', 'ENV:production', 'env:staging'],
       environments: {
         ...APP_STATE.environments,
         production: environment({ healthUrl: 'https://old.example.com/up' }),
@@ -792,6 +792,16 @@ describe('setup tasks', () => {
     await mkdir(join(root, 'app/Providers'), { recursive: true });
     await writeFile(join(root, 'app/Providers/AppServiceProvider.php'), '<?php\n\nclass AppServiceProvider {}\n');
     await expect(task.run()).rejects.toThrow(/has no boot\(\) method/);
+
+    // A provider with boot() whose imports setup cannot extend is left to the developer too, saying why
+    await writeFile(
+      join(root, 'app/Providers/AppServiceProvider.php'),
+      APP_SERVICE_PROVIDER.replace(
+        'use Illuminate\\Support\\ServiceProvider;',
+        'use Illuminate\\Support\\{Facades\\DB, ServiceProvider};',
+      ),
+    );
+    await expect(task.run()).rejects.toThrow(/imports setup cannot extend \(grouped, or another DB or Event class\)/);
   });
 
   test('adds the database check to the provider of the project', async (t) => {
@@ -1206,7 +1216,7 @@ describe('setup tasks', () => {
     const github = fakeGitHub();
     const state = {
       ...APP_STATE,
-      labels: ['Claude', 'claude-plan', 'no-review', 'rollback'],
+      labels: ['Claude', 'claude-plan', 'no-review', 'task', 'rollback'],
       labelDescriptions: {
         Claude: 'Claude implementa e abre um pull request',
         'claude-plan': 'Claude posts an implementation plan',

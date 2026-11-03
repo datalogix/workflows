@@ -105,7 +105,11 @@ function healthCheckTask(root) {
         throw error;
       }
       const updated = addDatabaseCheck(content);
-      if (updated === null) throw new Error(`${PROVIDER_PATH} has no boot() method to extend; ${byHand}`);
+      if (updated === null) {
+        throw new Error(
+          `${PROVIDER_PATH} has no boot() method, or imports setup cannot extend (grouped, or another DB or Event class); ${byHand}`,
+        );
+      }
       await writeFile(path, updated);
       return `database check added to ${PROVIDER_PATH}`;
     },

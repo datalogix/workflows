@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { collectState } from '../lib/state.js';
-import { labelDescription, LABELS } from '../kinds/project/state.js';
+import { labelDescription, LABELS, labelsFor } from '../kinds/project/state.js';
 import { renderProjectWorkflow } from '../kinds/project/workflow.js';
 import { WORKFLOW_PATH } from '../lib/workflow-file.js';
 import laravelApp from '../stacks/laravel/app.js';
@@ -207,6 +207,17 @@ test('describes the labels in English only for languages that start with en', ()
   for (const language of ['pt-BR', 'es', '', undefined]) {
     expect(labelDescription(label, language)).toBe(label.description.pt);
   }
+});
+
+test('creates the labels the workflows and the task manager use, with the env label of each environment', () => {
+  expect(labelsFor(['production']).map((label) => label.name)).toStrictEqual([
+    'claude',
+    'claude-plan',
+    'no-review',
+    'task',
+    'rollback',
+    'env:production',
+  ]);
 });
 
 test('takes the workflow file detection read, and the stack and kind it found', async (t) => {

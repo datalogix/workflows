@@ -17,6 +17,12 @@ export const LABELS = [
     description: { pt: 'Claude publica um plano de implementação', en: 'Claude posts an implementation plan' },
   },
   { name: 'no-review', color: 'ededed', description: { pt: 'Pula a revisão do Claude', en: "Skips Claude's review" } },
+  // Issues the task manager follows (docs/task-manager.md): it creates them, or picks up the ones labeled task
+  {
+    name: 'task',
+    color: 'fbca04',
+    description: { pt: 'Tarefa do gerenciador de tarefas', en: 'Task of the task manager' },
+  },
   {
     name: 'rollback',
     color: 'b60205',
