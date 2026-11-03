@@ -59,11 +59,11 @@ function recorder(answers = {}) {
 }
 
 test('sends secrets on stdin, never as an argument', async () => {
-  const runner = recorder();
-  const github = createGitHub('datalogix/app', runner);
+  const gh = recorder();
+  const github = createGitHub('datalogix/app', gh);
   await github.setSecret('DEPLOY_HOOK', 'https://hook/s3cret', 'production');
   await github.setSecret('CLAUDE_CODE_OAUTH_TOKEN', 'token');
-  expect(runner.calls).toStrictEqual([
+  expect(gh.calls).toStrictEqual([
     [
       'gh',
       ['secret', 'set', 'DEPLOY_HOOK', '--repo', 'github.com/datalogix/app', '--env', 'production'],
@@ -74,11 +74,11 @@ test('sends secrets on stdin, never as an argument', async () => {
 });
 
 test('sends a request body as JSON on stdin, to the ruleset endpoints protect uses', async () => {
-  const runner = recorder();
-  const github = createGitHub('datalogix/app', runner);
+  const gh = recorder();
+  const github = createGitHub('datalogix/app', gh);
   await github.createRuleset({ name: 'datalogix' });
   await github.updateRuleset(7, { name: 'datalogix' });
-  expect(runner.calls).toStrictEqual([
+  expect(gh.calls).toStrictEqual([
     [
       'gh',
       ['api', '--hostname', 'github.com', '--method', 'POST', 'repos/datalogix/app/rulesets', '--input', '-'],
@@ -113,12 +113,12 @@ test('reads the checks of the latest pull request from its head commit', async (
 
 test('reads the organization secrets once per command, none when it cannot see them', async () => {
   const path = 'repos/datalogix/app/actions/organization-secrets?per_page=100';
-  const runner = recorder({ [path]: { stdout: '{"name":"CODECOV_TOKEN"}\n{"name":"RELEASE_APP_ID"}\n' } });
-  const github = createGitHub('datalogix/app', runner);
+  const gh = recorder({ [path]: { stdout: '{"name":"CODECOV_TOKEN"}\n{"name":"RELEASE_APP_ID"}\n' } });
+  const github = createGitHub('datalogix/app', gh);
   expect(await github.hasOrganizationSecret('CODECOV_TOKEN')).toBe(true);
   expect(await github.hasOrganizationSecret('RELEASE_APP_ID')).toBe(true);
   expect(await github.hasOrganizationSecret('CLAUDE_CODE_OAUTH_TOKEN')).toBe(false);
-  expect(runner.calls).toStrictEqual([
+  expect(gh.calls).toStrictEqual([
     ['gh', ['api', '--hostname', 'github.com', '--paginate', path, '--jq', '.secrets[]'], undefined],
   ]);
 
@@ -139,9 +139,9 @@ test('reads the organization secrets once per command, none when it cannot see t
 });
 
 test('reads the rulesets of the repository it was created for', async () => {
-  const runner = recorder({ 'repos/datalogix/app/rulesets?per_page=100&includes_parents=false': { stdout: '[]' } });
-  expect(await createGitHub('datalogix/app', runner).rulesets()).toStrictEqual([]);
-  expect(runner.calls).toStrictEqual([
+  const gh = recorder({ 'repos/datalogix/app/rulesets?per_page=100&includes_parents=false': { stdout: '[]' } });
+  expect(await createGitHub('datalogix/app', gh).rulesets()).toStrictEqual([]);
+  expect(gh.calls).toStrictEqual([
     [
       'gh',
       ['api', '--hostname', 'github.com', 'repos/datalogix/app/rulesets?per_page=100&includes_parents=false'],
@@ -189,6 +189,7 @@ test('tells how the Claude GitHub App reaches the repositories, and null when gh
   expect(await claudeApp({ stdout: '{"app_slug":"claude","repository_selection":"selected"}\n' })).toBe('selected');
   expect(await claudeApp({ stdout: '{"app_slug":"codecov","repository_selection":"all"}\n' })).toBe('none');
   expect(await claudeApp({ code: 1, stderr: 'gh: Must have admin rights (HTTP 403)' })).toBe(null);
+  expect(await claudeApp({ code: 1, stderr: 'gh: Not Found (HTTP 404)' })).toBe(null);
   // Another failure is not taken for a missing app
   await expect(claudeApp({ code: 1, stderr: 'gh: Bad credentials (HTTP 401)' })).rejects.toThrow('Bad credentials');
 });
@@ -207,27 +208,27 @@ test('reads the organization and the role of the gh login in it', async () => {
 });
 
 test('calls github.com whatever host gh would pick by default (GH_HOST)', async () => {
-  const runner = recorder();
-  const github = createGitHub('datalogix/app', runner);
+  const gh = recorder();
+  const github = createGitHub('datalogix/app', gh);
   await github.repo();
   await github.labels();
   await github.setVariable('HEALTH_URL', 'https://app.test/up', 'production');
   await github.deleteSecret('NIGHTWATCH_TOKEN', 'production');
-  await createOrganization('datalogix', runner).installedApps();
-  for (const [, args] of runner.calls) {
+  await createOrganization('datalogix', gh).installedApps();
+  for (const [, args] of gh.calls) {
     if (args[0] === 'api') expect(args.slice(0, 3)).toStrictEqual(['api', '--hostname', 'github.com']);
     else expect(args[args.indexOf('--repo') + 1]).toBe('github.com/datalogix/app');
   }
-  expect(runner.calls).toHaveLength(5);
+  expect(gh.calls).toHaveLength(5);
 });
 
 test('reads the repository secrets once, again after storing one, and fails when they cannot be read', async () => {
   const path = 'repos/datalogix/app/actions/secrets?per_page=100';
-  const runner = recorder({ [path]: { stdout: '{"name":"CLAUDE_CODE_OAUTH_TOKEN"}\n' } });
-  const github = createGitHub('datalogix/app', runner);
+  const gh = recorder({ [path]: { stdout: '{"name":"CLAUDE_CODE_OAUTH_TOKEN"}\n' } });
+  const github = createGitHub('datalogix/app', gh);
   expect(await github.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')).toBe(true);
   expect(await github.hasRepositorySecret('RELEASE_APP_CLIENT_ID')).toBe(false);
-  const lists = () => runner.calls.filter(([, args]) => args.includes(path)).length;
+  const lists = () => gh.calls.filter(([, args]) => args.includes(path)).length;
   expect(lists()).toBe(1);
 
   // An environment secret leaves the repository's as read
@@ -242,4 +243,126 @@ test('reads the repository secrets once, again after storing one, and fails when
   await expect(forbidden.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')).rejects.toThrow('HTTP 403');
   const missing = createGitHub('datalogix/app', recorder({ [path]: { code: 1, stderr: 'HTTP 404' } }));
   expect(await missing.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')).toBe(false);
+});
+
+test('writes the branches, settings, variables, secrets, labels and environments setup changes', async () => {
+  const gh = recorder();
+  const github = createGitHub('datalogix/app', gh);
+  await github.createBranch('develop', 'abc');
+  await github.setDefaultBranch('develop');
+  await github.allowMergeCommits();
+  await github.allowActionsPullRequests('read');
+  await github.setVariable('HEALTH_URL', 'https://app.test/up', 'production');
+  await github.deleteSecret('NIGHTWATCH_TOKEN', 'staging');
+  await github.createLabel('env:production', 'b60205', 'Deploys production');
+  await github.setLabelDescription('env:production', 'Deploys production');
+  await github.createEnvironment('production');
+  const api = (method, path) => ['api', '--hostname', 'github.com', '--method', method, path, '--input', '-'];
+  expect(gh.calls).toStrictEqual([
+    ['gh', api('POST', 'repos/datalogix/app/git/refs'), { input: '{"ref":"refs/heads/develop","sha":"abc"}' }],
+    ['gh', api('PATCH', 'repos/datalogix/app'), { input: '{"default_branch":"develop"}' }],
+    ['gh', api('PATCH', 'repos/datalogix/app'), { input: '{"allow_merge_commit":true}' }],
+    [
+      'gh',
+      api('PUT', 'repos/datalogix/app/actions/permissions/workflow'),
+      { input: '{"default_workflow_permissions":"read","can_approve_pull_request_reviews":true}' },
+    ],
+    [
+      'gh',
+      [
+        'variable',
+        'set',
+        'HEALTH_URL',
+        '--repo',
+        'github.com/datalogix/app',
+        '--env',
+        'production',
+        '--body',
+        'https://app.test/up',
+      ],
+      undefined,
+    ],
+    [
+      'gh',
+      ['secret', 'delete', 'NIGHTWATCH_TOKEN', '--repo', 'github.com/datalogix/app', '--env', 'staging'],
+      undefined,
+    ],
+    [
+      'gh',
+      api('POST', 'repos/datalogix/app/labels'),
+      { input: '{"name":"env:production","color":"b60205","description":"Deploys production"}' },
+    ],
+    [
+      'gh',
+      api('PATCH', 'repos/datalogix/app/labels/env%3Aproduction'),
+      { input: '{"description":"Deploys production"}' },
+    ],
+    ['gh', api('PUT', 'repos/datalogix/app/environments/production'), { input: '{}' }],
+  ]);
+});
+
+test('reads the labels with their descriptions, and the secrets and variables of an environment', async () => {
+  const gh = recorder({
+    'repos/datalogix/app/labels?per_page=100': { stdout: '{"name":"claude","description":"Claude works on it"}\n' },
+    'repos/datalogix/app/environments/production/secrets/DEPLOY_HOOK': { stdout: '{"name":"DEPLOY_HOOK"}' },
+    'repos/datalogix/app/environments/production/variables/HEALTH_URL': {
+      stdout: '{"name":"HEALTH_URL","value":"https://app.test/up"}',
+    },
+  });
+  const github = createGitHub('datalogix/app', gh);
+  expect(await github.labels()).toStrictEqual([{ name: 'claude', description: 'Claude works on it' }]);
+  expect(await github.hasEnvironmentSecret('production', 'DEPLOY_HOOK')).toBe(true);
+  expect(await github.environmentVariable('production', 'HEALTH_URL')).toBe('https://app.test/up');
+  const find = (path) => ['gh', ['api', '--hostname', 'github.com', path], undefined];
+  expect(gh.calls).toStrictEqual([
+    [
+      'gh',
+      ['api', '--hostname', 'github.com', '--paginate', 'repos/datalogix/app/labels?per_page=100', '--jq', '.[]'],
+      undefined,
+    ],
+    find('repos/datalogix/app/environments/production/secrets/DEPLOY_HOOK'),
+    find('repos/datalogix/app/environments/production/variables/HEALTH_URL'),
+  ]);
+  const missing = createGitHub(
+    'datalogix/app',
+    recorder({
+      'repos/datalogix/app/environments/production/variables/HEALTH_URL': {
+        code: 1,
+        stderr: 'gh: Not Found (HTTP 404)',
+      },
+    }),
+  );
+  expect(await missing.environmentVariable('production', 'HEALTH_URL')).toBe(null);
+});
+
+test('creates a public repository with a first commit, and a file without a sha', async () => {
+  const gh = recorder();
+  const organization = createOrganization('datalogix', gh);
+  await organization.createPublicRepo('.github', 'Settings of datalogix');
+  await organization.putFile('.github', 'workflows/relay.json', 'hi', 'chore: add the relay settings');
+  const api = (path) => ['api', '--hostname', 'github.com', '--method', 'PUT', path, '--input', '-'];
+  expect(gh.calls).toStrictEqual([
+    [
+      'gh',
+      ['api', '--hostname', 'github.com', '--method', 'POST', 'orgs/datalogix/repos', '--input', '-'],
+      {
+        input: JSON.stringify({
+          name: '.github',
+          description: 'Settings of datalogix',
+          visibility: 'public',
+          auto_init: true,
+        }),
+      },
+    ],
+    [
+      'gh',
+      api('repos/datalogix/.github/contents/workflows/relay.json'),
+      {
+        input: JSON.stringify({
+          message: 'chore: add the relay settings',
+          content: Buffer.from('hi').toString('base64'),
+        }),
+      },
+    ],
+  ]);
 });

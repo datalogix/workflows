@@ -103,6 +103,16 @@ class AppServiceProvider extends ServiceProvider
 export const APP_STATE = { ...EMPTY_STATE, ...laravelApp.empty, stack: 'laravel', kind: 'project' };
 export const PACKAGE_STATE = { ...EMPTY_STATE, ...laravelPackage.empty, stack: 'laravel', kind: 'package' };
 
+/** The ruleset, keeping the code owner approvals of older commits (as rulesets made before protect did). */
+export const keepingStaleApprovals = (ruleset) => {
+  const copy = structuredClone(ruleset);
+  Object.assign(copy.rules.find((rule) => rule.type === 'pull_request').parameters, {
+    dismiss_stale_reviews_on_push: false,
+    require_last_push_approval: false,
+  });
+  return copy;
+};
+
 /** Runs the test as on that platform (win32: npx cannot reach the relay). */
 export function onPlatform(t, value) {
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');

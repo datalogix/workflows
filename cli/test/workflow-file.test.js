@@ -1,11 +1,12 @@
 import { expect, test } from 'vitest';
-import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
+import { packageAnswers, packageTemplate, renderPackageWorkflow } from '../kinds/package/workflow.js';
 import { PROJECT_REF, projectAnswers, projectTemplate, renderProjectWorkflow } from '../kinds/project/workflow.js';
 import {
   droppedInputComments,
   hasChangesOutsideInputs,
   hasInputComments,
   inputComment,
+  lf,
   listOf,
   parseInputs,
   pushBranches,
@@ -190,6 +191,9 @@ test('matches a branch against the push filter like GitHub', () => {
   expect(runsOnPush(['*'], 'release/1.0')).toBe(false);
   expect(runsOnPush(['**'], 'release/1.0')).toBe(true);
   expect(runsOnPush(['v[12].x'], 'v2.x')).toBe(true);
+  // ? makes the character before it optional, as in a regular expression
+  expect(runsOnPush(['v2?'], 'v')).toBe(true);
+  expect(runsOnPush(['v?'], 'v2')).toBe(false);
   expect(runsOnPush(['v1.x'], 'v1-x')).toBe(false);
   // The last matching pattern wins
   expect(runsOnPush(['**', '!main'], 'main')).toBe(false);
@@ -210,6 +214,7 @@ test('reads the push filter, also as branches-ignore or tags only', () => {
   // Only tags: no branch push runs the workflow
   expect(push('    tags: ["v*"]\n')).toStrictEqual([]);
   expect(runsOnPush(push('    tags: ["v*"]\n'), 'main')).toBe(false);
+  expect(push('    tags-ignore:\n      - "v*"\n')).toStrictEqual([]);
   expect(push('    paths: [src/**]\n')).toBe(null);
 });
 
@@ -222,6 +227,8 @@ test('reads a workflow file with CRLF line ends, also in the template comparison
   const content = (await renderProjectWorkflow({ deploy: 'none' })).replace(/\n/g, '\r\n');
   expect(await changesOutside(content)).toBe(false);
   expect(usesRef(content, PROJECT_REF)).toBe('v2');
+  // A lone CR (old Mac line ends) is a line end too
+  expect(lf('on:\r  push:\r\n')).toBe('on:\n  push:\n');
 });
 
 test('reads comments in the push filter, and tells no push trigger from one without a filter', () => {
@@ -253,6 +260,8 @@ test('reads the version of a reusable workflow from its uses key only', () => {
   const file = `    # uses: ${ref}\n    uses: "datalogix/workflows/.github/workflows/project.yml@v1"\n`;
   expect(usesRef(file, ref)).toBe('v1');
   expect(usesRef('    # uses: datalogix/workflows/.github/workflows/project.yml@v2\n', ref)).toBe(null);
+  // A step written as a list item
+  expect(usesRef(`      - uses: ${ref}\n`, ref)).toBe('v2');
 });
 
 test('finds comments in the with block', () => {
@@ -312,6 +321,10 @@ test('keeps what the file has after the with block, such as another job', async 
   expect(await renderPackageWorkflow(`${await renderPackageWorkflow()}\n${extra}`)).toBe(
     `${await renderPackageWorkflow()}\n${extra}`,
   );
+  // Also without a with block: the other job is not compared with the template
+  expect(hasChangesOutsideInputs(`${await renderPackageWorkflow()}\n${extra}`, await packageTemplate('main'))).toBe(
+    false,
+  );
 });
 
 test('reads a with line that ends with a comment', async () => {
@@ -343,8 +356,11 @@ test('reads edge cases of the workflow file as nothing set', () => {
   expect(pushBranches('jobs: {}\n')).toBe(null);
   expect(listOf("'not json'")).toBe(null);
   expect(listOf('\'{"a": 1}\'')).toBe(null);
-  expect(scalar('"a b" # comment')).toBe('a b');
   expect(scalar('main # deploys')).toBe('main');
+});
+
+test('reads a quoted value before a comment', () => {
+  expect(scalar('"a b" # comment')).toBe('a b');
 });
 
 test('writes github-deployments only when it is off and the app deploys, and reads it back', async () => {

@@ -1,25 +1,16 @@
 import { expect, test } from 'vitest';
 import { evaluate } from '../commands/check.js';
 import { PACKAGE_CHECKS } from '../kinds/package/index.js';
-import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
+import { PACKAGE_REF, packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
 import { PROJECT_CHECKS } from '../kinds/project/index.js';
 import { labelsFor } from '../kinds/project/state.js';
-import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
+import { PROJECT_REF, projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
+import { ORG, PROTECT, SETUP } from '../lib/evaluate.js';
 import { rulesetBody } from '../lib/ruleset.js';
-import { parseInputs } from '../lib/workflow-file.js';
-import { APP_STATE, environment, onPlatform, PACKAGE_STATE, RELAY as relay } from './helpers.js';
+import { parseInputs, WORKFLOW_PATH } from '../lib/workflow-file.js';
+import { APP_STATE, environment, keepingStaleApprovals, onPlatform, PACKAGE_STATE, RELAY as relay } from './helpers.js';
 
 const rulesetOf = (checks = Object.values(PROJECT_CHECKS), options) => rulesetBody(checks, options);
-
-/** The ruleset, keeping the code owner approvals of older commits (as rulesets made before protect did). */
-const keepingStaleApprovals = (ruleset) => {
-  const copy = structuredClone(ruleset);
-  Object.assign(copy.rules.find((rule) => rule.type === 'pull_request').parameters, {
-    dismiss_stale_reviews_on_push: false,
-    require_last_push_approval: false,
-  });
-  return copy;
-};
 
 const LABELS = labelsFor(['production', 'staging']).map((label) => label.name);
 const PACKAGE_CHECK = PACKAGE_CHECKS.tests;
@@ -33,16 +24,45 @@ async function stateFor(answers, overrides = {}, edit = (content) => content) {
 
 const titles = (items, level) => items.filter((item) => item.level === level).map((item) => item.title);
 
-/** Evaluates with fakes that fail the test if a check reads the network or the relay without the test saying so. */
+/**
+ * Evaluates with fakes that fail the test if a check reads the network or the relay without the test saying so. They
+ * throw at the call, not in a promise, which evaluate would set aside until it awaits it.
+ */
 const run = (state, options = {}) =>
   evaluate(state, {
     relay,
-    probe: async () => expect.unreachable('probe'),
-    relayLookup: async () => expect.unreachable('relay'),
+    probe: () => expect.unreachable('probe'),
+    relayLookup: () => expect.unreachable('relay'),
     ...options,
   });
 
-test('reports what a new project is missing', async () => {
+// A project that deploys production from main and staging from develop, set up as setup leaves it
+const PRODUCTION = { deploy: 'forge', staging: true, productionBranch: 'main', solo: true, incidents: false };
+const READY = {
+  labels: LABELS,
+  defaultBranch: 'develop',
+  environments: {
+    production: environment(),
+    staging: environment({ healthUrl: 'https://staging.app.example.com/up' }),
+  },
+  claudeToken: { repository: true, organization: false },
+  releaseApp: true,
+  productionBranchStatus: { name: 'main', exists: true },
+  ruleset: rulesetOf(undefined, { productionBranch: 'main' }),
+  health: { laravel: true, route: '/up', databaseCheck: true },
+  codeOwners: ['@ana'],
+};
+const WITHOUT_APP = { ...READY, releaseApp: false, actionsPullRequests: { allowed: true, defaultPermissions: 'read' } };
+
+/** Evaluates the production branch project with the overrides, the workflow file edited as given. */
+const production = async (overrides = {}, edit) =>
+  run(await stateFor(PRODUCTION, { ...READY, ...overrides }, edit), {
+    repository: 'datalogix/app',
+    probe: async () => 200,
+  });
+
+test('reports what a new project is missing', async (t) => {
+  onPlatform(t, 'linux');
   const items = await run(APP_STATE, { repository: 'datalogix/app', relayLookup: async () => false });
   const errors = titles(items, 'error');
   expect(errors).toContainEqual(expect.stringContaining('datalogix.yml is missing'));
@@ -50,9 +70,13 @@ test('reports what a new project is missing', async () => {
   expect(errors).toContainEqual(expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN'));
   expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('has no "datalogix" ruleset'));
   expect(titles(items, 'warn')).toContain('.github/CODEOWNERS has no owner for /.github/');
+  expect(items).toContainEqual({ level: 'error', title: expect.stringMatching(/^Missing labels/), hint: SETUP });
+  expect(items).toContainEqual({ level: 'warn', title: '.github/CODEOWNERS has no owner for /.github/', hint: SETUP });
+  // Without a workflow file there is no trigger to look for
+  expect(titles(items, 'warn')).not.toContainEqual(expect.stringContaining('repository_dispatch'));
 });
 
-test('asks for code owners only when their approval is needed', async () => {
+test('warns about missing code owners only when their approval is needed', async () => {
   const warns = async (answers, ruleset = null) =>
     titles(await run({ ...(await stateFor(answers)), codeOwners: null, ruleset }), 'warn');
   const warning = '.github/CODEOWNERS has no owner for /.github/';
@@ -63,7 +87,8 @@ test('asks for code owners only when their approval is needed', async () => {
   expect(await warns({ deploy: 'none', solo: true, incidents: false }, ruleset)).toContain(warning);
 });
 
-test('passes a fully set up project', async () => {
+test('passes a fully set up project', async (t) => {
+  onPlatform(t, 'linux');
   const state = await stateFor(
     { deploy: 'forge', staging: true, solo: true, incidents: true },
     {
@@ -91,6 +116,8 @@ test('passes a fully set up project', async () => {
 test('reports a workflow file that does not call the project workflow', async () => {
   const items = await run({ ...APP_STATE, workflow: 'on: push\n' }, { relayLookup: async () => true });
   expect(titles(items, 'error')).toContainEqual(expect.stringContaining('does not call datalogix/workflows'));
+  // Nor is a trigger asked of a file that calls something else
+  expect(titles(items, 'warn')).not.toContainEqual(expect.stringContaining('repository_dispatch'));
 });
 
 test('tells to update a workflow file still on an older major', async () => {
@@ -99,9 +126,8 @@ test('tells to update a workflow file still on an older major', async () => {
       content.replace('project.yml@v2', 'project.yml@v1'),
     ),
   );
-  expect(titles(items, 'error')).toContain(
-    '.github/workflows/datalogix.yml calls datalogix/workflows/.github/workflows/project.yml@v1: change it to datalogix/workflows/.github/workflows/project.yml@v2',
-  );
+  const older = PROJECT_REF.replace('@v2', '@v1');
+  expect(titles(items, 'error')).toContain(`${WORKFLOW_PATH} calls ${older}: change it to ${PROJECT_REF}`);
 });
 
 test('accepts the Claude token as an organization secret', async () => {
@@ -158,6 +184,11 @@ test('a team project needs code owner approval in the ruleset', async () => {
   );
   const warning = expect.stringContaining('code owner approval');
   expect(titles(await run(state), 'warn')).toContainEqual(warning);
+  expect(await run(state)).toContainEqual({
+    level: 'warn',
+    title: 'The ruleset does not require code owner approval, so a pull request can lower its own checks',
+    hint: PROTECT,
+  });
   expect(
     titles(await run({ ...state, ruleset: rulesetOf(undefined, { codeOwners: true }) }), 'warn'),
   ).not.toContainEqual(warning);
@@ -170,7 +201,8 @@ test('warns without reading the relay when it is not configured', async () => {
   const state = await stateFor({ deploy: 'none', solo: true, incidents: true });
   const unconfigured = { configured: false, url: '', namespaceId: '', owner: '' };
   const items = await run(state, { relay: unconfigured, repository: 'datalogix/app' });
-  expect(titles(items, 'warn')).toContainEqual('The monitoring relay is not set up for datalogix');
+  expect(titles(items, 'warn')).toContain('The monitoring relay is not set up for datalogix');
+  expect(items).toContainEqual({ level: 'warn', title: 'The monitoring relay is not set up for datalogix', hint: ORG });
 });
 
 test('reports missing environments, hooks and health URLs', async () => {
@@ -183,10 +215,26 @@ test('reports missing environments, hooks and health URLs', async () => {
       },
     },
   );
-  const errors = titles(await run(state, { probe: async () => 200 }), 'error');
+  const items = await run(state, { probe: async () => 200 });
+  const errors = titles(items, 'error');
   expect(errors).toContain('Environment production has no DEPLOY_HOOK secret');
   expect(errors).toContain('Environment production has no HEALTH_URL variable');
   expect(errors).toContain('Environment staging is missing');
+  // Nothing more about either: a missing environment has nothing else to check, nor a missing HEALTH_URL to probe
+  expect(errors).toStrictEqual([
+    `Missing labels: ${LABELS.join(', ')}`,
+    'CLAUDE_CODE_OAUTH_TOKEN is not available to this repository',
+    'Environment production has no DEPLOY_HOOK secret',
+    'Environment production has no HEALTH_URL variable',
+    'Environment staging is missing',
+  ]);
+  expect(titles(items, 'warn')).not.toContainEqual(expect.stringMatching(/^(production|staging):/));
+  // Nor is an environment that does not exist probed, whatever HEALTH_URL is read for it
+  const gone = { ...state.environments.staging, healthUrl: 'https://staging.app.example.com/up' };
+  await run(
+    { ...state, environments: { ...state.environments, staging: gone } },
+    { probe: (url) => (url.includes('staging') ? expect.unreachable('staging probe') : 200) },
+  );
 });
 
 test('shows the Nightwatch token of a Forge environment and accepts labels in any case', async () => {
@@ -200,6 +248,14 @@ test('shows the Nightwatch token of a Forge environment and accepts labels in an
   const ok = titles(await run(state, { probe: async () => 200 }), 'ok');
   expect(ok).toContain('production: NIGHTWATCH_TOKEN (deploy markers)');
   expect(ok).toContain('Labels');
+  // Only Forge sites send deploy markers
+  const cloud = await stateFor(
+    { deploy: 'cloud', staging: false, solo: true, incidents: false },
+    { labels: state.labels, environments: state.environments },
+  );
+  expect(titles(await run(cloud, { probe: async () => 200 }), 'ok')).not.toContain(
+    'production: NIGHTWATCH_TOKEN (deploy markers)',
+  );
 });
 
 test('requires only the checks of the layers that are on', async () => {
@@ -210,19 +266,30 @@ test('requires only the checks of the layers that are on', async () => {
       .filter((item) => item.level !== 'ok' && item.title.startsWith('The ruleset'))
       .map((item) => item.title);
 
-  expect(
-    await rulesetTitles(await stateFor(answers, { ruleset: rulesetOf(Object.values(PROJECT_CHECKS).slice(0, 2)) })),
-  ).toStrictEqual(['The ruleset does not require pipeline / gate / gate']);
-  expect(await rulesetTitles(await stateFor(answers, { ruleset: rulesetOf() }, riskGateOff))).toStrictEqual([
+  const missing = await stateFor(answers, { ruleset: rulesetOf(Object.values(PROJECT_CHECKS).slice(0, 2)) });
+  expect(await rulesetTitles(missing)).toStrictEqual(['The ruleset does not require pipeline / gate / gate']);
+  expect(await run(missing)).toContainEqual({
+    level: 'warn',
+    title: 'The ruleset does not require pipeline / gate / gate',
+    hint: PROTECT,
+  });
+  const stale = await stateFor(answers, { ruleset: rulesetOf() }, riskGateOff);
+  expect(await rulesetTitles(stale)).toStrictEqual([
     'The ruleset requires pipeline / gate / gate, but that layer is off: every pull request waits for it',
   ]);
+  expect(await run(stale)).toContainEqual({
+    level: 'error',
+    title: 'The ruleset requires pipeline / gate / gate, but that layer is off: every pull request waits for it',
+    hint: PROTECT,
+  });
   const off = await run(
     await stateFor(answers, { ruleset: rulesetOf(Object.values(PROJECT_CHECKS).slice(0, 2)) }, riskGateOff),
   );
   expect(titles(off, 'ok')).toContain('Default branch protected');
 });
 
-test('warns about a workflow without the repository_dispatch trigger and about the relay', async () => {
+test('warns about a workflow without the repository_dispatch trigger and about the relay', async (t) => {
+  onPlatform(t, 'linux');
   const state = await stateFor({ deploy: 'none', solo: true, incidents: true }, {}, (content) =>
     content.replace(/repository_dispatch:/, 'workflow_dispatch:'),
   );
@@ -240,6 +307,12 @@ test('warns about a workflow without the repository_dispatch trigger and about t
   expect(
     titles(await run(commented, { repository: 'datalogix/app', relayLookup: async () => true }), 'warn'),
   ).toContainEqual(expect.stringContaining('no repository_dispatch trigger'));
+
+  // Without incidents the trigger is not needed
+  const off = await stateFor({ deploy: 'none', solo: true, incidents: false }, {}, (content) =>
+    content.replace(/repository_dispatch:/, 'workflow_dispatch:'),
+  );
+  expect(titles(await run(off), 'warn')).not.toContainEqual(expect.stringContaining('repository_dispatch'));
 });
 
 test('warns about a repository the monitoring relay does not accept', async () => {
@@ -259,6 +332,9 @@ test('a team project needs code owner approvals given after the last push', asyn
   expect(titles(await run(state), 'warn')).not.toContainEqual(stale);
 
   expect(titles(await run({ ...state, ruleset: keepingStaleApprovals(state.ruleset) }), 'warn')).toContainEqual(stale);
+  // One person maintaining it does not make a code owner approval the ruleset still requires safe to keep
+  const solo = { ...state, current: { ...state.current, solo: true }, ruleset: keepingStaleApprovals(state.ruleset) };
+  expect(titles(await run(solo), 'warn')).toContainEqual(stale);
 });
 
 test('warns without reading the relay on Windows', async (t) => {
@@ -268,31 +344,6 @@ test('warns without reading the relay on Windows', async (t) => {
   const items = await run(state, { repository: 'datalogix/app' });
   expect(titles(items, 'warn')).toContain('Cannot read the monitoring relay on Windows');
 });
-
-// A project that deploys production from main and staging from develop, set up as setup leaves it
-const PRODUCTION = { deploy: 'forge', staging: true, productionBranch: 'main', solo: true, incidents: false };
-const READY = {
-  labels: LABELS,
-  defaultBranch: 'develop',
-  environments: {
-    production: environment(),
-    staging: environment({ healthUrl: 'https://staging.app.example.com/up' }),
-  },
-  claudeToken: { repository: true, organization: false },
-  releaseApp: true,
-  productionBranchStatus: { name: 'main', exists: true },
-  ruleset: rulesetOf(undefined, { productionBranch: 'main' }),
-  health: { laravel: true, route: '/up', databaseCheck: true },
-  codeOwners: ['@ana'],
-};
-const WITHOUT_APP = { ...READY, releaseApp: false, actionsPullRequests: { allowed: true, defaultPermissions: 'read' } };
-
-/** Evaluates the production branch project with the overrides, the workflow file edited as given. */
-const production = async (overrides = {}, edit) =>
-  run(await stateFor(PRODUCTION, { ...READY, ...overrides }, edit), {
-    repository: 'datalogix/app',
-    probe: async () => 200,
-  });
 
 test('passes a project with a production branch, both branches protected', async () => {
   const items = await production();
@@ -362,9 +413,9 @@ test('accepts release pull requests opened by GitHub Actions, leaving main unpro
 });
 
 test('reports a ruleset that protects main without the App: every release waits', async () => {
-  expect(titles(await production(WITHOUT_APP), 'error')).toStrictEqual([
-    expect.stringContaining('every release waits'),
-  ]);
+  const items = await production(WITHOUT_APP);
+  expect(titles(items, 'error')).toStrictEqual([expect.stringContaining('every release waits')]);
+  expect(titles(items, 'ok')).not.toContainEqual(expect.stringContaining('protected'));
 });
 
 test('reports a repository where GitHub Actions cannot open pull requests', async () => {
@@ -421,9 +472,20 @@ test('reports a package without a workflow file, or with the project one', async
     '.github/workflows/datalogix.yml is missing',
   );
   const projectFile = await run(packageState({ workflow: await renderProjectWorkflow({ deploy: 'none' }) }));
-  expect(titles(projectFile, 'error')).toStrictEqual([
-    '.github/workflows/datalogix.yml does not call datalogix/workflows/.github/workflows/package.yml@v2',
+  expect(titles(projectFile, 'error')).toStrictEqual([`${WORKFLOW_PATH} does not call ${PACKAGE_REF}`]);
+});
+
+test('reports a package ruleset that requires the checks of its tests turned off', async () => {
+  const workflow = `${PACKAGE_WORKFLOW}    with:\n      tests: false\n`;
+  const items = await run(packageState({ workflow, ruleset: rulesetOf([PACKAGE_CHECK]) }));
+  expect(titles(items, 'error')).toStrictEqual([
+    'The ruleset requires pipeline / tests / all-checks, but that layer is off: every pull request waits for it',
   ]);
+});
+
+test('warns about a package without code owners', async () => {
+  const items = await run(packageState({ ruleset: rulesetOf([PACKAGE_CHECK]), codeOwners: null }));
+  expect(titles(items, 'warn')).toStrictEqual(['.github/CODEOWNERS has no owner for /.github/']);
 });
 
 test('reports a ruleset that is not enforced, leaves out the default branch or does not require pull requests', async () => {
@@ -436,6 +498,11 @@ test('reports a ruleset that is not enforced, leaves out the default branch or d
   expect(await problems({ ...rulesetOf(), enforcement: 'disabled' })).toStrictEqual([
     'error: The "datalogix" ruleset is disabled: nothing is enforced',
   ]);
+  expect(await run({ ...state, ruleset: { ...rulesetOf(), enforcement: 'disabled' } })).toContainEqual({
+    level: 'error',
+    title: 'The "datalogix" ruleset is disabled: nothing is enforced',
+    hint: PROTECT,
+  });
   expect(await problems({ ...rulesetOf(), enforcement: 'evaluate' })).toStrictEqual([
     'error: The "datalogix" ruleset is evaluate: nothing is enforced',
   ]);
@@ -479,13 +546,18 @@ test('warns about a missing Codecov token only when the package uploads coverage
       'warn',
     );
   expect(await warns()).toStrictEqual(['No CODECOV_TOKEN: the coverage report is not uploaded']);
+  expect(await run(packageState({ ruleset: rulesetOf([PACKAGE_CHECK]), codecovToken: false }))).toContainEqual({
+    level: 'warn',
+    title: 'No CODECOV_TOKEN: the coverage report is not uploaded',
+    hint: `${SETUP}, or coverage: false`,
+  });
   // Coverage off, read by its value
   for (const value of ['false', "'false'", 'false # no codecov'])
     expect(await warns(`coverage: ${value}`)).toStrictEqual([]);
   expect(await warns('tests: false')).toStrictEqual([]);
 });
 
-test('asks for the env label of each deployed environment only', async () => {
+test('requires the env label of each deployed environment only', async () => {
   const missing = async (current) => {
     const state = await stateFor(current, { labels: labelsFor([]).map((label) => label.name) });
     return titles(await run(state, { repository: 'datalogix/app' }), 'error').find((title) =>
@@ -506,6 +578,11 @@ test('reports how the Claude GitHub App reaches the repository', async () => {
   expect(await level('all')).toBe('ok');
   expect(await level('selected')).toBe('warn');
   expect(await level('none')).toBe('error');
+  expect(await run({ ...APP_STATE, claudeApp: 'none' }, { relayLookup: async () => true })).toContainEqual({
+    level: 'error',
+    title: 'The Claude GitHub App is not installed',
+    hint: 'https://github.com/apps/claude/installations/new',
+  });
   expect(await level(null)).toBe('warn');
 });
 
@@ -535,9 +612,15 @@ test('warns when Nightwatch is on and the app does not require its agent', async
   expect(await warns({ deploy: 'none', solo: true, incidents: true }, { nightwatch: false })).toContain(warning);
   expect(await warns({ deploy: 'none', solo: true, incidents: true }, { nightwatch: true })).not.toContain(warning);
   expect(await warns({ deploy: 'none', solo: true, incidents: false }, { nightwatch: false })).not.toContain(warning);
+  // Deploy markers also need the agent, with incidents off
+  const markers = { production: environment({ monitoringToken: true }), staging: APP_STATE.environments.staging };
+  expect(
+    await warns({ deploy: 'none', solo: true, incidents: false }, { nightwatch: false, environments: markers }),
+  ).toContain(warning);
 });
 
-test('probes every health URL and looks up the relay together, reporting them in order', async () => {
+test('probes every health URL and looks up the relay together, reporting them in order', async (t) => {
+  onPlatform(t, 'linux');
   const state = await stateFor({ ...PRODUCTION, incidents: true }, READY);
   const started = [];
   let release;

@@ -1,16 +1,8 @@
 import { expect, test } from 'vitest';
-import { driftPhrases, rulesetBody, rulesetDrift } from '../lib/ruleset.js';
+import { driftPhrases, keepsStaleApprovals, rulesetBody, rulesetDrift } from '../lib/ruleset.js';
+import { keepingStaleApprovals } from './helpers.js';
 
 const CHECKS = ['pipeline / tests / tests', 'pipeline / security / security', 'pipeline / gate / gate'];
-
-const keepingStaleApprovals = (ruleset) => {
-  const copy = structuredClone(ruleset);
-  Object.assign(copy.rules.find((rule) => rule.type === 'pull_request').parameters, {
-    dismiss_stale_reviews_on_push: false,
-    require_last_push_approval: false,
-  });
-  return copy;
-};
 
 test('finds nothing to change in the ruleset protect writes', () => {
   const drift = rulesetDrift(rulesetBody(CHECKS, { codeOwners: true }), {
@@ -78,4 +70,19 @@ test('finds a ruleset that is not enforced on the default branch, or without pul
   const drift = rulesetDrift({ ...body, rules: [] });
   expect(drift.pullRequests).toBe(false);
   expect(driftPhrases(drift)).toContain('does not require pull requests');
+});
+
+test('keeps older approvals only when neither a push dismisses them nor the last push needs one', () => {
+  const keeps = (dismiss, lastPush) => {
+    const ruleset = rulesetBody(CHECKS, { codeOwners: true });
+    Object.assign(ruleset.rules.find((rule) => rule.type === 'pull_request').parameters, {
+      dismiss_stale_reviews_on_push: dismiss,
+      require_last_push_approval: lastPush,
+    });
+    return keepsStaleApprovals(ruleset);
+  };
+  expect(keeps(true, true)).toBe(false);
+  expect(keeps(true, false)).toBe(false);
+  expect(keeps(false, true)).toBe(false);
+  expect(keeps(false, false)).toBe(true);
 });
