@@ -1,5 +1,12 @@
 import { expect, test } from 'vitest';
-import { driftPhrases, keepsStaleApprovals, mergeRuleset, rulesetBody, rulesetDrift } from '../lib/ruleset.js';
+import {
+  driftPhrases,
+  keepsStaleApprovals,
+  matchesDefaultBranch,
+  mergeRuleset,
+  rulesetBody,
+  rulesetDrift,
+} from '../lib/ruleset.js';
 import { keepingStaleApprovals } from './helpers.js';
 
 const CHECKS = ['pipeline / tests / tests', 'pipeline / security / security', 'pipeline / gate / gate'];
@@ -136,4 +143,12 @@ test('keeps older approvals only when neither a push dismisses them nor the last
   expect(keeps(true, false)).toBe(false);
   expect(keeps(false, true)).toBe(false);
   expect(keeps(false, false)).toBe(true);
+});
+
+test('matches the default branch with **/ as no directory at all, as fnmatch does', () => {
+  expect(matchesDefaultBranch('refs/heads/**/*', 'main')).toBe(true);
+  expect(matchesDefaultBranch('refs/heads/**/main', 'main')).toBe(true);
+  expect(matchesDefaultBranch('refs/heads/**/*', 'team/main')).toBe(true);
+  expect(matchesDefaultBranch('refs/heads/**/other', 'main')).toBe(false);
+  expect(matchesDefaultBranch('refs/heads/release/**/*', 'main')).toBe(false);
 });

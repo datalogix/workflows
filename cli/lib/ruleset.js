@@ -126,12 +126,14 @@ export function mergeRuleset(existing, body, { unprotect = [], defaultBranch = n
 
 /**
  * Whether a ref condition of a ruleset matches the default branch (`defaultBranch`, its name, when known):
- * ~DEFAULT_BRANCH, ~ALL or a pattern of refs/heads/<name>, where * matches within a path segment and ** across them.
+ * ~DEFAULT_BRANCH, ~ALL or a pattern of refs/heads/<name>, where * matches within a path segment and ** across them,
+ * also no directory at all before a slash (as fnmatch does).
  */
 export function matchesDefaultBranch(pattern, defaultBranch) {
   if (pattern === '~DEFAULT_BRANCH' || pattern === '~ALL') return true;
   if (!defaultBranch) return false;
-  const source = pattern.replace(/\*\*|\*|\?|\[[^\]]*\]|[.+(){}|^$\\]/g, (token) => {
+  const source = pattern.replace(/\*\*\/|\*\*|\*|\?|\[[^\]]*\]|[.+(){}|^$\\]/g, (token) => {
+    if (token === '**/') return '(?:.*/)?';
     if (token === '**') return '.*';
     if (token === '*') return '[^/]*';
     if (token === '?') return '[^/]';
