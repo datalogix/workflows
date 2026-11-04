@@ -110,7 +110,7 @@ jobs:
       - name: Setup Laravel
         id: setup
         if: steps.check.outputs.skip != 'true'
-        uses: datalogix/workflows/.github/actions/setup-laravel@v1
+        uses: datalogix/workflows/.github/actions/setup-laravel@v2
         with:
           php-version: ${{ inputs.php-version }}
           node-version: ${{ inputs.node-version }}
