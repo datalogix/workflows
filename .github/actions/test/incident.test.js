@@ -467,6 +467,14 @@ test('a problem that comes back is analyzed again when the live release cannot b
   );
 });
 
+test('comments that a problem happened again without a link when the service sends none', async () => {
+  const result = await sync(payload({ event: 'reopened', issue: { ...payload().issue, url: null } }), {
+    issues: [{ number: 5, state: 'CLOSED', body: RECORDED('') }],
+  });
+  const comment = callsTo(result, 'gh').find((call) => call.startsWith('issue comment 5'));
+  expect(comment).toMatch(/segundo o Nightwatch(?!:)/);
+});
+
 test('creates the labels of a new issue before the issue', async () => {
   const result = await sync(payload());
   const gh = callsTo(result, 'gh');
