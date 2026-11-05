@@ -797,6 +797,41 @@ test('checks the Vercel token and project of a JavaScript app that deploys, not 
   expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('No health route at app/api/health/route.ts'));
 });
 
+test('takes a protected health URL as passing only with the bypass secret of the environment', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'vercel',
+    staging: false,
+    monitoring: 'none',
+    incidents: false,
+  });
+  const items = (protectionSecret) =>
+    run(
+      {
+        ...APP_STATE,
+        stack: 'js',
+        workflow,
+        current: projectAnswers(parseInputs(workflow)),
+        framework: 'next',
+        healthFile: 'app/api/health/route.ts',
+        healthRoute: true,
+        environments: {
+          production: environment({ variables: { VERCEL_PROJECT: 'prj_1' }, protectionSecret }),
+          staging: environment({ exists: false }),
+        },
+      },
+      { repository: 'datalogix/app', probe: async () => 401 },
+    );
+  const passing = await items(true);
+  expect(titles(passing, 'warn').join('\n')).not.toContain('401');
+  expect(titles(passing, 'ok')).toContainEqual(
+    expect.stringContaining('is protected (401); the deploys pass with VERCEL_AUTOMATION_BYPASS_SECRET'),
+  );
+  expect(titles(await items(false), 'warn')).toContainEqual(
+    expect.stringContaining('answers 401 and the environment has no VERCEL_AUTOMATION_BYPASS_SECRET secret'),
+  );
+});
+
 test('probes every health URL and looks up the relay together, reporting them in order', async (t) => {
   onPlatform(t, 'linux');
   const state = await stateFor({ ...PRODUCTION, incidents: true }, READY);

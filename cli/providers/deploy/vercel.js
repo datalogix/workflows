@@ -11,15 +11,24 @@ const withTeam = (path, teamId) => (teamId ? `${path}${path.includes('?') ? '&' 
 
 /** The projects linked to the repository: { id, name, teamId, team, branch }, in the account and in each team. */
 export async function vercelProjects(api, repository) {
-  const { teams = [] } = (await api.get('/v2/teams?limit=100')) ?? {};
+  // A token limited to one team may not list them; its scopes below tell whether it works at all
+  const { teams = [] } = (await api.get('/v2/teams?limit=100').catch(() => null)) ?? {};
   const scopes = [{ id: null, slug: null }, ...teams.map((team) => ({ id: team.id, slug: team.slug }))];
   const found = new Map();
+  const failures = [];
   for (const scope of scopes) {
     const path = withTeam(
       `/v10/projects?limit=100&repoUrl=${encodeURIComponent(`https://github.com/${repository}`)}`,
       scope.id,
     );
-    const body = await api.get(path);
+    // A scope the token cannot read (another team, one that requires SAML) does not hide the projects of the others
+    let body;
+    try {
+      body = await api.get(path);
+    } catch (error) {
+      failures.push(error);
+      continue;
+    }
     // An array in older answers, { projects, pagination } in the current one
     for (const project of Array.isArray(body) ? body : (body?.projects ?? [])) {
       const linked = `${project.link?.org}/${project.link?.repo}`.toLowerCase() === repository.toLowerCase();
@@ -33,6 +42,7 @@ export async function vercelProjects(api, repository) {
       });
     }
   }
+  if (!found.size && failures.length) throw failures[0];
   return [...found.values()];
 }
 
@@ -69,6 +79,8 @@ export default {
   tokenHint: 'an access token with access to the project, stored as the VERCEL_TOKEN secret of each environment',
   secret: 'VERCEL_TOKEN',
   variables: ['VERCEL_PROJECT'],
+  optionalVariables: ['VERCEL_TEAM_ID'],
+  protection: { secret: 'VERCEL_AUTOMATION_BYPASS_SECRET', statuses: [401] },
   hookQuestions: false,
   /** The token, the project and the protection bypass of the answers, for each environment. */
   environmentValues: (answers) => ({
@@ -78,14 +90,22 @@ export default {
     },
     variables: { VERCEL_PROJECT: answers.vercelProject?.id, VERCEL_TEAM_ID: answers.vercelProject?.teamId },
   }),
-  manualSteps: ({ answers }) => {
+  // What neither the answers nor the environments have: a setup run again keeps what is stored
+  manualSteps: ({ answers, state }) => {
     const steps = [];
-    if (!answers.deployToken?.trim() || !answers.vercelProject) {
+    const environments = (answers.staging ? ['production', 'staging'] : ['production']).map(
+      (name) => state?.environments?.[name] ?? {},
+    );
+    const missing = (has) => environments.some((environment) => !has(environment));
+    if (
+      (!answers.deployToken?.trim() && missing((environment) => environment.deployHook)) ||
+      (!answers.vercelProject && missing((environment) => environment.variables?.VERCEL_PROJECT))
+    ) {
       steps.push(
         `In each GitHub environment, set the ${bold('VERCEL_TOKEN')} secret and the ${bold('VERCEL_PROJECT')} variable (the project's id or name; ${bold('VERCEL_TEAM_ID')} too for a team's project), or run setup again with a token.`,
       );
     }
-    if (!answers.vercelBypass?.trim()) {
+    if (!answers.vercelBypass?.trim() && missing((environment) => environment.protectionSecret)) {
       steps.push(
         `If Deployment Protection covers an environment (staging, with Standard Protection), store the project's Protection Bypass for Automation secret (${bold('Settings > Deployment Protection')}) as the ${bold('VERCEL_AUTOMATION_BYPASS_SECRET')} secret of each environment, or every deploy fails its health checks:\n  ${cyan('gh secret set VERCEL_AUTOMATION_BYPASS_SECRET --env staging')}`,
       );

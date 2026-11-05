@@ -181,6 +181,7 @@ const ownerOf = (repository) => repository.split('/')[0];
 const deployProviderOf = (stack, a) => stack.deployProviders?.[a?.deploy] ?? null;
 const deploySecretOf = (stack, a) => deployProviderOf(stack, a)?.secret ?? 'DEPLOY_HOOK';
 const deployVariablesOf = (stack, a) => deployProviderOf(stack, a)?.variables ?? [];
+const protectionOf = (stack, a) => deployProviderOf(stack, a)?.protection ?? null;
 const asksHooks = (stack, a) => deploys(a) && deployProviderOf(stack, a)?.hookQuestions !== false;
 
 // The monitoring service the answers (or the workflow file, as answers) chose, the stack's first by default; null when
@@ -1054,9 +1055,17 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
             return { environment, url, status: await probe(url) };
           }),
         );
+        // Behind a protection the deploys pass with a secret, which this probe cannot send
+        const protection = protectionOf(stack, answers);
+        const passes = ({ environment, status }) =>
+          protection?.statuses.includes(status) &&
+          Boolean(
+            state.environments[environment].protectionSecret ||
+            deployProviderOf(stack, answers).environmentValues(answers, environment).secrets?.[protection.secret],
+          );
         return {
           detail: answered.map(({ environment, status }) => `${environment} ${status ?? 'no answer'}`).join(', '),
-          data: { failing: answered.filter(({ status }) => status !== 200) },
+          data: { failing: answered.filter((answer) => answer.status !== 200 && !passes(answer)) },
         };
       },
     });
@@ -1200,7 +1209,7 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
     );
   }
 
-  steps.push(...stack.deployNextSteps(answers, { twoBranches: twoBranches(answers), results }));
+  steps.push(...stack.deployNextSteps(answers, { twoBranches: twoBranches(answers), results, state }));
 
   if (answers.incidents) steps.push(...relayNextSteps(stack, answers, { relay, relayRegistered, results }));
 
@@ -1288,9 +1297,13 @@ async function setupWarnings(stack, answers, ctx) {
 async function readProject(stack, github, read, { current, release }) {
   // Its secrets and variables are read along with it: for a missing environment they answer 404, read as none
   const environment = async (name) => {
-    const variableNames = deployVariablesOf(stack, current);
+    const variableNames = [
+      ...deployVariablesOf(stack, current),
+      ...(deployProviderOf(stack, current)?.optionalVariables ?? []),
+    ];
+    const protection = protectionOf(stack, current);
     // deployHook: whether the secret the provider's deploys read is set (DEPLOY_HOOK, or the provider's own)
-    const [found, deployHook, healthUrl, values, monitoringToken] = await Promise.all([
+    const [found, deployHook, healthUrl, values, monitoringToken, protectionSecret] = await Promise.all([
       github.environment(name),
       github.hasEnvironmentSecret(name, deploySecretOf(stack, current)),
       github.environmentVariable(name, 'HEALTH_URL'),
@@ -1299,10 +1312,18 @@ async function readProject(stack, github, read, { current, release }) {
       monitoringOf(stack, current)?.secret
         ? github.hasEnvironmentSecret(name, monitoringOf(stack, current).secret)
         : false,
+      protection ? github.hasEnvironmentSecret(name, protection.secret) : false,
     ]);
     if (!found) return NO_ENVIRONMENT;
     const variables = Object.fromEntries(variableNames.map((variable, i) => [variable, values[i]]));
-    return { exists: true, deployHook, healthUrl, monitoringToken, ...(variableNames.length ? { variables } : {}) };
+    return {
+      exists: true,
+      deployHook,
+      healthUrl,
+      monitoringToken,
+      ...(variableNames.length ? { variables } : {}),
+      ...(protection ? { protectionSecret } : {}),
+    };
   };
   const releases = release || Boolean(current?.productionBranch);
 
@@ -1508,8 +1529,17 @@ async function evaluate(
         continue;
       }
       const status = await probes[name];
+      const protection = protectionOf(stack, state.current);
       if (status === 200) ok(`${name}: ${environment.healthUrl} answers 200`);
-      else
+      else if (protection?.statuses.includes(status)) {
+        if (environment.protectionSecret)
+          ok(`${name}: ${environment.healthUrl} is protected (${status}); the deploys pass with ${protection.secret}`);
+        else
+          warn(
+            `${name}: ${environment.healthUrl} answers ${status} and the environment has no ${protection.secret} secret, so every deploy would be rolled back`,
+            SETUP,
+          );
+      } else
         warn(
           `${name}: ${environment.healthUrl} answers ${status ?? 'nothing'}, so every deploy would be rolled back`,
           'check the domain, and that basic auth or IP rules do not block it',

@@ -19,7 +19,7 @@ It detects a JavaScript app (a `package.json` without `composer.json`, with `nex
 | GitHub repository | always |
 | Where the app is deployed: Vercel or not by the workflows (`deploy`) | always |
 | Production domain, whether there is a staging environment (the `staging` custom environment of the project, on Pro and Enterprise teams), staging domain, development and production branches, how production deploys, Deployments records, health check path (`/api/health` by default) | the app is deployed, as for a [Laravel app](../laravel/app.md#step-1-run-setup) |
-| Vercel access token (hidden input; stored as the `VERCEL_TOKEN` secret of each environment, which the deploys need; empty leaves the secrets to set by hand) | the app is deployed |
+| Vercel access token (hidden input; stored as the `VERCEL_TOKEN` secret of each environment, which the deploys need; empty keeps the stored one or, without one, leaves the secrets to set by hand) | the app is deployed |
 | The Vercel project, from those linked to the repository in your account and teams; **None of these** leaves it to set by hand | a token was given and it found a project |
 | The project's Protection Bypass for Automation secret (**Settings > Deployment Protection**; empty keeps it or leaves it for later) | the app is deployed |
 | The app's monitoring service: Sentry or none (`monitoring`) | always |
@@ -51,6 +51,6 @@ npx --allow-git=root github:datalogix/workflows#v2 protect
 
 The required checks are the same as a Laravel app's: `pipeline / tests / tests`, `pipeline / security / security` and `pipeline / gate / gate`, for the layers that are on.
 
-`check` reports what is missing: the workflow file, labels, Claude token, the environments with `VERCEL_TOKEN`, `VERCEL_PROJECT` and `HEALTH_URL` (and whether it answers `200`), the health route, the ruleset, the code owners, Sentry's SDK in `package.json` and the relay registration.
+`check` reports what is missing: the workflow file, labels, Claude token, the environments with `VERCEL_TOKEN`, `VERCEL_PROJECT` and `HEALTH_URL` (and whether it answers `200`; a `401` is not a problem with `VERCEL_AUTOMATION_BYPASS_SECRET` in the environment, which the deploys send and `check` cannot), the health route, the ruleset, the code owners, Sentry's SDK in `package.json` and the relay registration.
 
 What the tests run: [JavaScript app tests](app-tests.md). Without setup: [by hand](app-manual-setup.md).

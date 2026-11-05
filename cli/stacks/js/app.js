@@ -36,6 +36,22 @@ async function healthRouteFile(root, framework) {
   return `app/api/health/route.${ext}`;
 }
 
+/** The files that answer the health route of the framework, whichever router or layout the app uses. */
+function healthRouteFiles(framework) {
+  const stems =
+    framework === 'nuxt'
+      ? ['server/api', 'server/routes/api'].flatMap((base) =>
+          [`${base}/health`, `${base}/health/index`].flatMap((stem) => [stem, `${stem}.get`]),
+        )
+      : framework === 'next'
+        ? [
+            ...['src/app', 'app'].map((base) => `${base}/api/health/route`),
+            ...['src/pages', 'pages'].flatMap((base) => [`${base}/api/health`, `${base}/api/health/index`]),
+          ]
+        : [];
+  return stems.flatMap((stem) => [`${stem}.ts`, `${stem}.js`]);
+}
+
 // What the health route answers: 200 while the app serves requests, never cached
 const HEALTH_ROUTES = {
   'route.ts': `// Health check of the Datalogix deploys: answers 200 while the app serves requests
@@ -74,15 +90,13 @@ async function inspectApp(root) {
   }
   const names = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
   const framework = ['next', 'nuxt'].find((name) => names.includes(name)) ?? null;
-  const healthFile = await healthRouteFile(root, framework);
-  // The route at either extension, so a JavaScript one is not created again in TypeScript
-  const otherFile = healthFile?.replace(/\.(ts|js)$/, (ext) => (ext === '.ts' ? '.js' : '.ts'));
-  const healthRoute =
-    Boolean(healthFile) && ((await exists(join(root, healthFile))) || (await exists(join(root, otherFile))));
+  // A route the app already has anywhere is not created again: next to one of another router, it breaks the build
+  const present = await Promise.all(healthRouteFiles(framework).map((file) => exists(join(root, file))));
+  const existing = healthRouteFiles(framework).find((_file, index) => present[index]);
   return {
     framework,
-    healthFile,
-    healthRoute: Boolean(healthRoute),
+    healthFile: existing ?? (await healthRouteFile(root, framework)),
+    healthRoute: Boolean(existing),
     vercelJson: await readFile(join(root, 'vercel.json'), 'utf8').catch(() => null),
     e2eScript: Boolean(manifest.scripts?.['test:e2e']),
     sentry: names.some((name) => name === SENTRY.next.name || name === SENTRY.nuxt.name),
@@ -95,13 +109,15 @@ const withToken = (a) => deploys(a) && a.deploy === 'vercel' && Boolean(a.deploy
 const vercelTokenStep = {
   id: 'deployToken',
   when: (a) => deploys(a) && a.deploy === 'vercel',
-  ask: async ({ header }) =>
+  ask: async ({ header, ctx }) =>
     orExit(
       await clack.password({
         message: question(
           header,
           `Vercel access token${dim(`  ${PROVIDERS.vercel.tokenHint}`)}`,
-          'Empty: setup lists what to set by hand at the end, and the deploys fail until then',
+          ctx.state.environments?.production?.deployHook
+            ? 'Empty: keeps the stored one, without looking for the projects'
+            : 'Empty: setup lists what to set by hand at the end, and the deploys fail until then',
         ),
       }),
     ),
@@ -250,9 +266,9 @@ function healthRouteTask(root, file) {
 }
 
 /** What Vercel still needs: the secrets left empty, and the staging environment's domain. */
-function deployNextSteps(answers, { results = [] }) {
+function deployNextSteps(answers, { results = [], state }) {
   if (!deploys(answers)) return [];
-  const steps = PROVIDERS.vercel.manualSteps({ answers });
+  const steps = PROVIDERS.vercel.manualSteps({ answers, state });
   const staging = results.find((result) => result.id === 'vercelStaging');
   if (answers.staging && (!staging?.ok || staging.data?.domain === false)) {
     steps.push(

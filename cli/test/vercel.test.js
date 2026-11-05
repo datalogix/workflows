@@ -47,6 +47,41 @@ test('finds the projects linked to the repository in the account and its teams',
   expect(api.calls[1][1]).toContain(`repoUrl=${encodeURIComponent('https://github.com/datalogix/app')}`);
 });
 
+test('keeps the projects of the scopes it can read when another refuses the token', async () => {
+  const refuse = () => {
+    throw new Error('The Vercel API token is not allowed');
+  };
+  const partial = fakeApi([
+    [
+      'GET /v2/teams',
+      {
+        teams: [
+          { id: 'team_1', slug: 'locked' },
+          { id: 'team_2', slug: 'datalogix' },
+        ],
+      },
+    ],
+    ['teamId=team_1', refuse],
+    ['teamId=team_2', { projects: [project('prj_team', 'datalogix', 'app')] }],
+    ['GET /v10/projects', refuse],
+  ]);
+  expect((await vercelProjects(partial, 'datalogix/app')).map((found) => found.id)).toStrictEqual(['prj_team']);
+
+  // A token limited to a team may not list the teams
+  const noTeams = fakeApi([
+    ['GET /v2/teams', refuse],
+    ['GET /v10/projects', [project('prj_mine', 'datalogix', 'app')]],
+  ]);
+  expect((await vercelProjects(noTeams, 'datalogix/app')).map((found) => found.id)).toStrictEqual(['prj_mine']);
+
+  // Nothing found and a scope refused: the reason, not "no project"
+  const refused = fakeApi([
+    ['GET /v2/teams', refuse],
+    ['GET /v10/projects', refuse],
+  ]);
+  await expect(vercelProjects(refused, 'datalogix/app')).rejects.toThrow('not allowed');
+});
+
 test('creates the staging custom environment when the project has none', async () => {
   const created = fakeApi([
     ['GET .*/custom-environments', { environments: [] }],
@@ -154,9 +189,55 @@ test('does not offer the health route when the app has one, in either language',
   await mkdir(join(root, 'app/api/health'), { recursive: true });
   await writeFile(join(root, 'app/api/health/route.js'), '');
   const state = await jsApp.inspect(root);
-  expect(state).toMatchObject({ healthFile: 'app/api/health/route.ts', healthRoute: true });
+  expect(state).toMatchObject({ healthFile: 'app/api/health/route.js', healthRoute: true });
   const step = jsApp.setup.steps().find((candidate) => candidate.id === 'healthRoute');
   expect(step.when({ deploy: 'vercel', healthPath: '/api/health' }, { state })).toBe(false);
+});
+
+test('does not list what the environments already have when setup runs again', () => {
+  const stored = {
+    exists: true,
+    deployHook: true,
+    protectionSecret: true,
+    variables: { VERCEL_PROJECT: 'prj_1' },
+  };
+  const left = (staging) =>
+    jsApp.setup.nextSteps(
+      { ...answers, deployToken: '', vercelProject: undefined, vercelBypass: '', staging: true },
+      {
+        relay,
+        results: [{ id: 'vercelStaging', ok: true, data: { domain: true } }],
+        state: { ...APP_STATE, environments: { production: stored, staging } },
+      },
+    );
+  expect(left(stored)).not.toContainEqual(expect.stringContaining('VERCEL_TOKEN'));
+  expect(left(stored)).not.toContainEqual(expect.stringContaining('VERCEL_AUTOMATION_BYPASS_SECRET'));
+  // Staging lacks them
+  const bare = { exists: true, deployHook: false, protectionSecret: false, variables: { VERCEL_PROJECT: null } };
+  expect(left(bare)).toContainEqual(expect.stringContaining('VERCEL_TOKEN'));
+  expect(left(bare)).toContainEqual(expect.stringContaining('VERCEL_AUTOMATION_BYPASS_SECRET'));
+});
+
+test('finds a health route the app already has in another router or folder', async (t) => {
+  const inspected = async (dependency, files) => {
+    const root = await folder(
+      t,
+      { 'package.json': JSON.stringify({ dependencies: { [dependency]: 'latest' } }), ...files },
+      'js-health-',
+    );
+    return jsApp.inspect(root);
+  };
+  for (const file of ['pages/api/health.ts', 'pages/api/health/index.js', 'src/app/api/health/route.ts']) {
+    const state = await inspected('next', { 'app/page.tsx': '', [file]: '' });
+    expect(state).toMatchObject({ healthRoute: true, healthFile: file });
+  }
+  for (const file of ['server/api/health.ts', 'server/routes/api/health.get.js', 'server/api/health/index.ts']) {
+    expect(await inspected('nuxt', { [file]: '' })).toMatchObject({ healthRoute: true, healthFile: file });
+  }
+  expect(await inspected('next', { 'app/page.tsx': '' })).toMatchObject({
+    healthRoute: false,
+    healthFile: 'app/api/health/route.js',
+  });
 });
 
 test('lists what Vercel still needs by hand', () => {

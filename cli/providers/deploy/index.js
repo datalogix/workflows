@@ -22,6 +22,9 @@ import vercel from './vercel.js';
  *
  *   secret        the environment secret its deploys need (DEPLOY_HOOK by default), which check looks for
  *   variables     the environment variables its deploys need, which check looks for
+ *   optionalVariables  the ones they may use, read so setup does not write them again
+ *   protection    { secret, statuses }: the health URL answers those statuses to whoever lacks what the deploys send
+ *                 from that environment secret, which check and setup cannot send since a secret cannot be read
  *   hookQuestions false: setup asks for no deploy hook
  *   environmentValues(answers, environment)   { secrets, variables } setup writes in that environment
  *
