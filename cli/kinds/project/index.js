@@ -1321,7 +1321,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
   const needed = missingLabels.filter((label) => !label.optional);
   const optional = missingLabels.filter((label) => label.optional);
   if (needed.length) error(`Missing labels: ${labelNames(needed)}`, SETUP);
-  if (optional.length) warn(`Missing labels: ${labelNames(optional)} (only the task manager uses it)`, SETUP);
+  for (const label of optional) warn(`Missing label: ${label.name} (${label.optional})`, SETUP);
   if (!missingLabels.length) ok('Labels');
 
   if (state.claudeToken.repository) ok('CLAUDE_CODE_OAUTH_TOKEN (repository secret)');

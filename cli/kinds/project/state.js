@@ -21,8 +21,8 @@ export const LABELS = [
   {
     name: 'task',
     color: 'fbca04',
-    // No workflow reads it: check only warns when it is missing
-    optional: true,
+    // Why it may be missing: no workflow reads it, so check only warns
+    optional: 'only the task manager uses it',
     description: { pt: 'Tarefa do gerenciador de tarefas', en: 'Task of the task manager' },
   },
   {

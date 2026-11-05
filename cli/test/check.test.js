@@ -612,7 +612,7 @@ test('only warns about the task label, which no workflow reads', async () => {
   expect(titles(items, 'error').filter((title) => title.startsWith('Missing labels'))).toStrictEqual([]);
   expect(items).toContainEqual({
     level: 'warn',
-    title: 'Missing labels: task (only the task manager uses it)',
+    title: 'Missing label: task (only the task manager uses it)',
     hint: SETUP,
   });
   expect(titles(items, 'ok')).not.toContain('Labels');
