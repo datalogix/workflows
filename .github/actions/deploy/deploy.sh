@@ -18,8 +18,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/releases.sh"
 # The deploy provider (providers/<id>.sh) defines provider_settle_seconds (prints the seconds a deploy usually takes, or
 # the most provider_wait <seconds> follows it, when the provider can tell it finished), provider_check and
 # provider_trigger <sha>, which returns non-zero, with an ::error::, when the provider did not accept the deploy; and
-# optionally provider_wait and provider_health_headers (prints the headers the health URL needs). The name is checked
-# before it becomes a path
+# optionally provider_wait (returns 1 when the deploy ended without going live, 2 when it had not ended within the
+# seconds) and provider_health_headers (prints the headers the health URL needs). The name is checked before it becomes
+# a path
 providers_dir="$(dirname "${BASH_SOURCE[0]}")/providers"
 if [[ ! "${PROVIDER:-}" =~ ^[a-z][a-z0-9-]*$ ]] || [ ! -f "$providers_dir/$PROVIDER.sh" ]; then
   known=""
@@ -72,6 +73,7 @@ set_live() {
 }
 
 mark_rolled_back() {
+  [ -n "$1" ] || return 0
   gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/$rejected/$1" -f "sha=$1" >/dev/null 2>&1 || true
 }
 
@@ -94,17 +96,26 @@ post_hook() {
   fi
 }
 
-# A provider that follows its deploy (provider_wait) records the release as live once it is ready: a build that fails
-# leaves the previous one live. The wait runs in another step of the job, so the commit waits in a file
+# A provider that follows its deploy (provider_wait) records the change of release once the deploy is ready: a build
+# that fails leaves the previous one live. The wait runs in another step of the job, so the commits wait in files
 live_pending_file="${RUNNER_TEMP:-/tmp}/datalogix-live-$environment_key"
+rejected_pending_file="${RUNNER_TEMP:-/tmp}/datalogix-rolled-back-$environment_key"
 
+# Records the release as live and, on a rollback, never returns to the one it leaves, even if it passed its checks
+record_change() {
+  set_live "$1"
+  mark_rolled_back "$2"
+}
+
+# The second argument is the release a rollback leaves
 trigger() {
-  local sha=$1
+  local sha=$1 leaving=${2:-}
   provider_trigger "$sha" || return 1
   if declare -F provider_wait >/dev/null; then
     echo "$sha" > "$live_pending_file"
+    echo "$leaving" > "$rejected_pending_file"
   else
-    set_live "$sha"
+    record_change "$sha" "$leaving"
   fi
   echo "Deploy of $sha to $ENVIRONMENT triggered"
 }
@@ -117,12 +128,15 @@ settle() {
   # A provider that can tell when the deploy finished follows it, for at most those seconds
   if declare -F provider_wait >/dev/null; then
     echo "Waiting up to $seconds seconds for $PROVIDER to finish the deploy"
-    provider_wait "$seconds" || return 1
-    if [ -s "$live_pending_file" ]; then
-      set_live "$(cat "$live_pending_file")"
-      rm -f "$live_pending_file"
+    local waited=0
+    provider_wait "$seconds" || waited=$?
+    # A deploy still going when the wait ends is taken as live: it may finish after this job, and a rollback must then
+    # start from it. Should it fail, a rollback from a release outside the history returns to the newest good one
+    if [ "$waited" -ne 1 ] && [ -s "$live_pending_file" ]; then
+      record_change "$(cat "$live_pending_file")" "$(cat "$rejected_pending_file" 2>/dev/null || true)"
+      rm -f "$live_pending_file" "$rejected_pending_file"
     fi
-    return 0
+    return "$((waited == 0 ? 0 : 1))"
   fi
   echo "Waiting $seconds seconds for $PROVIDER to finish the deploy"
   sleep "$seconds"
@@ -231,12 +245,11 @@ choose() {
 
 deploy() {
   local name
-  trigger "$SHA"
   if [ "$MODE" = rollback ]; then
-    # Only now that the environment changed: never return to the release rolled back, even if it passed its checks
-    mark_rolled_back "${FROM:-}"
+    trigger "$SHA" "${FROM:-}"
     name="$ENVIRONMENT rollback to ${SHA:0:7}"
   else
+    trigger "$SHA"
     name="$ENVIRONMENT ${SHA:0:7}"
   fi
   report_markers "$SHA" "$name"
@@ -270,10 +283,9 @@ rollback() {
 
   echo "target=$target" >> "$GITHUB_OUTPUT"
   echo "Rolling $ENVIRONMENT back to $target"
-  trigger "$target"
-  # Only now that the environment changed, as in a rollback by label: a release recorded as good before (deployed
-  # again with Re-run jobs) is never a rollback target after failing
-  mark_rolled_back "$GITHUB_SHA"
+  # As in a rollback by label: a release recorded as good before (deployed again with Re-run jobs) is never a rollback
+  # target after failing
+  trigger "$target" "$GITHUB_SHA"
   report_markers "$target" "$ENVIRONMENT rollback to ${target:0:7}"
 
   settle "${SETTLE:-0}"
@@ -346,6 +358,9 @@ report_rollback() {
     success)
       body=$(t "**$ENVIRONMENT** was rolled back from \`${FROM:0:7}\` to \`${SHA:0:7}\` and is responding normally. Release \`${FROM:0:7}\` will not be used in future rollbacks. To publish it again once fixed, merge again." \
         "**$ENVIRONMENT** foi revertido de \`${FROM:0:7}\` para \`${SHA:0:7}\` e está respondendo normalmente. A versão \`${FROM:0:7}\` não será usada em reversões futuras. Para voltar a publicá-la depois de corrigida, faça um novo merge.") ;;
+    deploy-failed)
+      body=$(t "The rollback of **$ENVIRONMENT** to \`${SHA:0:7}\` was triggered, but its deploy did not finish in $PROVIDER: see the reason in the run. Check the environment." \
+        "A reversão de **$ENVIRONMENT** para \`${SHA:0:7}\` foi disparada, mas o deploy não terminou no $PROVIDER: veja o motivo na execução. Confira o ambiente.") ;;
     cancelled)
       body=$(t "The rollback of **$ENVIRONMENT** to \`${SHA:0:7}\` was triggered, but the check was interrupted (timeout or cancellation). Check the environment." \
         "A reversão de **$ENVIRONMENT** para \`${SHA:0:7}\` foi disparada, mas a verificação foi interrompida (tempo esgotado ou cancelamento). Confira o ambiente.") ;;

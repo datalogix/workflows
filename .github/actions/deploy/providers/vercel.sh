@@ -68,7 +68,8 @@ provider_trigger() {
 }
 
 # Follows the deployment every 10 seconds until it is ready, for at most the given seconds. A build that fails leaves
-# the previous deployment live, so there is nothing to roll back: the step fails
+# the previous deployment live, so there is nothing to roll back: the step fails (1). One still going at the end may
+# finish after the job (2)
 provider_wait() {
   local limit=$1 waited=0 id out code state
   id=$(cat "$vercel_deployment_file" 2>/dev/null) || true
@@ -91,7 +92,7 @@ provider_wait() {
     fi
     if [ "$waited" -ge "$limit" ]; then
       echo "::error::The Vercel deployment $id was not ready after $limit seconds (${state:-unknown})"
-      return 1
+      return 2
     fi
     sleep 10
     waited=$((waited + 10))

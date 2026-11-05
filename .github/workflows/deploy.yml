@@ -126,12 +126,13 @@ jobs:
         uses: datalogix/workflows/.github/actions/deploy@v2
         env:
           SHA: ${{ steps.release.outputs.sha }}
-          # Marked as rolled back once the hook accepts the rollback
+          # Marked as rolled back once the provider accepts the rollback, or finishes it when it follows its deploys
           FROM: ${{ steps.release.outputs.from }}
         with:
           step: deploy
 
       - name: Wait for the deploy
+        id: settle
         uses: datalogix/workflows/.github/actions/deploy@v2
         with:
           step: settle
@@ -168,7 +169,8 @@ jobs:
           LABEL: ${{ inputs.rollback-label }}
           FROM: ${{ steps.release.outputs.from }}
           SHA: ${{ steps.release.outputs.sha }}
-          # A rollback the hook accepted whose watch never ran (cancelled or timed out while waiting) was triggered
-          RESULT: ${{ steps.deploy.outcome == 'success' && steps.watch.outcome == 'skipped' && 'cancelled' || steps.watch.outcome }}
+          # A rollback the provider accepted whose watch never ran: its deploy failed (a provider that follows it), or it
+          # was cancelled or timed out while waiting
+          RESULT: ${{ steps.settle.outcome == 'failure' && 'deploy-failed' || (steps.deploy.outcome == 'success' && steps.watch.outcome == 'skipped' && 'cancelled') || steps.watch.outcome }}
         with:
           step: report-rollback

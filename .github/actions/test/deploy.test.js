@@ -617,12 +617,14 @@ describe('report-rollback', () => {
 
     expect(await report('failure')).toMatch(/falhou nos health checks/);
     expect(await report('cancelled')).toMatch(/foi disparada, mas a verificação foi interrompida/);
+    expect(await report('deploy-failed')).toMatch(/o deploy não terminou no forge/);
     expect(await report('skipped')).toMatch(/Não foi possível reverter/);
     expect(await report('')).toMatch(/Não foi possível reverter/);
 
     expect(await report('success', 'en')).toMatch(/rolled back from `ccccccc` to `aaaaaaa` and is responding normally/);
     expect(await report('failure', 'en')).toMatch(/failed the health checks/);
     expect(await report('cancelled', 'en')).toMatch(/was triggered, but the check was interrupted/);
+    expect(await report('deploy-failed', 'en')).toMatch(/its deploy did not finish in forge/);
     expect(await report('skipped', 'en')).toMatch(/Could not roll back/);
     expect(await report('', 'en')).toMatch(/Could not roll back/);
   });
@@ -718,6 +720,52 @@ describe('vercel', () => {
       gh: [{ match: 'git/refs$', stdout: {} }],
     });
     expect(callsTo(forge, 'curl').every((call) => !call.includes('<header>'))).toBe(true);
+  });
+
+  describe('records', () => {
+    const records = (result, path) => callsTo(result, 'gh').filter((call) => call.includes(path));
+    const started = async (env) => {
+      const all = { ...VERCEL, RUNNER_TEMP: await temp(), SETTLE: '30', ...env };
+      const deploy = await step('deploy', {
+        env: all,
+        curl: [{ match: 'api.vercel.com/v13/deployments', codes: ['200'], bodies: [{ id: 'dpl_1' }] }],
+      });
+      expect(deploy.code).toBe(0);
+      expect(records(deploy, 'datalogix/live/production')).toStrictEqual([]);
+      expect(records(deploy, 'datalogix/rolled-back/')).toStrictEqual([]);
+      return all;
+    };
+    const settle = (env, readyState) =>
+      step('settle', {
+        env,
+        curl: [{ match: 'v13/deployments/dpl_1', codes: ['200'], bodies: [{ readyState }] }],
+      });
+    const ROLLBACK = { MODE: 'rollback', SHA: sha('a'), FROM: sha('c') };
+
+    test('a deployment still building when the wait ends counts as live, since it may finish after the job', async () => {
+      const slow = await settle(await started({ SHA: sha('c') }), 'BUILDING');
+      expect(slow.code).toBe(1);
+      expect(records(slow, 'datalogix/live/production')).toContainEqual(expect.stringContaining(`sha=${sha('c')}`));
+    });
+
+    test('a rollback marks the release it leaves only once its deployment is ready', async () => {
+      const ready = await settle(await started(ROLLBACK), 'READY');
+      expect(ready.code).toBe(0);
+      expect(records(ready, 'datalogix/live/production')).toContainEqual(expect.stringContaining(`sha=${sha('a')}`));
+      expect(records(ready, `rolled-back/production/${sha('c')}`)).toHaveLength(1);
+    });
+
+    test('a rollback whose build fails leaves the release it would leave as it was', async () => {
+      const failed = await settle(await started(ROLLBACK), 'ERROR');
+      expect(failed.code).toBe(1);
+      expect(records(failed, 'datalogix/live/production')).toStrictEqual([]);
+      expect(records(failed, 'datalogix/rolled-back/')).toStrictEqual([]);
+    });
+
+    test('a deploy that is not a rollback marks nothing as rolled back', async () => {
+      const ready = await settle(await started({ SHA: sha('c') }), 'READY');
+      expect(records(ready, 'datalogix/rolled-back/')).toStrictEqual([]);
+    });
   });
 
   test('settle follows the deployment until it is ready, and fails when its build fails', async () => {
