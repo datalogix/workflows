@@ -21,7 +21,7 @@ Packages call a single `package` workflow, today the test matrix: Laravel packag
 
 1. **Once per organization** ([organization setup](docs/organization-setup.md)):
    - Required: install the [Claude GitHub App](https://github.com/apps/claude) and generate the Claude token with `claude setup-token`.
-   - Optional, as an organization admin and before the projects: run `org` for the shared issue forms and for Nightwatch problems as issues (setup reads the monitoring relay it deploys). Without it, everything else works.
+   - Optional, as an organization admin and before the projects: run `org` for the shared issue forms and for monitoring problems as issues (setup reads the monitoring relay it deploys). Without it, everything else works.
 2. **For each project**, from its folder, run `setup`, then the others when the table says.
 
 All commands run as `npx --allow-git=root github:datalogix/workflows#v2 <command>`:
@@ -33,7 +33,7 @@ All commands run as `npx --allow-git=root github:datalogix/workflows#v2 <command
 | `check` | Any time | Nothing: it lists what is missing or different |
 | `protect` | After the first pull request shows its checks | The branch ruleset that requires those checks |
 
-A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md) or [Adding a Laravel package](docs/laravel/package.md).
+A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md), [Adding a Laravel package](docs/laravel/package.md), [Adding a Next or Nuxt app](docs/js/app.md) or [Adding a JavaScript library](docs/js/package.md).
 
 > **GitHub Free:** private repositories have no rulesets, so `protect` changes nothing (the checks still run on every pull request, but do not block the merge), and they cannot read organization secrets, so `setup` asks for the Claude token in each project.
 
@@ -51,7 +51,7 @@ issue ──► Claude plans / implements ──► pull request
                      staging (deploy + 3 min watch) ──► production (deploy + 3 min watch)
                                                                    │
                                      health check fails ──► automatic rollback + issue
-                                     Nightwatch problem ──► issue + Claude's diagnosis ──► you: `claude` or `rollback`
+                                     monitoring problem ──► issue + Claude's diagnosis ──► you: `claude` or `rollback`
 ```
 
 The project's workflow file only lists the events and permissions; everything else lives here and reaches every project when a release is published. Projects call the workflows pinned to the `v2` tag.
@@ -69,6 +69,10 @@ The [documentation index](docs/README.md) lists every guide. The main ones:
 | [Laravel app tests](docs/laravel/app-tests.md) | What the tests job runs, the project's test scripts, its inputs |
 | [Adding a Laravel package](docs/laravel/package.md) | For each package: the setup command, protecting the branch |
 | [Laravel package tests](docs/laravel/package-tests.md) | The test matrix, coverage, Pint and its inputs |
+| [Adding a Next or Nuxt app](docs/js/app.md) | For each app: the setup command, what is left to do by hand, Vercel deploys, Sentry, `check`; [by hand](docs/js/app-manual-setup.md) without it |
+| [JavaScript app tests](docs/js/app-tests.md) | What the tests job runs and its inputs |
+| [Adding a JavaScript library](docs/js/package.md) | For each library: the setup command, protecting the branch |
+| [JavaScript library tests](docs/js/package-tests.md) | What the tests job runs and its inputs |
 | [Daily use](docs/daily-use.md) | Working with Claude, a feature from issue to production, what to do when something breaks |
 | [Verification layers](docs/verification-layers.md) | The eight layers every change goes through, the branch ruleset, solo maintainers, project rules for the security review |
 | [Deploy](docs/deploy.md) | Staging and production deploys, health checks, rollbacks and the release history |
