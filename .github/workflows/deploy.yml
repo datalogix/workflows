@@ -153,11 +153,12 @@ jobs:
           step: rollback
 
       - name: Open an issue
-        if: failure() && steps.watch.outcome == 'failure' && inputs.mode == 'deploy'
+        if: failure() && (steps.watch.outcome == 'failure' || steps.settle.outcome == 'failure') && inputs.mode == 'deploy'
         uses: datalogix/workflows/.github/actions/deploy@v2
         env:
           TARGET: ${{ steps.rollback.outputs.target }}
           ROLLBACK: ${{ steps.rollback.outcome }}
+          WAIT: ${{ steps.settle.outcome }}
         with:
           step: open-issue
 

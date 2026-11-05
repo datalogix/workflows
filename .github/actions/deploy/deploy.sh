@@ -22,14 +22,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/releases.sh"
 # seconds) and provider_health_headers (prints the headers the health URL needs). The name is checked before it becomes
 # a path
 providers_dir="$(dirname "${BASH_SOURCE[0]}")/providers"
-if [[ ! "${PROVIDER:-}" =~ ^[a-z][a-z0-9-]*$ ]] || [ ! -f "$providers_dir/$PROVIDER.sh" ]; then
+if [[ "${PROVIDER:-}" =~ ^[a-z][a-z0-9-]*$ ]] && [ -f "$providers_dir/$PROVIDER.sh" ]; then
+  # shellcheck source=/dev/null
+  source "$providers_dir/$PROVIDER.sh"
+elif [ "${1:-}" != report-rollback ]; then
+  # The report needs no provider: it still tells the issue that the rollback could not run, and removes the label
   known=""
   for file in "$providers_dir"/*.sh; do known+="${known:+, }$(basename "$file" .sh)"; done
   echo "::error::provider must be one of $known, got '${PROVIDER:-}'"
   exit 1
 fi
-# shellcheck source=/dev/null
-source "$providers_dir/$PROVIDER.sh"
 
 # The monitoring service (monitoring/<id>.sh) defines monitoring_name and, with deploy markers, mark_<id> <sha> <name>,
 # which marks a deploy when the environment has its token and only warns when it cannot. none, or a service without a
@@ -312,28 +314,43 @@ errors_hint() {
   fi
 }
 
-open_issue() {
-  local short=${GITHUB_SHA:0:7} result body
+# What happened after the health checks failed
+rollback_result() {
+  local short=${GITHUB_SHA:0:7}
   # shellcheck disable=SC2153 # TARGET is set by the step env in deploy.yml
   case "${ROLLBACK:-}" in
     success)
-      result=$(t "The environment was rolled back automatically to \`${TARGET:0:7}\` and is responding again." \
-        "O ambiente foi revertido automaticamente para \`${TARGET:0:7}\` e voltou a responder.") ;;
+      t "The environment was rolled back automatically to \`${TARGET:0:7}\` and is responding again." \
+        "O ambiente foi revertido automaticamente para \`${TARGET:0:7}\` e voltou a responder." ;;
     failure)
       if [ -n "${TARGET:-}" ]; then
-        result=$(t "**The automatic rollback to \`${TARGET:0:7}\` did not help**. The environment needs attention now." \
-          "**A reversão automática para \`${TARGET:0:7}\` não resolveu**. O ambiente precisa de atenção agora.")
+        t "**The automatic rollback to \`${TARGET:0:7}\` did not help**. The environment needs attention now." \
+          "**A reversão automática para \`${TARGET:0:7}\` não resolveu**. O ambiente precisa de atenção agora."
       else
-        result=$(t "**The automatic rollback could not start** (no earlier good release, or the release history could not be read: see the run); the environment still runs \`$short\` and needs attention now." \
-          "**A reversão automática não pôde começar** (não há versão boa anterior, ou o histórico de versões não pôde ser lido: veja a execução); o ambiente continua com \`$short\` e precisa de atenção agora.")
+        t "**The automatic rollback could not start** (no earlier good release, or the release history could not be read: see the run); the environment still runs \`$short\` and needs attention now." \
+          "**A reversão automática não pôde começar** (não há versão boa anterior, ou o histórico de versões não pôde ser lido: veja a execução); o ambiente continua com \`$short\` e precisa de atenção agora."
       fi ;;
     *)
-      result=$(t "The automatic rollback is off; the environment still runs \`$short\`." \
-        "A reversão automática está desligada; o ambiente continua com \`$short\`.") ;;
+      t "The automatic rollback is off; the environment still runs \`$short\`." \
+        "A reversão automática está desligada; o ambiente continua com \`$short\`." ;;
   esac
+}
+
+open_issue() {
+  local short=${GITHUB_SHA:0:7} headline result body
+  # WAIT is the outcome of the wait for the deploy: without its end there were no health checks and no rollback
+  if [ "${WAIT:-}" = failure ]; then
+    headline=$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** did not finish in $PROVIDER: see the reason in the run." \
+      "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** não terminou no $PROVIDER: veja o motivo na execução.")
+    result=$(t "Its health was not checked and nothing was rolled back. If it was still going, it may go live after this run: check which release is live." \
+      "A saúde não foi verificada e nada foi revertido. Se ainda estava em andamento, pode entrar no ar depois desta execução: confira qual versão está no ar.")
+  else
+    headline=$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** failed the health checks of \`$HEALTH_URL\`." \
+      "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** falhou nos health checks de \`$HEALTH_URL\`.")
+    result=$(rollback_result)
+  fi
   body=$(printf '%s\n\n%s\n\n%s\n\n%s' \
-    "$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** failed the health checks of \`$HEALTH_URL\`." \
-      "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** falhou nos health checks de \`$HEALTH_URL\`.")" \
+    "$headline" \
     "$result" \
     "$(errors_hint)" \
     "$(t "To ask Claude to investigate, add the \`claude-plan\` label." \

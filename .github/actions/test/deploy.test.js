@@ -540,6 +540,21 @@ describe('open-issue', () => {
     expect(callsTo(result, 'gh')).not.toContainEqual(expect.stringMatching(/^label create env:/));
   });
 
+  test('open-issue says the deploy did not finish, without health checks or a rollback, when the wait failed', async () => {
+    const issue = (result) => callsTo(result, 'gh').find((call) => call.startsWith('issue create'));
+    const portuguese = issue(
+      await step('open-issue', { env: { PROVIDER: 'vercel', WAIT: 'failure', ROLLBACK: 'skipped' } }),
+    );
+    expect(portuguese).toMatch(/não terminou no vercel/);
+    expect(portuguese).toMatch(/A saúde não foi verificada e nada foi revertido/);
+    expect(portuguese).not.toMatch(/A reversão automática está desligada/);
+    expect(portuguese).toMatch(/--label env:production/);
+    const english = issue(
+      await step('open-issue', { env: { PROVIDER: 'vercel', WAIT: 'failure', ROLLBACK: 'skipped', LANGUAGE: 'en' } }),
+    );
+    expect(english).toMatch(/did not finish in vercel/);
+  });
+
   test('open-issue names the monitoring service, when the project has one', async () => {
     const hint = async (monitoring) => {
       const result = await step('open-issue', { env: { ROLLBACK: 'failure', MONITORING: monitoring } });
@@ -604,6 +619,16 @@ describe('report-rollback', () => {
       env: { LANGUAGE: 'en', ISSUE: '12', LABEL: 'rollback', RESULT: 'failure', SHA: sha('a') },
     });
     expect(callsTo(result, 'gh')[0]).toMatch(/^issue comment 12 .*The rollback of production to `aaaaaaa` failed/);
+  });
+
+  test('report-rollback tells the issue and removes the label also with a provider that does not exist', async () => {
+    const result = await step('report-rollback', {
+      env: { MODE: 'rollback', PROVIDER: 'Forge', ISSUE: '5', LABEL: 'rollback', RESULT: 'skipped' },
+    });
+    expect(result.code).toBe(0);
+    const gh = callsTo(result, 'gh');
+    expect(gh).toContainEqual(expect.stringMatching(/^issue comment 5 .*Não foi possível reverter/));
+    expect(gh).toContainEqual(expect.stringContaining('--remove-label rollback'));
   });
 
   test('report-rollback tells a failed hook apart from failed health checks', async () => {
