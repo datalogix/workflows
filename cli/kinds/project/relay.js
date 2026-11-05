@@ -27,7 +27,11 @@ export const RELAY_REPO = '.github';
 export const RELAY_PATH = 'workflows/relay.json';
 const NO_RELAY = { url: '', namespaceId: '', owner: '', configured: false };
 
-/** Relay settings from the text of relay.json; not configured without a URL and a namespace. */
+/**
+ * Relay settings from the text of relay.json; not configured without a URL and a namespace. Anyone who can write to the
+ * .github repository can write this file, and the namespace reaches the wrangler.toml of an admin's deploy: one that is
+ * not a Cloudflare id counts as none.
+ */
 export function relayConfig(content) {
   let config;
   try {
@@ -37,7 +41,8 @@ export function relayConfig(content) {
   }
   const text = (value) => (typeof value === 'string' ? value.trim() : '');
   const url = text(config.url).replace(/\/+$/, '');
-  const namespaceId = text(config.namespaceId);
+  const stored = text(config.namespaceId);
+  const namespaceId = /^[0-9a-f]{32}$/.test(stored) ? stored : '';
   return { url, namespaceId, owner: text(config.owner), configured: Boolean(url && namespaceId) };
 }
 
@@ -158,9 +163,9 @@ export async function relayNamespace(runner = run) {
 export async function deployRelay({ namespaceId, owner, token, worker = relayWorker(owner) }, runner = run) {
   const template = await readFile(join(packageRoot, 'relay', 'wrangler.toml'), 'utf8');
   const config = template
-    .replace(/^(name\s*=\s*)"[^"]*"/m, `$1"${worker}"`)
-    .replace(/(\[\[kv_namespaces\]\][^[]*?\bid\s*=\s*)"[^"]*"/s, `$1"${namespaceId}"`)
-    .replace(/(ALLOWED_OWNER\s*=\s*)"[^"]*"/, `$1"${owner}"`);
+    .replace(/^(name\s*=\s*)"[^"]*"/m, (_, key) => key + JSON.stringify(worker))
+    .replace(/(\[\[kv_namespaces\]\][^[]*?\bid\s*=\s*)"[^"]*"/s, (_, key) => key + JSON.stringify(namespaceId))
+    .replace(/(ALLOWED_OWNER\s*=\s*)"[^"]*"/, (_, key) => key + JSON.stringify(owner));
   const deployed = await wrangler(['deploy'], {
     runner,
     prepare: async (dir) => {

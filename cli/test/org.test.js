@@ -137,11 +137,14 @@ test('updates the relay in its namespace, keeping its token when none is given',
   expect(relayNamespace).not.toHaveBeenCalled();
   // The worker deployed before, so the webhooks keep their URL
   expect(deployRelay).toHaveBeenCalledWith({
-    namespaceId: 'id',
+    namespaceId: relay.namespaceId,
     owner: 'datalogix',
     token: '',
     worker: 'incident-relay',
   });
+  expect(clack.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ message: expect.stringContaining('Update the relay worker incident-relay to') }),
+  );
   // relay.json read once, its sha used for the update
   expect(organization.calls).toContainEqual(['file', 'workflows/relay.json', 'sha-workflows/relay.json']);
 });
@@ -295,7 +298,7 @@ test('accepts only a fine-grained token for the relay, or none', async () => {
 
 test('does not write relay.json again when the update leaves it the same', async () => {
   const forms = await issueForms();
-  const relay = { url: WORKER_URL, namespaceId: 'id', owner: 'datalogix' };
+  const relay = { url: WORKER_URL, namespaceId: RELAY.namespaceId, owner: 'datalogix' };
   const organization = fakeOrganization({
     files: {
       ...Object.fromEntries(

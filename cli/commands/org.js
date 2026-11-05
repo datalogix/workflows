@@ -209,7 +209,7 @@ export async function org(ctx) {
       !ctx.flags.yes &&
       orExit(
         await clack.confirm({
-          message: 'Update the relay to this version (and replace its GitHub token)?',
+          message: `Update the relay worker ${relayWorker(name, relay.url)} to this version (and replace its GitHub token)?`,
           initialValue: false,
         }),
       );

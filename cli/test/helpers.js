@@ -70,7 +70,7 @@ export const runResults = (tasks) => runTasks(tasks);
 export const byTitle = (results) =>
   Object.fromEntries(results.map((result) => [result.title, result.ok ? result.detail : result]));
 
-export const RELAY = { configured: true, url: 'https://relay.test', namespaceId: 'id', owner: 'datalogix' };
+export const RELAY = { configured: true, url: 'https://relay.test', namespaceId: 'a'.repeat(32), owner: 'datalogix' };
 
 /** The ids of the questions that apply to the answers, with a full context (state, relay). */
 export function askedSteps(steps, answers, ctx = {}) {
