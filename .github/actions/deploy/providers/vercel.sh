@@ -23,6 +23,14 @@ provider_check() {
   fi
 }
 
+# Deployment Protection asks a login of staging (and of production, with Standard Protection on custom environments):
+# the health checks pass with the project's Protection Bypass for Automation secret
+provider_health_headers() {
+  if [ -n "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]; then
+    printf 'x-vercel-protection-bypass: %s\n' "$VERCEL_AUTOMATION_BYPASS_SECRET"
+  fi
+}
+
 # Calls the API (method, path, file for the body, then curl arguments) and prints the HTTP code. The token goes through
 # a header file, never in the command line
 vercel_call() {
@@ -60,7 +68,8 @@ provider_trigger() {
 }
 
 # Follows the deployment every 10 seconds until it is ready, for at most the given seconds. A build that fails leaves
-# the previous deployment live, so there is nothing to roll back: the step fails
+# the previous deployment live, so there is nothing to roll back: the step fails (1). One still going at the end may
+# finish after the job (2)
 provider_wait() {
   local limit=$1 waited=0 id out code state
   id=$(cat "$vercel_deployment_file" 2>/dev/null) || true
@@ -83,7 +92,7 @@ provider_wait() {
     fi
     if [ "$waited" -ge "$limit" ]; then
       echo "::error::The Vercel deployment $id was not ready after $limit seconds (${state:-unknown})"
-      return 1
+      return 2
     fi
     sleep 10
     waited=$((waited + 10))

@@ -25,7 +25,10 @@ export function packageTemplate(branch) {
  */
 export async function renderPackageWorkflow(existing = '', branch = 'main', answers = {}) {
   const current = parseInputs(existing);
-  const kept = Object.entries(current).filter(([key]) => !TOOL_INPUTS.includes(key));
-  const inputs = [...kept, ...Object.entries(toolInputs(answers, current))];
+  // laravel is the default of package.yml: only another stack is written
+  const stack = answers.stack && answers.stack !== 'laravel' ? { stack: answers.stack } : {};
+  const managed = answers.stack ? ['stack', ...TOOL_INPUTS] : TOOL_INPUTS;
+  const kept = Object.entries(current).filter(([key]) => !managed.includes(key));
+  const inputs = [...Object.entries(stack), ...kept, ...Object.entries(toolInputs(answers, current))];
   return withInputs(await packageTemplate(branch), inputs, afterInputs(existing));
 }

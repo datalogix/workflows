@@ -2,7 +2,7 @@
 
 ## Conventions
 
-Claude follows the rules in the `laravel` plugin ([`plugins/laravel`](../plugins/laravel)), loaded by every Claude workflow:
+Claude follows the rules of two plugins, loaded by every Claude workflow: `core` ([`plugins/core`](../plugins/core)), common to every project, and the plugin of the project's stack (`laravel`, [`plugins/laravel`](../plugins/laravel)), with its practices, tools and commands:
 
 - Everything Claude writes for the team (commits, pull requests, comments) is in the project's `language` input, Brazilian Portuguese (`pt-BR`) by default; commits use Conventional Commits with English types, e.g. `feat: adiciona autenticação via OAuth`. The fixed texts of the workflows (deploy, incident and release issues and pull requests, security review summary, labels) exist in `pt-BR` and `en` only: any value starting with `en` gets English, any other language gets Portuguese.
 - Implements only what is needed and reuses the existing architecture.
@@ -12,18 +12,19 @@ Claude follows the rules in the `laravel` plugin ([`plugins/laravel`](../plugins
 - Never approves pull requests, and stops after 3 rounds of requested changes.
 - Pull request descriptions contain _Resumo_, _Motivação_, _Plano de Testes_ and _Observações_ (translated in another team language).
 
-The rules live in [`plugins/laravel/skills/conventions/SKILL.md`](../plugins/laravel/skills/conventions/SKILL.md). Changing that file changes Claude's behavior in every project. Project-specific context belongs in the project's own `CLAUDE.md`.
+The rules live in [`plugins/core/skills/conventions/SKILL.md`](../plugins/core/skills/conventions/SKILL.md) (language, scope, validation limits, review rounds, pull requests) and [`plugins/laravel/skills/conventions/SKILL.md`](../plugins/laravel/skills/conventions/SKILL.md) (feature flags, migrations, tests, the tools of the pre-PR verification). Changing them changes Claude's behavior in every project. Project-specific context belongs in the project's own `CLAUDE.md`.
 
 To use the same conventions in your local Claude Code:
 
 ```
 /plugin marketplace add datalogix/workflows
+/plugin install core@datalogix
 /plugin install laravel@datalogix
 ```
 
 ## Environment
 
-`claude`, `claude-fix-ci` and `laravel-app-tests` prepare the project with the [`setup-laravel`](../.github/actions/setup-laravel/action.yml) action:
+`claude` and `claude-fix-ci` prepare a JavaScript project (`stack: js`) with the [`setup-js`](../.github/actions/setup-js/action.yml) action: Node from `.nvmrc` or `.node-version` (the current LTS otherwise) and the dependencies, installed with pnpm, yarn or npm according to the lockfile. A Laravel project, and `laravel-app-tests`, use the [`setup-laravel`](../.github/actions/setup-laravel/action.yml) action:
 
 | Step          | Details                                                                                                                                                                                                                      |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

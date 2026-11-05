@@ -24,13 +24,15 @@ export function codeOwnersTask(answers, { root, state }) {
 export const TASK_FILES = { workflowFile: WORKFLOW_PATH, codeOwners: CODEOWNERS_PATH };
 
 /**
- * Files the tasks created, changed or removed, from { task id: path }, so the commit never fails with "nothing to
- * commit".
+ * Files the tasks created, changed or removed, from { task id: path } and the ids file:<path>, so the commit never
+ * fails with "nothing to commit".
  */
 export function changedFiles(results, files) {
+  // A task whose file depends on the project names it in its id: file:<path>
+  const fileOf = (result) => files[result.id] ?? (result.id?.startsWith('file:') ? result.id.slice(5) : null);
   return results
-    .filter((result) => files[result.id] && result.ok && result.detail !== 'unchanged')
-    .map((result) => files[result.id]);
+    .filter((result) => fileOf(result) && result.ok && result.detail !== 'unchanged')
+    .map((result) => fileOf(result));
 }
 
 /** Writes the workflow file that render() returns, when it differs from the current one. */

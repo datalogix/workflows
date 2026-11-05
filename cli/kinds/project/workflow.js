@@ -18,6 +18,7 @@ const DEFAULT_MONITORING = 'nightwatch';
 
 /** Inputs the setup command manages; any other input in an existing file is kept as it is. */
 const MANAGED = [
+  'stack',
   'review',
   'security-review',
   'risk-gate',
@@ -36,6 +37,7 @@ const MANAGED = [
   'incident-types',
   'language',
   'js',
+  'e2e',
   ...TOOL_INPUTS,
 ];
 
@@ -65,6 +67,7 @@ export function projectAnswers(inputs) {
     approvalsMedium: scalar(inputs['approvals-medium']) || null,
     approvalsHigh: scalar(inputs['approvals-high']) || null,
     js: flagOf(inputs.js),
+    e2e: flagOf(inputs.e2e),
     language: scalar(inputs.language) || DEFAULT_LANGUAGE,
     ...toolAnswers(inputs),
   };
@@ -83,6 +86,9 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
   const keep = (input) => {
     if (current[input] !== undefined) managed[input] = current[input];
   };
+  // laravel is the default of project.yml: only another stack is written, first
+  if (answers.stack === undefined) keep('stack');
+  else if (answers.stack !== 'laravel') managed.stack = answers.stack;
   for (const [answer, input] of Object.entries(LAYERS)) {
     if (answers[answer] === undefined) keep(input);
     else if (answers[answer] === false) managed[input] = 'false';
@@ -123,6 +129,8 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
   }
   if (answers.js === undefined) keep('js');
   else if (answers.js === false) managed.js = 'false';
+  if (answers.e2e === undefined) keep('e2e');
+  else if (answers.e2e === false) managed.e2e = 'false';
   Object.assign(managed, toolInputs(answers, current));
 
   const kept = Object.entries(current).filter(([key]) => !MANAGED.includes(key));

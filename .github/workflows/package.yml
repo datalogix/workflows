@@ -1,9 +1,10 @@
 name: package
 
-# Every workflow a Laravel package needs, behind a single file in the package (examples/package.yml). New layers are
-# added here, so packages get them without changing their file.
+# Every workflow a Laravel package or a JavaScript library needs, behind a single file in the package
+# (examples/package.yml). New layers are added here, so packages get them without changing their file.
 #
-# Required checks (branch ruleset): <calling job> / tests / all-checks.
+# Required checks (branch ruleset): <calling job> / tests / all-checks. The tests job of each stack is named tests, so
+# the check is the same; the one of the other stack is skipped in the caller, so it never reports that check.
 
 on:
   workflow_call:
@@ -11,13 +12,18 @@ on:
       stack:
         type: string
         default: laravel
-        description: Stack of the package, which picks its tests. Only laravel is supported today
+        description: Stack of the package, which picks its tests (laravel or js)
       tests:
         type: boolean
         default: true
-        description: Run the test suite across the matrix, Pint, PHPStan and the lint command (laravel-package-tests)
+        description: Run the test suite across the matrix and the lint checks (laravel-package-tests, or node-package-tests for js)
 
-      # Passed to laravel-package-tests, with the same defaults
+      # Passed to laravel-package-tests (and os, test-command, lint-command and timeout-minutes to node-package-tests),
+      # with the same defaults
+      node:
+        type: string
+        default: '["22", "24", "26"]'
+        description: JSON list of Node versions the tests of a js package run on
       os:
         type: string
         default: '["ubuntu-latest"]'
@@ -44,7 +50,7 @@ on:
       test-command:
         type: string
         default: ""
-        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit; none skips the test suite
+        description: Empty runs composer test when composer.json defines it, otherwise vendor/bin/pest when Pest is installed, otherwise vendor/bin/phpunit, and for js the test script of package.json; none skips the test suite
       coverage:
         type: boolean
         default: true
@@ -67,7 +73,7 @@ on:
       lint-command:
         type: string
         default: ""
-        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check); empty runs none
+        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check), or for js after the typecheck and lint scripts (e.g. npx publint); empty runs none
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -76,7 +82,7 @@ jobs:
   # Fails the run for an unsupported stack; the other jobs check inputs.stack in their condition, so no runner starts
   # just to check it on every event
   stack:
-    if: inputs.stack != 'laravel'
+    if: ${{ !contains(fromJSON('["laravel", "js"]'), inputs.stack) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -86,7 +92,7 @@ jobs:
         env:
           STACK: ${{ inputs.stack }}
         run: |
-          echo "::error::stack '$STACK' is not supported; use laravel"
+          echo "::error::stack '$STACK' is not supported; use laravel or js"
           exit 1
 
   tests:
@@ -110,3 +116,17 @@ jobs:
       pint: ${{ inputs.pint }}
       phpstan: ${{ inputs.phpstan }}
       lint-command: ${{ inputs.lint-command }}
+
+  js-tests:
+    # Same name as the Laravel job: the required check is <calling job> / tests / all-checks for every stack
+    name: tests
+    if: inputs.stack == 'js' && inputs.tests && contains(fromJSON('["push", "pull_request", "merge_group", "schedule", "workflow_dispatch"]'), github.event_name)
+    permissions:
+      contents: read
+    uses: datalogix/workflows/.github/workflows/node-package-tests.yml@v2
+    with:
+      os: ${{ inputs.os }}
+      node: ${{ inputs.node }}
+      test-command: ${{ inputs.test-command }}
+      lint-command: ${{ inputs.lint-command }}
+      timeout-minutes: ${{ inputs.timeout-minutes }}

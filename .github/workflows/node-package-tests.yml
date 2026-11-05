@@ -1,0 +1,199 @@
+name: node-package-tests
+
+# Tests of a JavaScript or TypeScript library, called by package.yml with stack: js. The package.json scripts are the
+# checks: test runs on every Node version of the matrix; typecheck, lint, build, the lint command and the audit run once.
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        default: '["ubuntu-latest"]'
+        description: JSON list of runners
+      node:
+        type: string
+        default: '["22", "24", "26"]'
+        description: JSON list of Node versions the tests run on
+      test-command:
+        type: string
+        default: ""
+        description: Empty runs the test script of package.json when it has one; none skips the tests
+      lint-command:
+        type: string
+        default: ""
+        description: Extra lint command run once after the typecheck and lint scripts (e.g. npx publint); empty runs none
+      audit:
+        type: boolean
+        default: true
+        description: Audit the dependencies (high and critical advisories) on pull requests that change the lockfile, and on scheduled and manual runs
+      timeout-minutes:
+        type: number
+        default: 30
+
+jobs:
+  tests:
+    if: inputs.test-command != 'none'
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: read
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    # A new push to a PR cancels the previous run; runs on main always finish
+    concurrency:
+      group: ${{ github.workflow }}-tests-${{ matrix.os }}-${{ matrix.node }}-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os) }}
+        node: ${{ fromJSON(inputs.node) }}
+
+    name: Node ${{ matrix.node }} (${{ matrix.os }})
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup JavaScript
+        id: setup
+        uses: datalogix/workflows/.github/actions/setup-js@v2
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Tests
+        shell: bash
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+          RUN: ${{ steps.setup.outputs.run }}
+        run: |
+          if [ -n "$TEST_COMMAND" ]; then
+            eval "$TEST_COMMAND"
+          # npm init writes a test script that only fails
+          elif jq -e '.scripts.test // "" | select(. != "" and (contains("no test specified") | not))' package.json >/dev/null; then
+            $RUN test
+          else
+            echo "::notice::No test script in package.json: no tests ran"
+          fi
+
+  # Once, on the Node version of .nvmrc or .node-version, otherwise the current LTS
+  lint:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: ${{ github.workflow }}-lint-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Each check below runs even when an earlier one failed, so a run reports every failure at once; none runs
+      # without the dependencies
+      - name: Setup JavaScript
+        id: setup
+        uses: datalogix/workflows/.github/actions/setup-js@v2
+
+      - name: Detect package.json scripts
+        id: scripts
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        shell: bash
+        run: |
+          for script in typecheck lint build; do
+            if jq -e --arg script "$script" '.scripts[$script] // "" | select(. != "")' package.json >/dev/null; then
+              echo "$script=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "No $script script in package.json, skipping"
+            fi
+          done
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.scripts.outputs.typecheck }}
+        shell: bash
+        env:
+          RUN: ${{ steps.setup.outputs.run }}
+        run: $RUN typecheck
+
+      - name: Lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.scripts.outputs.lint }}
+        shell: bash
+        env:
+          RUN: ${{ steps.setup.outputs.run }}
+        run: $RUN lint
+
+      - name: Lint command
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.lint-command != '' }}
+        shell: bash
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: eval "$LINT_COMMAND"
+
+      # A library that does not build cannot be published
+      - name: Build
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.scripts.outputs.build }}
+        shell: bash
+        env:
+          RUN: ${{ steps.setup.outputs.run }}
+        run: $RUN build
+
+      # On PRs only when the lockfile changes, so a new advisory does not block unrelated PRs; scheduled runs catch
+      # advisories published after the dependencies were installed. Fails on high and critical advisories only, as
+      # npm reports many low ones
+      - name: Audit
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && steps.setup.outputs.lockfile != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+          LOCKFILE: ${{ steps.setup.outputs.lockfile }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && git diff --quiet "origin/$BASE...HEAD" -- "$LOCKFILE"; then
+            echo "$LOCKFILE did not change, skipping"
+            exit 0
+          fi
+
+          case "$LOCKFILE" in
+            pnpm-lock.yaml) pnpm audit --audit-level high ;;
+            package-lock.json) npm audit --audit-level=high ;;
+            yarn.lock)
+              if [ "$(yarn --version | cut -d. -f1)" = 1 ]; then
+                # Yarn 1 exits with a bit mask of the severities found: 8 is high, 16 critical
+                status=0
+                yarn audit --level high || status=$?
+                [ "$status" -lt 8 ]
+              else
+                yarn npm audit --recursive --severity high
+              fi
+              ;;
+          esac
+
+  # Single status check for branch protection and merge queues, so it does not depend on the matrix job names
+  all-checks:
+    if: always()
+
+    needs: [tests, lint]
+
+    runs-on: ubuntu-latest
+
+    permissions: {}
+
+    steps:
+      - name: Check results
+        shell: bash
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            # tests is skipped with test-command none
+            [ "$result" = success ] || [ "$result" = skipped ] || exit 1
+          done

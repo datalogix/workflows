@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseInputs, stackOf, usesRef, WORKFLOW_PATH } from '../lib/workflow-file.js';
+import js from './js/index.js';
 import laravel from './laravel/index.js';
 
 /**
@@ -8,7 +9,7 @@ import laravel from './laravel/index.js';
  * kinds: { project, package } }, each kind a module with what setup, check and protect need (see laravel/).
  * Adding a stack (php, js, vue, nuxt) is a folder here and a line in this list.
  */
-export const STACKS = [laravel];
+export const STACKS = [laravel, js];
 
 // A folder no stack recognizes (or no folder) is read as a Laravel app, the most common case; setup refuses it unless
 // --stack or --kind says what it is (recognized: false)

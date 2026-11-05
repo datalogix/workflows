@@ -67,6 +67,7 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     review: undefined,
     fixCi: undefined,
     js: undefined,
+    e2e: undefined,
     incidents: false,
     incidentStaging: undefined,
     incidentPerformance: undefined,

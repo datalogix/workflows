@@ -13,8 +13,8 @@ CI run $1 failed on PR #$2. Fix the cause on the current branch.
 2. Read the PR with `gh pr view $2` and its diff with `gh pr diff $2` to understand what changed.
 3. Find the cause of the failure and classify it:
    - **Caused by the PR**: fix only what is needed.
-   - **Pre-existing, flaky or infrastructure**: do not change code. If an earlier comment on the PR (`gh pr view $2 --comments`) already gives this diagnosis, stop; otherwise comment on the PR, in the team language (see the laravel:conventions skill), explaining it and stop.
+   - **Pre-existing, flaky or infrastructure**: do not change code. If an earlier comment on the PR (`gh pr view $2 --comments`) already gives this diagnosis, stop; otherwise comment on the PR, in the team language (see the core:conventions skill), explaining it and stop.
 4. Validate by running locally only what failed (the specific test, Pint, PHPStan, `package.json` script, `composer audit` or Node audit).
 5. Commit with the `[ci-fix]` tag at the end of the subject, for example: `fix: corrige validação do formulário de cadastro [ci-fix]`. The tag is used to limit automatic attempts, so never omit it.
 6. Push to the current branch. Never create another branch or PR.
-7. Comment on the PR with `gh pr comment $2`, in the team language (see the laravel:conventions skill), explaining the cause and the fix in a few lines.
+7. Comment on the PR with `gh pr comment $2`, in the team language (see the core:conventions skill), explaining the cause and the fix in a few lines.

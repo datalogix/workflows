@@ -4,11 +4,12 @@ Start with the [organization setup](organization-setup.md), done once: the Claud
 
 ## By stack
 
-Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Only Laravel is supported today; the `setup` command detects the stack and kind of the folder.
+Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages and JavaScript apps (Next, Nuxt) and libraries are supported; the `setup` command detects the stack and kind of the folder.
 
 | Stack | App | App tests | Package | Package tests |
 | --- | --- | --- | --- | --- |
 | Laravel | [Adding a Laravel app](laravel/app.md) ([by hand](laravel/app-manual-setup.md)) | [Laravel app tests](laravel/app-tests.md) | [Adding a Laravel package](laravel/package.md) | [Laravel package tests](laravel/package-tests.md) |
+| JavaScript (`js`) | [Adding a Next or Nuxt app](js/app.md) ([by hand](js/app-manual-setup.md)) | [JavaScript app tests](js/app-tests.md) | [Adding a JavaScript library](js/package.md) | [JavaScript library tests](js/package-tests.md) |
 
 ## Common to every stack
 
