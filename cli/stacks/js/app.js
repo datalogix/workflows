@@ -267,7 +267,7 @@ function healthRouteTask(root, file) {
 
 /** What Vercel still needs: the secrets left empty, and the staging environment's domain. */
 function deployNextSteps(answers, { results = [], state }) {
-  if (!deploys(answers)) return [];
+  if (!PROVIDERS[answers.deploy]) return [];
   const steps = PROVIDERS.vercel.manualSteps({ answers, state });
   const staging = results.find((result) => result.id === 'vercelStaging');
   if (answers.staging && (!staging?.ok || staging.data?.domain === false)) {

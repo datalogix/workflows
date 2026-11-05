@@ -297,6 +297,7 @@ function cloudBranch(answers, environment, state) {
 
 /** What Forge or Laravel Cloud need by hand, so they deploy only what the workflows ask for: what setup did not do. */
 function deployNextSteps(answers, { twoBranches, results = [] }) {
+  if (!PROVIDERS[answers.deploy]) return [];
   const resultOf = (environment) => results.find((result) => result.id === `deploySite:${environment}`);
   const left = answeredEnvironments(answers).filter((environment) => !resultOf(environment)?.ok);
   if (!left.length) return [];

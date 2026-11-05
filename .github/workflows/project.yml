@@ -367,7 +367,7 @@ jobs:
       language: ${{ inputs.language }}
 
   incident:
-    if: contains(fromJSON('["laravel", "js"]'), inputs.stack) && inputs.incidents && github.event_name == 'repository_dispatch' && github.event.action == 'incident'
+    if: contains(fromJSON('["laravel", "js"]'), inputs.stack) && inputs.incidents && inputs.monitoring != 'none' && github.event_name == 'repository_dispatch' && github.event.action == 'incident'
     permissions:
       contents: read
       issues: write

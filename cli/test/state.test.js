@@ -75,6 +75,7 @@ test('reads the datalogix ruleset by id and the environments that exist', async 
     deployHook: true,
     healthUrl: 'https://app.example.com/up',
     monitoringToken: false,
+    monitoringTokens: { NIGHTWATCH_TOKEN: false },
   });
   // The literal shape: the code reads monitoringToken, so the empty environment must have it too
   expect(state.environments.staging).toStrictEqual({

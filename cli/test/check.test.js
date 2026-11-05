@@ -832,6 +832,15 @@ test('takes a protected health URL as passing only with the bypass secret of the
   );
 });
 
+test('does not look at the relay nor warn about problems without a monitoring service', async () => {
+  const items = await run(await stateFor({ deploy: 'none', solo: true, monitoring: 'none', incidents: true }), {
+    repository: 'datalogix/app',
+  });
+  const all = items.map((item) => item.title).join('\n');
+  expect(all).not.toMatch(/monitoring relay/);
+  expect(all).not.toMatch(/Nightwatch/);
+});
+
 test('probes every health URL and looks up the relay together, reporting them in order', async (t) => {
   onPlatform(t, 'linux');
   const state = await stateFor({ ...PRODUCTION, incidents: true }, READY);

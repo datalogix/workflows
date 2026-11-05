@@ -268,6 +268,34 @@ describe('setup steps', () => {
     expect(step.when({ deploy: 'cloud' })).toBe(false);
   });
 
+  test('offers to keep a token the environment has, even when the workflow file names another service', () => {
+    const answers = { repository: 'datalogix/app', deploy: 'forge', monitoring: 'nightwatch', monitoringMarkers: true };
+    const environments = {
+      ...APP_STATE.environments,
+      production: environment({ monitoringToken: false, monitoringTokens: { NIGHTWATCH_TOKEN: true } }),
+    };
+    const asked = askedSteps(setupSteps(), { ...answers, staging: false }, { state: { ...APP_STATE, environments } });
+    expect(asked).toContain('productionMonitoringTokenKeep');
+    expect(asked).not.toContain('productionMonitoringToken');
+  });
+
+  test('keeps a deploy target written by hand among the options, and asks for no hook of a provider without one', async () => {
+    const step = setupSteps().find((candidate) => candidate.id === 'deploy');
+    prompts.answer = 'vercel';
+    const ctx = { state: { ...APP_STATE, current: { deploy: 'vercel' } } };
+    expect(await step.ask({ header: '', answers: {}, ctx })).toBe('vercel');
+    expect(prompts.asked[0].initialValue).toBe('vercel');
+    expect(prompts.asked[0].options.map((option) => option.value)).toContain('vercel');
+    expect(
+      askedSteps(setupSteps(), { repository: 'datalogix/app', deploy: 'vercel', staging: false, domain: 'app.test' }),
+    ).not.toContain('productionHook');
+    const steps = nextSteps(
+      { repository: 'datalogix/app', deploy: 'vercel', incidents: false },
+      { relay, results: [], state: APP_STATE },
+    );
+    expect(steps.join('\n')).not.toMatch(/Forge|Laravel Cloud/);
+  });
+
   test('asks for the Nightwatch token of production only with deploy markers', () => {
     const asked = (monitoringMarkers) =>
       askedSteps(setupSteps(), { deploy: 'forge', staging: false, monitoringMarkers });
@@ -472,10 +500,12 @@ describe('setup steps', () => {
     expect(production.messages).toHaveLength(1);
     expect(production.value).toBe(JSON.stringify({ production: 'p-key' }));
 
-    // A relay that cannot be read: unknown, and only the keys typed are stored
+    // A relay that cannot be read: unknown, and all the keys or none, since the JSON is stored whole
     const unread = await ask(null, { staging: 's-key' });
     expect(unread.ctx.relayRegistered).toBe(null);
-    expect(unread.value).toBe(JSON.stringify({ staging: 's-key' }));
+    expect(unread.value).toBe('');
+    const all = await ask(null, { production: 'p-key', staging: 's-key' });
+    expect(JSON.parse(all.value)).toStrictEqual({ production: 'p-key', staging: 's-key' });
   });
 
   test('tells to store the signing secret by hand on Windows', (t) => {
@@ -900,6 +930,21 @@ describe('setup tasks', () => {
       (candidate) => candidate.title === 'Environment production',
     );
     expect(await task.run()).toBe('NIGHTWATCH_TOKEN removed');
+    // Also when the project leaves the service, read from the secret and not from the workflow file
+    const left = fakeGitHub();
+    const switched = {
+      ...APP_STATE,
+      environments: {
+        ...APP_STATE.environments,
+        production: environment({ monitoringToken: false, monitoringTokens: { NIGHTWATCH_TOKEN: true } }),
+      },
+    };
+    const leaving = setupTasks(
+      { ...answers, monitoring: 'sentry', monitoringMarkers: undefined },
+      { github: left, root, state: switched, relay },
+    ).find((candidate) => candidate.title === 'Environment production');
+    expect(await leaving.run()).toBe('NIGHTWATCH_TOKEN removed');
+    expect(left.calls).toStrictEqual([['delete secret', 'NIGHTWATCH_TOKEN', 'production']]);
     expect(github.calls).toStrictEqual([['delete secret', 'NIGHTWATCH_TOKEN', 'production']]);
   });
 
