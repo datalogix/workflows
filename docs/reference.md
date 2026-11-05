@@ -8,7 +8,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 
 | Input                                                             | Default                        | Description                                                              |
 | ----------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------ |
-| `stack`                                                           | `laravel`                      | Stack of the project, `laravel` or [`js`](js/app.md) (Next, Nuxt; another one fails the run), which picks its tests, the environment prepared for Claude, the Claude plugins (`core@datalogix` with `laravel@datalogix` or `js@datalogix`) and the default high-risk paths. Deploys need `laravel` |
+| `stack`                                                           | `laravel`                      | Stack of the project, `laravel` or [`js`](js/app.md) (Next, Nuxt; another one fails the run), which picks its tests, the environment prepared for Claude, the Claude plugins (`core@datalogix` with `laravel@datalogix` or `js@datalogix`) and the default high-risk paths. Deploys: `forge` and `cloud` with `laravel`, `vercel` with `js` |
 | `tests` / `review` / `security-review` / `risk-gate` / `fix-ci`   | `true`                         | Turn each layer on or off; `tests`, `security-review` and `risk-gate` have required checks, so run `protect` again after changing them |
 | `php-version` / `node-version`                                    | detected                       | Override the environment versions                                        |
 | `pint` / `phpstan`                                                | `true`                         | Run Pint (on the files changed by the pull request) and PHPStan when they are installed; see [Lint and test suite](laravel/app-tests.md#lint-and-test-suite) |
@@ -99,7 +99,7 @@ The tests of a JavaScript or TypeScript library: see [JavaScript library tests](
 | `language`                                | `pt-BR`                                                                                          | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
 | `allowed-tools`                           | `Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*`                              | Tools Claude may use                                                      |
 | `disallowed-tools`                        | force push, branch deletion, `gh pr merge`, `gh pr review`, `gh release`, `gh repo`, `gh secret` | Tools Claude may never use                                                |
-| `plugin-marketplaces` / `plugins`         | empty / `core@datalogix` and `laravel@datalogix`                                                 | Extra marketplaces, besides this repository's at the workflows' version (always added), and plugins to install |
+| `plugin-marketplaces` / `plugins`         | empty                                                                                            | Extra marketplaces, besides this repository's at the workflows' version (always added), and extra plugins, besides `core@datalogix` and the stack's (always installed) |
 | `stack`                                   | `laravel`                                                                                        | `laravel` or `js`: the environment prepared for Claude (`setup-laravel` or `setup-js`) and the commands and conventions skill of its plugin (`<stack>@datalogix`, which `plugins` must list). The other Claude workflows and `incident` take it too |
 | `show-full-output`                        | `false`                                                                                          | Print Claude's full output in the logs (may expose secrets)               |
 
@@ -117,7 +117,7 @@ Reviews a pull request. `project` calls it once, when the pull request is opened
 | `allowed-bots`                    | `*`                                    | Bots whose pull requests are reviewed                  |
 | `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes) |
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
-| `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins, besides `code-review`       |
+| `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins, besides `code-review` and those of `claude`       |
 | `timeout-minutes`                 | `30`                                   | Job timeout                                            |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
@@ -133,7 +133,7 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 | `ignored-authors`                 | `["dependabot[bot]", "renovate[bot]"]` | Authors that are not reviewed (JSON), unless someone else pushed the commits; dependencies are covered by `composer audit` and the Node audit |
 | `allowed-bots`                    | `*`                                    | Bots whose pull requests are reviewed                                               |
 | `max-turns` / `timeout-minutes`   | `40` / `30`                            | Limits                                                                              |
-| `plugin-marketplaces` / `plugins` | same as `claude`                       | Claude Code plugins to install                                                      |
+| `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins                                                      |
 | `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes)                              |
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 
@@ -148,7 +148,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 | Input                                                   | Default                                                                                                                                    | Description                                                                |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
 | `stack`                                                 | `laravel`                                                                                                                                  | Picks the default `high-risk-paths`: Laravel's, or JavaScript's for `js` |
-| `high-risk-paths`                                       | Laravel: migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*`. `js`: `middleware.*`, `server/*`, `app/api/*`, `pages/api/*` (also under `src/`), auth files and folders, `prisma/*`, `drizzle/*`, `migrations/*`, `nuxt.config.*`, `next.config.*`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
+| `high-risk-paths`                                       | Laravel: migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*`. `js`: `middleware.*`, `proxy.*`, `server/*`, `app/api/*`, `pages/api/*` (also under `src/`), `middleware/*`, `app/middleware/*`, auth files and folders, `prisma/*`, `drizzle/*`, `migrations/*`, `nuxt.config.*`, `next.config.*`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
 | `extra-high-risk-paths`                                 | empty | More patterns, added to `high-risk-paths`: a project's own sensitive paths without repeating (or dropping) the defaults |
 | `low-risk-paths`                                        | tests, Markdown, `docs/*`, `lang/*.json`, editor and git config                                                                                 | A pull request touching only these is low risk; everything else is medium (`lang/*.php` too: it is PHP the app runs) |
 | `ignored-paths`                                         | lock files, `public/build/*`                                                                                                               | Make it at least medium risk, but not counted in the changed lines         |
@@ -172,7 +172,7 @@ Patterns use shell matching where `*` also matches `/`, so `app/Policies/*` cove
 | `extra-instructions`                 | empty            | Extra instructions for this project (no double quotes)                |
 | `language`                           | `pt-BR`          | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 | `allowed-tools` / `disallowed-tools` | same as `claude` | Tools Claude may or may never use                                     |
-| `plugin-marketplaces` / `plugins`    | same as `claude` | Claude Code plugins to install                                        |
+| `plugin-marketplaces` / `plugins`    | same as `claude` | Extra Claude Code plugins                                        |
 
 Runs inside `project` after failed tests. Called from a workflow of its own on `workflow_run` instead (of the workflow that runs the tests), it reads the failed run from that event.
 
@@ -223,7 +223,7 @@ Called by `project` on `repository_dispatch` events of type `incident`, sent by 
 | `label`                           | `incident`                     | Label of the created issues; each also gets `env:<environment>` (both created automatically)  |
 | `model`                           | `opus`                         | Model for the analysis                                                                        |
 | `max-turns` / `timeout-minutes`   | `40` / `30`                    | Limits                                                                                        |
-| `plugin-marketplaces` / `plugins` | same as `claude`               | Claude Code plugins to install                                                                |
+| `plugin-marketplaces` / `plugins` | same as `claude`               | Extra Claude Code plugins                                                                |
 | `extra-instructions`              | empty                          | Extra instructions for this project (no double quotes)                                        |
 | `language`                        | `pt-BR`                        | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 
