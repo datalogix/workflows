@@ -1,9 +1,10 @@
-import { codeOwnerItems, createReport, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
+import { codeOwnerItems, createReport, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
+import { driftPhrases, requiresCodeOwners, rulesetDrift } from '../../lib/ruleset.js';
 import { checksOn } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { NO_TESTS } from '../../lib/tools.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
-import { clack, cyan, dim, orExit, question } from '../../lib/ui.js';
+import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { PACKAGE_REF, packageAnswers, packageTemplate, renderPackageWorkflow } from './workflow.js';
 
 // What package.yml needs from a package, whatever its stack: the workflow file, the Codecov token, the ruleset and the
@@ -18,16 +19,21 @@ export const PACKAGE_CHECKS = {
 // What the kind reads (readPackage), before it is read
 const PACKAGE_STATE = { codecovToken: false };
 
-/** Whether the package uploads a coverage report, so it needs a Codecov token: tests and coverage on. */
-const uploadsCoverage = ({ current }) =>
-  current?.tests !== false && current?.coverage !== false && current?.testCommand !== NO_TESTS;
+/**
+ * Whether the package uploads a coverage report, so it needs a Codecov token: tests and coverage on. A test suite
+ * answered in setup (testRun) replaces the file's.
+ */
+const uploadsCoverage = ({ current }, answers = {}) =>
+  current?.tests !== false && current?.coverage !== false && (answers.testRun ?? current?.testCommand) !== NO_TESTS;
 
 function setupSteps(stack) {
   return [
     repositoryStep(),
+    ...(stack.steps?.() ?? []),
     {
       id: 'codecovToken',
-      when: (a, ctx) => stack.coverage !== false && !ctx.state.codecovToken && uploadsCoverage(ctx.state),
+      // After the stack's questions, which may turn the test suite off
+      when: (a, ctx) => stack.coverage !== false && !ctx.state.codecovToken && uploadsCoverage(ctx.state, a),
       ask: async ({ header }) =>
         orExit(
           await clack.password({
@@ -39,8 +45,12 @@ function setupSteps(stack) {
           }),
         ),
     },
-    ...(stack.steps?.() ?? []),
-    soloStep({ subject: 'package' }),
+    // A ruleset that requires code owners tells a team; the question explains what a package changes
+    soloStep({
+      subject: 'package',
+      initial: (ctx) => !requiresCodeOwners(ctx.state.ruleset),
+      about: 'Changes to .github/ need no code owner approval',
+    }),
     codeOwnersStep(),
   ];
 }
@@ -74,7 +84,7 @@ async function setupWarnings(answers, ctx) {
 }
 
 /** What is left to do by hand after the tasks ran: commit, then protect. */
-function nextSteps(answers, { results, state }) {
+function nextSteps(checks, answers, { results, state }) {
   const steps = [];
   const changed = changedFiles(results, TASK_FILES);
   if (changed.length) {
@@ -86,9 +96,23 @@ function nextSteps(answers, { results, state }) {
         : `Commit and push:\n  ${cyan(`${commit} && git push`)}`,
     );
   }
-  steps.push(
-    `After the first pull request shows its checks, protect the default branch:\n  ${cyan(`npx --allow-git=root github:datalogix/workflows#v2 protect ${answers.solo ? '--solo' : '--no-solo'}`)}`,
+  const protect = cyan(`${PROTECT} ${answers.solo ? '--solo' : '--no-solo'}`);
+  if (!state.ruleset) {
+    steps.push(`After the first pull request shows its checks, protect the default branch:\n  ${protect}`);
+    return steps;
+  }
+  // What protect would change, as check reports it: the code owner approval follows the solo answer, which protect
+  // gets as --solo or --no-solo
+  const phrases = driftPhrases(
+    rulesetDrift(state.ruleset, {
+      expected: checksOn(checks, { ...state.current, ...answers }),
+      known: Object.values(checks),
+      codeOwners: !answers.solo,
+      defaultBranch: state.defaultBranch,
+    }),
+    bold,
   );
+  if (phrases.length) steps.push(`Run protect again: the ruleset ${phrases.join(', and ')}:\n  ${protect}`);
   return steps;
 }
 
@@ -96,7 +120,7 @@ function nextSteps(answers, { results, state }) {
 async function evaluate(stack, checks, state) {
   const report = createReport();
   workflowItems(report, state, { ref: PACKAGE_REF, kind: 'package', fix: SETUP });
-  rulesetItems(report, state, {
+  const drift = rulesetItems(report, state, {
     expected: checksOn(checks, state.current),
     known: Object.values(checks),
   });
@@ -107,7 +131,7 @@ async function evaluate(stack, checks, state) {
   }
   // The workflow file does not say whether one person maintains the package (protect asks): a missing approval rule
   // is not reported, only one that keeps older approvals
-  codeOwnerItems(report, state, { requireApproval: null, hint: SETUP });
+  codeOwnerItems(report, state, { requireApproval: null, hint: SETUP, drift });
   return report.items;
 }
 
@@ -128,16 +152,17 @@ export function packageKind(stack) {
     inspect: stack.inspect,
     answers: packageAnswers,
     /** What collectState reads from GitHub for a package: whether it can read a Codecov token. */
-    read: async (github, read) => ({
-      codecovToken:
-        (await read('secrets', github.hasRepositorySecret('CODECOV_TOKEN'))) ||
-        (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false)),
-    }),
+    read: async (github, read) => {
+      // The organization's only when the repository has none: one that cannot be read counts as missing
+      const repository = await read('secrets', github.hasRepositorySecret('CODECOV_TOKEN'));
+      const organization = repository || (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false));
+      return { codecovToken: repository || organization };
+    },
     setup: {
       steps: () => setupSteps(stack),
       tasks: (answers, ctx) => setupTasks(withStack(answers), ctx),
       warnings: (answers, ctx) => setupWarnings(withStack(answers), ctx),
-      nextSteps,
+      nextSteps: (answers, ctx) => nextSteps(checks, answers, ctx),
     },
     evaluate: (state) => evaluate(stack, checks, state),
     /** Checks to require, from the workflow answers (state.current). */
@@ -146,11 +171,17 @@ export function packageKind(stack) {
      * Whether code owners must approve changes to .github/: a package's workflow file does not say whether one person
      * maintains it, so --solo or a question does.
      */
-    async needsCodeOwners(current, flags) {
+    async needsCodeOwners(current, flags, ruleset = null) {
       if (flags.solo !== undefined) return !flags.solo;
       // Without a question, the safe choice: nobody can lower the checks without a code owner
       if (flags.yes) return true;
-      return !orExit(await clack.confirm({ message: 'Do you work alone on this package?', initialValue: true }));
+      // Like setup's question: a ruleset that requires code owners tells a team
+      return !orExit(
+        await clack.confirm({
+          message: 'Do you work alone on this package?',
+          initialValue: !requiresCodeOwners(ruleset),
+        }),
+      );
     },
   };
 }

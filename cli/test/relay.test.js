@@ -1,8 +1,10 @@
 import { expect, test } from 'vitest';
 import { access, readdir, readFile, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import {
   cloudflareLoggedIn,
+  cloudflareLogin,
   deployRelay,
   hasSecret,
   loadRelayConfig,
@@ -14,13 +16,17 @@ import {
 } from '../kinds/project/relay.js';
 import { onPlatform, RELAY as relay } from './helpers.js';
 
-/** A runner that answers every wrangler call with the result, recording what it was called with. */
+/**
+ * A runner that answers every wrangler call with the result (or each call with the next result of a list), recording
+ * what it was called with.
+ */
 function runner(result, onCall = () => {}) {
   const calls = [];
+  const results = Array.isArray(result) ? [...result] : null;
   const run = async (command, args, options) => {
     calls.push([command, args, options]);
     await onCall(args);
-    return { code: 0, stdout: '', stderr: '', ...result };
+    return { code: 0, stdout: '', stderr: '', ...(results ? results.shift() : result) };
   };
   return Object.assign(run, { calls });
 }
@@ -29,11 +35,13 @@ test('reads whether the relay has the secret of a repository', async (t) => {
   onPlatform(t, 'linux');
   const has = (result) => hasSecret(relay, 'nightwatch', 'datalogix/app', runner(result));
   expect(await has({ stdout: 'whsec_123\n' })).toBe(true);
+  expect(await has({ stdout: '' })).toBe(false);
   expect(await has({ stdout: 'Value not found for key\n' })).toBe(false);
   expect(await has({ stdout: '⛅️ wrangler 4.0.0\n-----\nValue not found for key\n' })).toBe(false);
   expect(await has({ code: 1, stderr: 'key not found' })).toBe(false);
-  // Anything else cannot tell
+  // Anything else cannot tell, such as a namespace of another Cloudflare account
   expect(await has({ code: 1, stderr: 'fetch failed' })).toBe(null);
+  expect(await has({ code: 1, stderr: 'namespace not found' })).toBe(null);
 
   const calls = runner({ stdout: 'x' });
   await hasSecret(relay, 'nightwatch', 'datalogix/app', calls);
@@ -47,11 +55,17 @@ test('reads whether the relay has the secret of a repository', async (t) => {
     'get',
     'nightwatch:datalogix/app',
     '--namespace-id',
-    'id',
+    relay.namespaceId,
     '--remote',
   ]);
   // An empty private folder, so no wrangler.toml of the project is picked up
   expect(cwd).toMatch(/datalogix-/);
+  expect(cwd.startsWith(tmpdir())).toBe(true);
+
+  // The key in lowercase, as the relay looks it up
+  const upper = runner({ stdout: 'x' });
+  await hasSecret(relay, 'nightwatch', 'Datalogix/App', upper);
+  expect(upper.calls[0][1]).toContain('nightwatch:datalogix/app');
 });
 
 test('stores the secret through a file only you can read, removed afterwards', async () => {
@@ -76,7 +90,7 @@ test('stores the secret through a file only you can read, removed afterwards', a
     'put',
     'nightwatch:datalogix/app',
     '--namespace-id',
-    'id',
+    relay.namespaceId,
     '--remote',
     '--path',
     file,
@@ -106,6 +120,8 @@ test('accepts the owner of the relay in any case, as GitHub does', () => {
   expect(relayAccepts({ owner: 'datalogix' }, 'Datalogix/app')).toBe(true);
   expect(relayAccepts({ owner: 'Datalogix' }, 'datalogix/app')).toBe(true);
   expect(relayAccepts({ owner: 'datalogix' }, 'other/app')).toBe(false);
+  // A relay without an owner accepts any repository
+  expect(relayAccepts({ owner: '' }, 'any/app')).toBe(true);
 });
 
 test("reads the relay settings the org command stored in the owner's .github repository", async () => {
@@ -113,10 +129,11 @@ test("reads the relay settings the org command stored in the owner's .github rep
   const organization = (content) => ({
     file: async (name, path) => (read.push(`${name}/${path}`), content === null ? null : { content }),
   });
-  const settings = '{"url":"https://relay.test/","namespaceId":"id","owner":"datalogix"}';
+  const id = 'b'.repeat(32);
+  const settings = `{"url":"https://relay.test/","namespaceId":"${id}","owner":"datalogix"}`;
   expect(await loadRelayConfig('datalogix', organization(settings))).toStrictEqual({
     url: 'https://relay.test',
-    namespaceId: 'id',
+    namespaceId: id,
     owner: 'datalogix',
     configured: true,
   });
@@ -126,6 +143,16 @@ test("reads the relay settings the org command stored in the owner's .github rep
   // A file someone broke by hand reads as no relay
   expect(relayConfig('not json').configured).toBe(false);
   expect(relayConfig('{"url":"https://relay.test"}').configured).toBe(false);
+  expect(relayConfig('null').configured).toBe(false);
+  expect(relayConfig(`{"url":"https://relay.test","namespaceId":"${id}","owner":" datalogix "}`).owner).toBe(
+    'datalogix',
+  );
+  // Whoever can write to the .github repository writes this file, and the namespace reaches an admin's wrangler.toml
+  for (const namespaceId of ['id', 'B'.repeat(32), 'b'.repeat(33), `${id}"\n[build]\ncommand = "touch pwned"\n#`]) {
+    const relay = relayConfig(JSON.stringify({ url: 'https://relay.test', namespaceId }));
+    expect(relay.configured).toBe(false);
+    expect(relay.namespaceId).toBe('');
+  }
 });
 
 test('tells whether wrangler is logged in to Cloudflare', async () => {
@@ -136,22 +163,38 @@ test('tells whether wrangler is logged in to Cloudflare', async () => {
   expect(await cloudflareLoggedIn(runner({ code: 1 }))).toBe(false);
 });
 
+test('tells whether logging in to Cloudflare worked, by the exit code of wrangler login', async () => {
+  // Interactive, so the runner resolves with the exit code only
+  expect(await cloudflareLogin(async () => 0)).toBe(true);
+  expect(await cloudflareLogin(async () => 1)).toBe(false);
+});
+
 test('reuses the relay namespace, else creates it', async () => {
   const id = 'b'.repeat(32);
   const existing = runner({ stdout: `⛅️ wrangler 4\n[{"id":"${id}","title":"incident-relay-secrets"}]` });
   expect(await relayNamespace(existing)).toStrictEqual({ id, created: false });
   expect(existing.calls).toHaveLength(1);
 
-  const answers = [{ stdout: '[]' }, { stdout: `Created namespace\n  id = "${id}"` }];
-  const created = runner({}, () => {});
-  const fresh = Object.assign(
-    async (...args) => (await created(...args), { code: 0, stderr: '', ...answers.shift() }),
-    {
-      calls: created.calls,
-    },
-  );
-  expect(await relayNamespace(fresh)).toStrictEqual({ id, created: true });
+  const created = runner([{ stdout: '[]' }, { stdout: `Created namespace\n  id = "${id}"` }]);
+  expect(await relayNamespace(created)).toStrictEqual({ id, created: true });
   expect(created.calls[1][1].slice(2)).toStrictEqual(['kv', 'namespace', 'create', 'incident-relay-secrets']);
+
+  // Older wrangler versions prefixed the title with the worker's name
+  const legacy = runner({ stdout: `[{"id":"${id}","title":"incident-relay-incident-relay-secrets"}]` });
+  expect(await relayNamespace(legacy)).toStrictEqual({ id, created: false });
+});
+
+test('fails when wrangler cannot list or create the relay namespace', async () => {
+  // The list failed: a namespace is not created alongside the one it could not see
+  const id = 'b'.repeat(32);
+  const unlisted = runner([{ code: 1, stderr: 'You are not authenticated' }, { stdout: `id = "${id}"` }]);
+  await expect(relayNamespace(unlisted)).rejects.toThrow('not logged in to Cloudflare');
+  await expect(relayNamespace(runner([{ stdout: '[]' }, { code: 1, stderr: 'quota exceeded' }]))).rejects.toThrow(
+    'quota exceeded',
+  );
+  await expect(relayNamespace(runner([{ stdout: '[]' }, { stdout: 'Created namespace' }]))).rejects.toThrow(
+    'wrangler created the KV namespace but printed no id',
+  );
 });
 
 test('deploys the relay of this version with its namespace and owner, and the token on stdin', async () => {
@@ -186,9 +229,24 @@ test('deploys the relay of this version with its namespace and owner, and the to
   expect(calls).toStrictEqual([[['deploy'], undefined]]);
   expect(config).toMatch(/^name = "incident-relay"$/m);
 
+  // A value cannot end its string in the file, nor use a replacement pattern
+  await deployRelay({ namespaceId: id, owner: 'a"\n[build]\ncommand = "x"\n#$1', worker: 'incident-relay' }, deploy);
+  expect(config).not.toMatch(/^\[build\]/m);
+  expect(config).toContain('ALLOWED_OWNER = "a\\"\\n[build]\\ncommand = \\"x\\"\\n#$1"');
+
   await expect(deployRelay({ namespaceId: id, owner: 'acme' }, runner({ stdout: 'done' }))).rejects.toThrow(
     'printed no workers.dev URL',
   );
+  await expect(
+    deployRelay({ namespaceId: id, owner: 'acme' }, runner({ code: 1, stderr: 'build failed' })),
+  ).rejects.toThrow('build failed');
+  const deployed = { stdout: 'https://incident-relay-acme.acme.workers.dev' };
+  await expect(
+    deployRelay(
+      { namespaceId: id, owner: 'acme', token: 'github_pat_x' },
+      runner([deployed, { code: 1, stderr: 'secret rejected' }]),
+    ),
+  ).rejects.toThrow('secret rejected');
 });
 
 test('names the worker after its owner, and keeps the worker of a relay already deployed', () => {

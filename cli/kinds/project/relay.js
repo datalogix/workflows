@@ -25,9 +25,13 @@ export function relayWorker(owner, url = '') {
 
 export const RELAY_REPO = '.github';
 export const RELAY_PATH = 'workflows/relay.json';
-export const NO_RELAY = { url: '', namespaceId: '', owner: '', configured: false };
+const NO_RELAY = { url: '', namespaceId: '', owner: '', configured: false };
 
-/** Relay settings from the text of relay.json; not configured without a URL and a namespace. */
+/**
+ * Relay settings from the text of relay.json; not configured without a URL and a namespace. Anyone who can write to the
+ * .github repository can write this file, and the namespace reaches the wrangler.toml of an admin's deploy: one that is
+ * not a Cloudflare id counts as none.
+ */
 export function relayConfig(content) {
   let config;
   try {
@@ -37,7 +41,8 @@ export function relayConfig(content) {
   }
   const text = (value) => (typeof value === 'string' ? value.trim() : '');
   const url = text(config.url).replace(/\/+$/, '');
-  const namespaceId = text(config.namespaceId);
+  const stored = text(config.namespaceId);
+  const namespaceId = /^[0-9a-f]{32}$/.test(stored) ? stored : '';
   return { url, namespaceId, owner: text(config.owner), configured: Boolean(url && namespaceId) };
 }
 
@@ -55,7 +60,7 @@ export function webhookUrl(relay, provider, repository) {
 /**
  * Runs wrangler in an empty private folder, so it never picks up a wrangler.toml from the project.
  * `prepare(dir)` returns the extra arguments and may write files in the folder, which is removed afterwards.
- * `runner` replaces shell.run in tests.
+ * `runner` replaces shell.run: runInteractive for login, a fake in tests.
  */
 async function wrangler(args, { prepare = async () => [], runner = run, input } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'datalogix-'));
@@ -104,15 +109,22 @@ export async function registerSecret(relay, provider, repository, secret, runner
   if (result.code !== 0) throw wranglerError(result);
 }
 
-/** Whether the relay has a secret for the repository (null when it cannot be checked). */
-export async function hasSecret(relay, provider, repository, runner = run) {
+/** The repository's secret in the relay: '' when there is none, null when it cannot be read. */
+export async function readSecret(relay, provider, repository, runner = run) {
   if (!relaySupported()) return null;
   const key = secretKey(provider, repository);
   const result = await wrangler(['kv', 'key', 'get', key, '--namespace-id', relay.namespaceId, '--remote'], {
     runner,
   });
-  if (result.code === 0) return result.stdout.trim() !== '' && !/^Value not found/im.test(result.stdout);
-  return /not found/i.test(`${result.stderr}${result.stdout}`) ? false : null;
+  if (result.code === 0) return /^Value not found/im.test(result.stdout) ? '' : result.stdout.trim();
+  // Only a missing key means not registered: a missing namespace (another Cloudflare account) means it cannot be read
+  return /\b(key|value) not found/i.test(`${result.stderr}${result.stdout}`) ? '' : null;
+}
+
+/** Whether the relay has a secret for the repository (null when it cannot be checked). */
+export async function hasSecret(relay, provider, repository, runner = run) {
+  const secret = await readSecret(relay, provider, repository, runner);
+  return secret === null ? null : secret !== '';
 }
 
 /** Whether wrangler is logged in to Cloudflare. */
@@ -123,12 +135,7 @@ export async function cloudflareLoggedIn(runner = run) {
 
 /** Logs wrangler in to Cloudflare in the browser, attached to the terminal (it may print the link to open). */
 export async function cloudflareLogin(runner = runInteractive) {
-  const dir = await mkdtemp(join(tmpdir(), 'datalogix-'));
-  try {
-    return (await runner('npx', [...WRANGLER, 'login'], { cwd: dir })) === 0;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  return (await wrangler(['login'], { runner })) === 0;
 }
 
 /** The JSON array a wrangler command printed, past any banner around it. */
@@ -162,9 +169,9 @@ export async function relayNamespace(runner = run) {
 export async function deployRelay({ namespaceId, owner, token, worker = relayWorker(owner) }, runner = run) {
   const template = await readFile(join(packageRoot, 'relay', 'wrangler.toml'), 'utf8');
   const config = template
-    .replace(/^(name\s*=\s*)"[^"]*"/m, `$1"${worker}"`)
-    .replace(/(\[\[kv_namespaces\]\][^[]*?\bid\s*=\s*)"[^"]*"/s, `$1"${namespaceId}"`)
-    .replace(/(ALLOWED_OWNER\s*=\s*)"[^"]*"/, `$1"${owner}"`);
+    .replace(/^(name\s*=\s*)"[^"]*"/m, (_, key) => key + JSON.stringify(worker))
+    .replace(/(\[\[kv_namespaces\]\][^[]*?\bid\s*=\s*)"[^"]*"/s, (_, key) => key + JSON.stringify(namespaceId))
+    .replace(/(ALLOWED_OWNER\s*=\s*)"[^"]*"/, (_, key) => key + JSON.stringify(owner));
   const deployed = await wrangler(['deploy'], {
     runner,
     prepare: async (dir) => {

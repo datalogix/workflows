@@ -27,6 +27,8 @@ The ruleset created in [step 5](laravel/app.md#step-5-protect-the-default-branch
 - **Packages** require only `pipeline / tests / all-checks`.
 - **Private repositories on GitHub Free** have no rulesets or branch protection: the checks run and show on every pull request but do not block the merge, and anyone with write access can push, also to the branch that deploys production (after its tests). `protect` explains this and changes nothing, `check` warns about it. GitHub Team (or Pro), or a public repository, lifts the limit.
 
+The required checks stop mistakes, outside contributors and untested changes, not a malicious collaborator with write access: such a person can report a check as passed through the API, or from a workflow they push to another branch, without the real check running. Reviewing who gets write access is the control for that.
+
 ## Solo maintainers
 
 GitHub does not let authors approve their own pull requests. Pull requests opened by Claude are authored by `claude[bot]`, so you approve them normally. For pull requests you open yourself, `count-author: true` makes you count as the reviewer of your own code (you need write access), which is what you are when no one else reviews.

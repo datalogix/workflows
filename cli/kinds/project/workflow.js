@@ -82,7 +82,7 @@ export function projectTemplate(existing, branch) {
 export async function renderProjectWorkflow(answers, existing = '', branch = 'main') {
   const managed = {};
   const current = parseInputs(existing);
-  // An input setup did not ask about (its answer is undefined) keeps its current value
+  // An input whose question was skipped (its answer is undefined) keeps its current value
   const keep = (input) => {
     if (current[input] !== undefined) managed[input] = current[input];
   };

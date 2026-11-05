@@ -15,6 +15,9 @@ test('parses the command and its flags', () => {
   });
   expect(parseArgs(['--incidents=false']).flags).toStrictEqual({ incidents: false });
   expect(parseArgs(['--solo=yes', '--yes=0']).flags).toStrictEqual({ solo: true, yes: false });
+  expect(parseArgs(['--solo=1', '--js=no']).flags).toStrictEqual({ solo: true, js: false });
+  // Only the first = separates the name
+  expect(parseArgs(['--lint-command=composer a=b']).flags).toStrictEqual({ 'lint-command': 'composer a=b' });
   // Checked by the stack's question (setup), as each stack deploys elsewhere
   expect(parseArgs(['--deploy', 'heroku']).flags).toStrictEqual({ deploy: 'heroku' });
   expect(parseArgs(['--help']).command).toBe('help');
@@ -37,6 +40,12 @@ test('accepts the stack and an app or package kind', () => {
   expect(() => parseArgs(['setup', '--kind', 'library'])).toThrow('--kind must be app or package');
   expect(parseArgs(['org', '--org', 'datalogix']).flags).toStrictEqual({ org: 'datalogix' });
   expect(() => parseArgs(['org', '--org', 'datalogix/app'])).toThrow('--org must be an organization name');
+  // GitHub's rule: letters, digits and single hyphens between them
+  expect(parseArgs(['org', '--org', 'data-logix2']).flags).toStrictEqual({ org: 'data-logix2' });
+  for (const name of ['-datalogix', 'datalogix-', 'data--logix', 'data_logix']) {
+    expect(() => parseArgs(['org', '--org', name])).toThrow('--org must be an organization name');
+  }
+  expect(() => parseArgs(['--no-staging=true'])).toThrow('--no-staging takes no value');
 });
 
 test('takes a flag that follows a value option as a missing value', () => {

@@ -54,6 +54,10 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: lts/*
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            relay/package-lock.json
 
       - name: Test incident relay
         shell: bash
@@ -89,6 +93,39 @@ jobs:
         env:
           MARKETPLACE: ${{ steps.plugins.outputs.marketplace }}
         run: test "$MARKETPLACE" = "$GITHUB_WORKSPACE"
+
+  minimum-node:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Read the lowest Node version
+        id: engines
+        shell: bash
+        run: |
+          engines=$(jq -r .engines.node package.json)
+          if [[ ! "$engines" =~ ^\>=([0-9.]+)$ ]]; then
+            echo "::error::Expected engines.node as >=X.Y, got $engines"
+            exit 1
+          fi
+          echo "node=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.engines.outputs.node }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Test setup command and action scripts
+        shell: bash
+        run: |
+          npm ci
+          npm test
 
   setup-laravel:
     runs-on: ubuntu-latest
@@ -229,7 +266,7 @@ jobs:
   all-checks:
     if: always()
 
-    needs: [lint, setup-laravel]
+    needs: [lint, minimum-node, setup-laravel]
 
     runs-on: ubuntu-latest
 

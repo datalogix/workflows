@@ -54,18 +54,18 @@ export function repositoryStep({ readOptions = {} } = {}) {
 }
 
 /** Whether one person maintains the project or package: no code owner approval then (see protect). */
-export function soloStep({ subject, initial = () => true }) {
+export function soloStep({
+  subject,
+  initial = () => true,
+  about = 'Your own pull requests count as your approval, and changes to .github/ need no code owner approval',
+}) {
   return {
     id: 'solo',
     flag: 'solo',
     ask: async ({ header, ctx }) =>
       orExit(
         await clack.confirm({
-          message: question(
-            header,
-            `Do you work alone on this ${subject}?`,
-            'Your own pull requests count as your approval, and changes to .github/ need no code owner approval',
-          ),
+          message: question(header, `Do you work alone on this ${subject}?`, about),
           initialValue: initial(ctx),
         }),
       ),

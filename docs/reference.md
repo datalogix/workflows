@@ -31,7 +31,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `watch-minutes`                                                   | `3`                            | Minutes each environment is watched after a deploy                       |
 | `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `1`); `0` uses `watch-minutes` |
 | `github-deployments`                                              | `true`                         | Record each deploy and rollback in the repository's **Deployments**; `false` still uses the environments' secrets, variables and required reviewers |
-| `monitoring`                                                      | `nightwatch`                   | Monitoring service of the app: `nightwatch`, `sentry` or `none`. Its problems become issues (with `incidents`), the issue of a failed deploy names it, and Nightwatch marks each deploy on Forge. See [Production errors](production-errors.md) |
+| `monitoring`                                                      | `nightwatch`                   | Monitoring service of the app: `nightwatch`, `sentry`, `inspector` or `none`. Its problems become issues (with `incidents`), the issue of a failed deploy names it, and Nightwatch marks each deploy on Forge. See [Production errors](production-errors.md) |
 | `incidents`                                                       | `true`                         | Turn monitoring problems into GitHub issues analyzed by Claude           |
 | `incident-environments`                                           | `["production", "staging"]`    | Monitoring environments whose problems become GitHub issues (JSON)       |
 | `incident-types`                                                  | `["exception", "performance"]` | Problem types that become GitHub issues (JSON)                           |
@@ -59,7 +59,7 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | Input   | Default | Description                                                                                |
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
 | `stack` | `laravel` | Stack of the package, which picks its tests: `laravel` or `js` (another one fails the run) |
-| `tests` | `true`  | Run the test suite; it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
+| `tests` | `true`  | Run the test suite (`laravel`: across the matrix, Pint, PHPStan and the lint command); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 
 Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
 
@@ -139,7 +139,7 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 
 Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every review, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
 
-A pull request that changes the calling workflow file (`.github/workflows/datalogix.yml`) is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until the default branch has the same file. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
+A pull request whose copy of the calling workflow file (`.github/workflows/datalogix.yml`) is not the same as the default branch's is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until both are the same. That is a pull request that changes the file or adds it; one that is only behind a change to it on the default branch is reviewed, as the run uses the merge commit. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
@@ -191,7 +191,7 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | `issue`           | `0`       | Issue that asked for the rollback; gets the result as a comment and loses the `rollback` label  |
 | `rollback-label`  | `rollback`| Label removed from that issue after a rollback                                                  |
 | `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud. Vercel follows the build until it is ready, for at most this (`0`: 900) |
-| `watch-minutes`   | `5`       | Minutes to watch the health URL                                                                 |
+| `watch-minutes`   | `3`       | Minutes to watch the health URL                                                                 |
 | `max-failures`    | `3`       | Consecutive failed checks (every 30 seconds) that trigger the rollback                          |
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |
 | `github-deployments` | `true` | Record the deploy in the repository's **Deployments**; `false` still uses the environment (custom deployment protection rules need the record: with them, `false` fails the job) |

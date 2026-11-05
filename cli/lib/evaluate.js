@@ -1,11 +1,14 @@
 import { CODEOWNERS_PATH } from './codeowners.js';
-import { keepsStaleApprovals, requiredChecks, requiresCodeOwners } from './ruleset.js';
-import { unversioned, usesRef, WORKFLOW_PATH } from './workflow-file.js';
+import { requiresCodeOwners, RULESET_NAME, rulesetDrift } from './ruleset.js';
+import { refStatus, refVersion, unversioned, WORKFLOW_PATH } from './workflow-file.js';
 
 // What check suggests running to fix an item
 export const SETUP = 'npx --allow-git=root github:datalogix/workflows#v2 setup';
 export const PROTECT = 'npx --allow-git=root github:datalogix/workflows#v2 protect';
 export const ORG = 'npx --allow-git=root github:datalogix/workflows#v2 org';
+
+// Where to install the Claude GitHub App, for what org, setup and check tell
+export const CLAUDE_INSTALL = 'https://github.com/apps/claude/installations/new';
 
 /** The items check lists, each { level: ok | warn | error, title, hint }, with a function to add each level. */
 export function createReport() {
@@ -18,73 +21,97 @@ export function createReport() {
   };
 }
 
-/** The workflow file calls the entry point (ref) of the project or package. Returns whether it does. */
+/**
+ * The workflow file calls the entry point (ref) of the project or package, at its major or one of its tags (refStatus).
+ * A branch or a commit (testing a change) is a warning. Returns whether it calls it.
+ */
 export function workflowItems(report, state, { ref, kind, fix }) {
   if (!state.workflow) {
     report.error(`${WORKFLOW_PATH} is missing`, fix);
     return false;
   }
-  const version = usesRef(state.workflow, ref);
-  if (version !== ref.slice(ref.indexOf('@') + 1)) {
-    // Another version of the same workflow: a major release (e.g. @v2 to @v3) needs the file updated
-    report.error(
-      version
-        ? `${WORKFLOW_PATH} calls ${unversioned(ref)}${version}: change it to ${ref}`
-        : `${WORKFLOW_PATH} does not call ${ref}`,
-      fix,
-    );
+  const { status, version } = refStatus(state.workflow, ref);
+  if (status === 'missing') {
+    report.error(`${WORKFLOW_PATH} does not call ${ref}`, fix);
     return false;
   }
-  report.ok(`${WORKFLOW_PATH} calls the ${kind} workflow`);
+  if (status === 'other-major') {
+    // A major release (e.g. @v2 to @v3) needs the file updated
+    report.error(`${WORKFLOW_PATH} calls ${unversioned(ref)}${version}: change it to ${ref}`, fix);
+    return false;
+  }
+  if (status === 'other-ref') {
+    report.warn(`${WORKFLOW_PATH} calls ${unversioned(ref)}${version}, not a release of ${refVersion(ref)}`, fix);
+  } else {
+    report.ok(`${WORKFLOW_PATH} calls the ${kind} workflow`);
+  }
   return true;
 }
 
 /**
  * The ruleset requires the expected checks and none that never reports: `known` are every check of the stack.
  * `branches(report)` adds the items of other protected branches and returns { ok, label } for the final line.
+ * Returns the drift (rulesetDrift, with `codeOwners`) for codeOwnerItems, or null without a ruleset to compare.
  */
-export function rulesetItems(report, state, { expected, known, branches = () => ({ ok: true }) }) {
+export function rulesetItems(report, state, { expected, known, codeOwners = null, branches = () => ({ ok: true }) }) {
   if (!state.canProtect) {
     report.warn(
       'Private repository on GitHub Free: branches cannot be protected, so the checks are only advice and anyone with write access can push',
       'GitHub Team (or Pro), or a public repository',
     );
-    return;
+    return null;
   }
   if (!state.ruleset) {
-    report.warn('The default branch is not protected: the checks are only advice', PROTECT);
-    return;
+    // Another ruleset, one of the organization or classic branch protection may still protect it
+    report.warn(`The default branch has no "${RULESET_NAME}" ruleset, so its checks may be only advice`, PROTECT);
+    return null;
   }
-  const required = requiredChecks(state.ruleset);
-  const missing = expected.filter((check) => !required.includes(check));
-  const neverReported = known.filter((check) => required.includes(check) && !expected.includes(check));
-  if (missing.length) report.warn(`The ruleset does not require ${missing.join(', ')}`, PROTECT);
-  if (neverReported.length) {
+  const drift = rulesetDrift(state.ruleset, { expected, known, codeOwners, defaultBranch: state.defaultBranch });
+  if (drift.enforcement)
+    report.error(`The "${RULESET_NAME}" ruleset is ${drift.enforcement}: nothing is enforced`, PROTECT);
+  if (!drift.defaultBranch) report.warn(`The "${RULESET_NAME}" ruleset does not apply to the default branch`, PROTECT);
+  if (!drift.pullRequests)
+    report.warn('The ruleset does not require pull requests, so anyone with write access can push', PROTECT);
+  if (drift.missing.length) report.warn(`The ruleset does not require ${drift.missing.join(', ')}`, PROTECT);
+  if (drift.stale.length) {
     report.error(
-      `The ruleset requires ${neverReported.join(', ')}, but that layer is off: every pull request waits for it`,
+      `The ruleset requires ${drift.stale.join(', ')}, but that layer is off: every pull request waits for it`,
       PROTECT,
     );
   }
+  // One maintainer cannot approve as code owner: protect drops it
+  if (drift.codeOwners === 'extra') {
+    report.warn('The ruleset requires code owner approval, but the project is maintained alone', PROTECT);
+  }
   const other = branches(report);
-  if (!missing.length && !neverReported.length && other.ok) report.ok(other.label ?? 'Default branch protected');
+  const right =
+    !drift.enforcement &&
+    drift.defaultBranch &&
+    drift.pullRequests &&
+    !drift.missing.length &&
+    !drift.stale.length &&
+    drift.codeOwners !== 'extra';
+  if (right && other.ok) report.ok(other.label ?? 'Default branch protected');
+  return drift;
 }
 
 /**
  * Code owners of .github/: without their approval, a pull request could change its own workflow file to lower the
  * checks. `requireApproval`: true (a team project) reports a ruleset that does not require that approval, false (one
- * maintainer) needs no code owners unless the ruleset requires them, null when unknown.
+ * maintainer) needs no code owners unless the ruleset requires them, null when unknown. `drift` is what rulesetItems
+ * returned, computed with the same requireApproval.
  */
-export function codeOwnerItems(report, state, { requireApproval, hint }) {
+export function codeOwnerItems(report, state, { requireApproval, hint, drift = null }) {
   if (state.codeOwners) report.ok(`Code owners of .github/: ${state.codeOwners.join(' ')}`);
   else if (requireApproval !== false || requiresCodeOwners(state.ruleset)) {
     report.warn(`${CODEOWNERS_PATH} has no owner for /.github/`, hint);
   }
-  if (state.ruleset && requireApproval && !requiresCodeOwners(state.ruleset)) {
+  if (drift?.codeOwners === 'missing') {
     report.warn(
       'The ruleset does not require code owner approval, so a pull request can lower its own checks',
       PROTECT,
     );
-  } else if (requiresCodeOwners(state.ruleset) && keepsStaleApprovals(state.ruleset)) {
+  } else if (drift?.staleApprovals) {
     report.warn(
       'The ruleset keeps code owner approvals of older commits, so a later push can lower the checks',
       PROTECT,

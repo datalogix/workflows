@@ -106,3 +106,12 @@ export async function runTasks(tasks) {
   bar.stop(failed ? `Applied with ${failed} problem(s)` : 'All applied');
   return results;
 }
+
+/** Shows the result of each task: its title and what it did, or why it failed. */
+export function logResults(results) {
+  for (const result of results) {
+    const line = `${result.title}  ${dim(result.detail)}`;
+    if (result.ok) clack.log.success(line);
+    else clack.log.error(line);
+  }
+}

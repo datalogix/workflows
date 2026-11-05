@@ -58,8 +58,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          # Pint compares with the base branch, which needs the history; it only runs on pull requests
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # Pint compares with the base branch, which needs the history; it only runs on pull requests. 0 is falsy in
+          # expressions, so it goes last
+          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
 
       # Each check below runs even when an earlier one failed, so a run reports every failure at once; none runs
       # without the dependencies
@@ -183,9 +184,17 @@ jobs:
         env:
           BASE: ${{ github.base_ref }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && git diff --quiet "origin/$BASE...HEAD" -- composer.lock; then
-            echo "composer.lock did not change, skipping"
-            exit 0
+          # git diff exits with 1 when the file changed; anything else is an error, not a reason to audit
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            status=0
+            git diff --quiet "origin/$BASE...HEAD" -- composer.lock || status=$?
+            if [ "$status" = 0 ]; then
+              echo "composer.lock did not change, skipping"
+              exit 0
+            elif [ "$status" != 1 ]; then
+              echo "::error::Could not compare composer.lock with origin/$BASE"
+              exit 1
+            fi
           fi
 
           composer audit --locked --abandoned=report --no-interaction
@@ -206,9 +215,17 @@ jobs:
             lockfile=package-lock.json
           fi
 
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && git diff --quiet "origin/$BASE...HEAD" -- "$lockfile"; then
-            echo "$lockfile did not change, skipping"
-            exit 0
+          # As in composer audit
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            status=0
+            git diff --quiet "origin/$BASE...HEAD" -- "$lockfile" || status=$?
+            if [ "$status" = 0 ]; then
+              echo "$lockfile did not change, skipping"
+              exit 0
+            elif [ "$status" != 1 ]; then
+              echo "::error::Could not compare $lockfile with origin/$BASE"
+              exit 1
+            fi
           fi
 
           case "$lockfile" in
@@ -216,9 +233,17 @@ jobs:
             package-lock.json) npm audit --audit-level=high ;;
             yarn.lock)
               if [ "$(yarn --version | cut -d. -f1)" = 1 ]; then
-                # Yarn 1 exits with a bit mask of the severities found: 8 is high, 16 critical
+                # Yarn 1 exits with a bit mask of the severities found (8 is high, 16 critical), and with 1 also when
+                # the registry cannot be reached: only a report with its summary counts as an audit. Only its lines that
+                # are JSON objects are read: a plain-text line (a banner, a warning) is not part of the report
+                report="$RUNNER_TEMP/yarn-audit.json"
                 status=0
-                yarn audit --level high || status=$?
+                yarn audit --level high --json > "$report" || status=$?
+                if ! jq -e -n -R 'any(inputs | fromjson? | objects; .type == "auditSummary")' "$report" > /dev/null 2>&1; then
+                  echo "::error::yarn audit did not finish (exit code $status)"
+                  exit 1
+                fi
+                jq -r -R 'fromjson? | objects | select(.type == "auditAdvisory") | .data.advisory | "\(.severity): \(.module_name) \(.title) (\(.url))"' "$report"
                 [ "$status" -lt 8 ]
               else
                 yarn npm audit --recursive --severity high

@@ -147,7 +147,8 @@ test('high-risk paths match without surrounding spaces or a Windows line ending'
 });
 
 test("the project's extra high-risk paths add to the defaults", async () => {
-  const env = { EXTRA_HIGH_PATHS: 'app/Services/Payment/*\n' };
+  // Each list without a trailing newline, as a one-line input reaches the script
+  const env = { HIGH_PATHS: 'database/migrations/*', EXTRA_HIGH_PATHS: 'app/Services/Payment/*' };
   const payment = await gate({ env, files: [['app/Services/Payment/Charge.php', 5]] });
   expect(payment.summary).toMatch(/### Risk: high/);
   expect(payment.summary).toMatch(/`app\/Services\/Payment\/Charge.php` is a high-risk path/);

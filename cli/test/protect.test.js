@@ -34,6 +34,7 @@ const protectGitHub = ({ rulesets = [], latest = { number: 3, names: ALL }, rele
     hasRepositorySecret: async (name) => releaseApp && name.startsWith('RELEASE_APP_'),
     hasOrganizationSecret: async () => false,
     claudeApp: async () => 'all',
+    repo: async () => ({ default_branch: 'main' }),
     ...methods,
   });
 
@@ -65,6 +66,15 @@ test('creates the ruleset with every check and code owner approval for a team', 
   expect(requiredChecks(body)).toStrictEqual(ALL);
   expect(requiresCodeOwners(body)).toBe(true);
   expect(keepsStaleApprovals(body)).toBe(false);
+  // The latest pull request ran every check: nothing to warn about
+  expect(clack.log.warn).not.toHaveBeenCalled();
+  expect(clack.log.success).toHaveBeenCalledWith(
+    'Created the "datalogix" ruleset: pull requests and these checks are required',
+  );
+  expect(clack.log.message).toHaveBeenCalledWith(
+    'Changes to .github/ also need the approval of its code owners (.github/CODEOWNERS)',
+  );
+  expect(clack.outro).toHaveBeenCalledWith('Default branch protected');
 });
 
 test('updates the existing ruleset without code owners for a solo maintainer', async (t) => {
@@ -72,6 +82,10 @@ test('updates the existing ruleset without code owners for a solo maintainer', a
   expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(0);
   expect(github.calls[0].slice(0, 2)).toStrictEqual(['ruleset', 9]);
   expect(requiresCodeOwners(written(github))).toBe(false);
+  expect(clack.log.success).toHaveBeenCalledWith(
+    'Updated the "datalogix" ruleset: pull requests and these checks are required',
+  );
+  expect(clack.log.message).not.toHaveBeenCalledWith(expect.stringContaining('code owners'));
 });
 
 test('keeps what was added to the existing ruleset by hand', async (t) => {
@@ -101,25 +115,46 @@ test('keeps what was added to the existing ruleset by hand', async (t) => {
   expect(body.conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/release/*']);
 });
 
-test('keeps approvals required or stale approvals dismissed by hand', async (t) => {
+test('drops an exclude of the default branch, which check reports, and keeps the other excludes', async (t) => {
+  const excluded = rulesetBody(ALL);
+  excluded.conditions.ref_name.exclude.push('~DEFAULT_BRANCH', 'refs/heads/main', 'refs/heads/m*', 'refs/heads/wip/*');
+  const github = protectGitHub({ rulesets: [{ id: 9, ...excluded }] });
+  expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(0);
+  expect(written(github).conditions.ref_name.exclude).toStrictEqual(['refs/heads/wip/*']);
+  // With another default branch, its own name is what leaves
+  const trunk = protectGitHub({ rulesets: [{ id: 9, ...excluded }], repo: async () => ({ default_branch: 'trunk' }) });
+  expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), trunk)).toBe(0);
+  expect(written(trunk).conditions.ref_name.exclude).toStrictEqual([
+    'refs/heads/main',
+    'refs/heads/m*',
+    'refs/heads/wip/*',
+  ]);
+});
+
+test('keeps approvals required, stale approvals dismissed or conversations resolved by hand', async (t) => {
   const handEdited = rulesetBody(ALL);
   Object.assign(handEdited.rules.find((rule) => rule.type === 'pull_request').parameters, {
     required_approving_review_count: 1,
     dismiss_stale_reviews_on_push: true,
+    required_review_thread_resolution: true,
+    // Protect's own, with the code owners: a solo project drops it, or nobody could approve its last push
+    require_last_push_approval: true,
   });
   const github = protectGitHub({ rulesets: [{ id: 9, ...handEdited }] });
   expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(0);
   const { parameters } = written(github).rules.find((rule) => rule.type === 'pull_request');
   expect(parameters.required_approving_review_count).toBe(1);
   expect(parameters.dismiss_stale_reviews_on_push).toBe(true);
+  expect(parameters.required_review_thread_resolution).toBe(true);
+  expect(parameters.require_last_push_approval).toBe(false);
 });
 
-test('requires every check and code owner approval without a workflow file', async (t) => {
+test('stops without a workflow file, even with --yes: no check would ever run', async (t) => {
   const github = protectGitHub();
-  expect(await run(await folder(t, {}, 'protect-'), github)).toBe(0);
-  const body = written(github);
-  expect(requiredChecks(body)).toStrictEqual(ALL);
-  expect(requiresCodeOwners(body)).toBe(true);
+  expect(await run(await folder(t, {}, 'protect-'), github)).toBe(1);
+  expect(github.calls).toStrictEqual([]);
+  expect(clack.log.error).toHaveBeenCalledWith(`${WORKFLOW_PATH} is missing, so no check runs`);
+  expect(clack.outro).toHaveBeenCalledWith(expect.stringMatching(/^Run setup first/));
 });
 
 test('protects anyway with --yes when no pull request ran the checks yet', async (t) => {
@@ -130,16 +165,73 @@ test('protects anyway with --yes when no pull request ran the checks yet', async
   expect(clack.log.warn).toHaveBeenCalledWith(expect.stringContaining('No pull request has run the checks yet:'));
 });
 
-test('protects a package folder without a workflow file with the package check', async (t) => {
-  // The folder tells the kind: a composer.json of a Laravel package
-  const root = await folder(
+test('stops on a package still on another version of the workflow, pointing at setup', async (t) => {
+  const root = await packageFolder(t);
+  const v1 = await folder(
     t,
-    { 'composer.json': JSON.stringify({ require: { 'illuminate/support': '^12.0' } }) },
+    { [WORKFLOW_PATH]: (await renderPackageWorkflow('', 'main')).replace('package.yml@v2', 'package.yml@v1') },
     'protect-',
   );
   const github = protectGitHub({ latest: { number: 3, names: [PACKAGE_CHECK] } });
+  expect(await run(v1, github, { flags: { yes: true, solo: true } })).toBe(1);
+  expect(github.calls).toStrictEqual([]);
+  expect(clack.log.error).toHaveBeenCalledWith(
+    `${WORKFLOW_PATH} does not call datalogix/workflows/.github/workflows/package.yml@v2, so its checks never run`,
+  );
+  // On v2 it protects
   expect(await run(root, github, { flags: { yes: true, solo: true } })).toBe(0);
   expect(requiredChecks(written(github))).toStrictEqual([PACKAGE_CHECK]);
+});
+
+test('stops on another major of the workflow, even its tags, and with --yes', async (t) => {
+  for (const version of ['v1', 'v3', 'v1.2.0']) {
+    const root = await project(t, { deploy: 'none', solo: true, incidents: true }, (content) =>
+      content.replace('project.yml@v2', `project.yml@${version}`),
+    );
+    const github = protectGitHub();
+    expect(await run(root, github)).toBe(1);
+    expect(github.calls).toStrictEqual([]);
+  }
+  expect(clack.log.error).toHaveBeenCalledTimes(3);
+});
+
+test('protects a workflow file on a tag of its major', async (t) => {
+  const github = protectGitHub();
+  const root = await project(t, { deploy: 'none', solo: true, incidents: true }, (content) =>
+    content.replace('project.yml@v2', 'project.yml@v2.4.1'),
+  );
+  expect(await run(root, github, { flags: {} })).toBe(0);
+  expect(requiredChecks(written(github))).toStrictEqual(ALL);
+  expect(clack.log.warn).not.toHaveBeenCalled();
+  expect(clack.confirm).not.toHaveBeenCalled();
+});
+
+test('warns about a workflow file on a branch or a commit, and asks before protecting', async (t) => {
+  const root = await project(t, { deploy: 'none', solo: true, incidents: true }, (content) =>
+    content.replace('project.yml@v2', 'project.yml@fix-gate'),
+  );
+  const warning = expect.stringMatching(
+    /^\.github\/workflows\/datalogix\.yml calls datalogix\/workflows\/\.github\/workflows\/project\.yml@fix-gate, not a release of v2\./,
+  );
+  clack.confirm.mockResolvedValueOnce(false);
+  const declined = protectGitHub();
+  expect(await run(root, declined, { flags: {} })).toBe(1);
+  expect(declined.calls).toStrictEqual([]);
+  expect(clack.log.warn).toHaveBeenCalledWith(warning);
+  expect(clack.confirm).toHaveBeenCalledWith(expect.objectContaining({ initialValue: false }));
+
+  clack.confirm.mockResolvedValueOnce(true);
+  const accepted = protectGitHub();
+  expect(await run(root, accepted, { flags: {} })).toBe(0);
+  expect(requiredChecks(written(accepted))).toStrictEqual(ALL);
+
+  // --yes goes on with the warning
+  vi.clearAllMocks();
+  const yes = protectGitHub();
+  expect(await run(root, yes)).toBe(0);
+  expect(clack.confirm).not.toHaveBeenCalled();
+  expect(clack.log.warn).toHaveBeenCalledWith(warning);
+  expect(requiredChecks(written(yes))).toStrictEqual(ALL);
 });
 
 test('asks before protecting when the latest pull request did not run the checks, and stops on no', async (t) => {
@@ -195,6 +287,7 @@ test('protects the production branch with the default branch', async (t) => {
   const github = protectGitHub({ releaseApp: true });
   expect(await run(await project(t, production), github)).toBe(0);
   expect(written(github).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/main']);
+  expect(clack.outro).toHaveBeenCalledWith('Default branch and main protected');
 });
 
 test('leaves the production branch out without the release GitHub App', async (t) => {
@@ -211,7 +304,7 @@ test('takes the production branch out of the ruleset when the release GitHub App
   protectedBefore.conditions.ref_name.include.push('refs/heads/release/*');
   const github = protectGitHub({ rulesets: [{ id: 9, ...protectedBefore }] });
   expect(await run(await project(t, production), github)).toBe(0);
-  expect(github.calls[0].at(-1).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/release/*']);
+  expect(written(github).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/release/*']);
 });
 
 test('keeps other branches in the ruleset with a warning, as it cannot tell a renamed production branch', async (t) => {
@@ -219,7 +312,7 @@ test('keeps other branches in the ruleset with a warning, as it cannot tell a re
   before.conditions.ref_name.include.push('refs/heads/release/*');
   const github = protectGitHub({ rulesets: [{ id: 9, ...before }], releaseApp: true });
   expect(await run(await project(t, production), github)).toBe(0);
-  expect(github.calls.at(-1).at(-1).conditions.ref_name.include).toStrictEqual([
+  expect(written(github).conditions.ref_name.include).toStrictEqual([
     '~DEFAULT_BRANCH',
     'refs/heads/main',
     'refs/heads/release',
@@ -235,7 +328,7 @@ test('keeps branches added by hand when the production branch leaves the ruleset
   before.conditions.ref_name.include.push('refs/heads/develop');
   const github = protectGitHub({ rulesets: [{ id: 9, ...before }] });
   expect(await run(await project(t, production), github)).toBe(0);
-  expect(github.calls[0].at(-1).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/develop']);
+  expect(written(github).conditions.ref_name.include).toStrictEqual(['~DEFAULT_BRANCH', 'refs/heads/develop']);
 });
 
 test('stops when it cannot read the secrets of the release GitHub App', async (t) => {
@@ -263,6 +356,10 @@ test('changes nothing on a plan without rulesets', async (t) => {
   const github = protectGitHub({ rulesets: null });
   expect(await run(await project(t, { deploy: 'none', solo: true, incidents: true }), github)).toBe(1);
   expect(github.calls).toStrictEqual([]);
+  expect(clack.log.warn).toHaveBeenCalledWith(
+    expect.stringMatching(/^GitHub offers no rulesets or branch protection for private repositories on the Free plan:/),
+  );
+  expect(clack.outro).toHaveBeenCalledWith('Nothing was changed');
 });
 
 test('asks before protecting another repository than the folder', async (t) => {
@@ -304,6 +401,19 @@ test('asks whether one person maintains a package without --solo or --yes', asyn
     expect.objectContaining({ message: 'Do you work alone on this package?' }),
   );
   expect(requiresCodeOwners(written(github))).toBe(false);
+});
+
+test("suggests a team for a package whose ruleset requires code owners, like setup's question", async (t) => {
+  const root = await packageFolder(t);
+  const latest = { number: 1, names: [PACKAGE_CHECK] };
+  const team = { id: 9, ...rulesetBody([PACKAGE_CHECK], { codeOwners: true }) };
+  clack.confirm.mockResolvedValueOnce(false);
+  const github = protectGitHub({ latest, rulesets: [team] });
+  expect(await run(root, github, { flags: {}, repository: 'datalogix/package' })).toBe(0);
+  expect(clack.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'Do you work alone on this package?', initialValue: false }),
+  );
+  expect(requiresCodeOwners(written(github))).toBe(true);
 });
 
 test('does not require the package check when its tests are off', async (t) => {

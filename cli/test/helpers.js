@@ -70,7 +70,7 @@ export const runResults = (tasks) => runTasks(tasks);
 export const byTitle = (results) =>
   Object.fromEntries(results.map((result) => [result.title, result.ok ? result.detail : result]));
 
-export const RELAY = { configured: true, url: 'https://relay.test', namespaceId: 'id', owner: 'datalogix' };
+export const RELAY = { configured: true, url: 'https://relay.test', namespaceId: 'a'.repeat(32), owner: 'datalogix' };
 
 /** The ids of the questions that apply to the answers, with a full context (state, relay). */
 export function askedSteps(steps, answers, ctx = {}) {
@@ -102,6 +102,16 @@ class AppServiceProvider extends ServiceProvider
 /** The state of a Laravel app or package with nothing set up, as collectState starts it. */
 export const APP_STATE = { ...EMPTY_STATE, ...laravelApp.empty, stack: 'laravel', kind: 'project' };
 export const PACKAGE_STATE = { ...EMPTY_STATE, ...laravelPackage.empty, stack: 'laravel', kind: 'package' };
+
+/** The ruleset, keeping the code owner approvals of older commits (as rulesets made before protect did). */
+export const keepingStaleApprovals = (ruleset) => {
+  const copy = structuredClone(ruleset);
+  Object.assign(copy.rules.find((rule) => rule.type === 'pull_request').parameters, {
+    dismiss_stale_reviews_on_push: false,
+    require_last_push_approval: false,
+  });
+  return copy;
+};
 
 /** Runs the test as on that platform (win32: npx cannot reach the relay). */
 export function onPlatform(t, value) {

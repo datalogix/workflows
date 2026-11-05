@@ -35,6 +35,23 @@ test('leaves unusual files to the developer', () => {
   expect(addDatabaseCheck('<?php\nclass Foo {}\n')).toBe(null);
 });
 
+test('leaves to the developer imports it could break: grouped, across lines, or another class under the same name', () => {
+  const imports = (lines) =>
+    addDatabaseCheck(APP_SERVICE_PROVIDER.replace('use Illuminate\\Support\\ServiceProvider;\n', lines));
+  expect(imports('use Illuminate\\Support\\Facades\\{Gate, URL};\nuse Illuminate\\Support\\ServiceProvider;\n')).toBe(
+    null,
+  );
+  expect(
+    imports('use Illuminate\\Support\\Facades\\{\n    Gate,\n    URL\n};\nuse Illuminate\\Support\\ServiceProvider;\n'),
+  ).toBe(null);
+  expect(imports('use App\\Support\\DB;\nuse Illuminate\\Support\\ServiceProvider;\n')).toBe(null);
+  expect(imports('use App\\Events\\Bus as Event;\nuse Illuminate\\Support\\ServiceProvider;\n')).toBe(null);
+  // One of the check's own imports is kept, and the others are added
+  const own = imports('use Illuminate\\Support\\Facades\\DB;\nuse Illuminate\\Support\\ServiceProvider;\n');
+  expect(own.match(/use Illuminate\\Support\\Facades\\DB;/g)).toHaveLength(1);
+  expect(own).toContain('use Illuminate\\Support\\Facades\\Event;');
+});
+
 test('inspects the project files', async (t) => {
   const root = await tempRoot(t, 'health-');
   expect(await inspectHealth(root)).toStrictEqual({ laravel: false, route: null, databaseCheck: false });

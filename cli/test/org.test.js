@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { issueForms, org, relayTokenUrl } from '../commands/org.js';
 import { cloudflareLoggedIn, cloudflareLogin, deployRelay, relayNamespace } from '../kinds/project/relay.js';
-import { onPlatform, RELAY } from './helpers.js';
+import { folder, onPlatform, RELAY } from './helpers.js';
 
 // Quiet, and answers the questions as each test says
 vi.mock('@clack/prompts', async (importOriginal) => ({
@@ -39,16 +39,27 @@ beforeEach((t) => {
   clack.password.mockResolvedValue('github_pat_abc');
 });
 
-/** An organization with those apps, plan and files of its .github repository (null: no repository), recording writes. */
-function fakeOrganization({ apps = ['claude'], plan = 'free', files = null } = {}) {
+/**
+ * An organization with those apps, plan and files of its .github repository (null: no repository), recording writes.
+ * `details` null is a user (or an organization gh cannot see); `role` is the gh login's.
+ */
+function fakeOrganization({
+  apps = ['claude'],
+  plan = 'free',
+  files = null,
+  isPrivate = false,
+  details = { login: 'datalogix', plan: { name: plan } },
+  role = 'admin',
+} = {}) {
   const calls = [];
   let stored = files && { ...files };
   return {
     organization: 'datalogix',
     calls,
-    plan: async () => plan,
+    details: async () => details,
+    role: async () => role,
     installedApps: async () => apps,
-    repo: async () => (stored ? { name: '.github' } : null),
+    repo: async () => (stored ? { name: '.github', private: isPrivate } : null),
     file: async (name, path) => (stored?.[path] === undefined ? null : { sha: `sha-${path}`, content: stored[path] }),
     createPublicRepo: async (name) => {
       calls.push(['repo', name]);
@@ -61,8 +72,12 @@ function fakeOrganization({ apps = ['claude'], plan = 'free', files = null } = {
   };
 }
 
-const run = (organization, { flags = {}, relay } = {}) =>
-  org({ repository: 'datalogix/app', flags, relay, createOrganization: () => organization });
+const run = (organization, { flags = {} } = {}) =>
+  org({ repository: 'datalogix/app', flags, createOrganization: () => organization });
+
+/** relay.json as the org command writes it. */
+const relayJson = (relay) =>
+  `${JSON.stringify({ url: relay.url, namespaceId: relay.namespaceId, owner: relay.owner }, null, 2)}\n`;
 
 const formPaths = async () => Object.keys(await issueForms()).map((file) => `.github/ISSUE_TEMPLATE/${file}`);
 const leftByHand = () => clack.note.mock.calls.at(-1)[0];
@@ -92,17 +107,18 @@ test('creates the .github repository with the issue forms and deploys the relay'
   expect(cloudflareLogin).not.toHaveBeenCalled();
   // GitHub Free: the Claude token goes in each project
   expect(leftByHand()).toContain('setup asks for it in each project');
+  expect(clack.outro).toHaveBeenCalledWith('datalogix is set up');
 });
 
 test('changes only the forms that differ and keeps the relay unless asked to update it', async () => {
   const [first, second] = await formPaths();
   const forms = Object.values(await issueForms());
   const organization = fakeOrganization({
-    files: { [first]: forms[0], [second]: 'old', 'workflows/relay.json': '{}' },
+    files: { [first]: forms[0], [second]: 'old', 'workflows/relay.json': relayJson(RELAY) },
     plan: 'team',
   });
   clack.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-  expect(await run(organization, { relay: RELAY })).toBe(0);
+  expect(await run(organization)).toBe(0);
 
   expect(organization.calls).toStrictEqual([['file', second, `sha-${second}`]]);
   expect(deployRelay).not.toHaveBeenCalled();
@@ -112,18 +128,23 @@ test('changes only the forms that differ and keeps the relay unless asked to upd
 
 test('updates the relay in its namespace, keeping its token when none is given', async () => {
   const relay = { ...RELAY, url: 'https://incident-relay.datalogix.workers.dev' };
-  const content = '{"url": "https://incident-relay.datalogix.workers.dev"}';
-  const organization = fakeOrganization({ files: { 'workflows/relay.json': content } });
+  // Written before relay.json had the owner: the update adds it
+  const organization = fakeOrganization({
+    files: { 'workflows/relay.json': JSON.stringify({ url: relay.url, namespaceId: relay.namespaceId }) },
+  });
   clack.password.mockResolvedValue('');
-  expect(await run(organization, { relay })).toBe(0);
+  expect(await run(organization)).toBe(0);
   expect(relayNamespace).not.toHaveBeenCalled();
   // The worker deployed before, so the webhooks keep their URL
   expect(deployRelay).toHaveBeenCalledWith({
-    namespaceId: 'id',
+    namespaceId: relay.namespaceId,
     owner: 'datalogix',
     token: '',
     worker: 'incident-relay',
   });
+  expect(clack.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ message: expect.stringContaining('Update the relay worker incident-relay to') }),
+  );
   // relay.json read once, its sha used for the update
   expect(organization.calls).toContainEqual(['file', 'workflows/relay.json', 'sha-workflows/relay.json']);
 });
@@ -174,6 +195,63 @@ test('does not deploy the relay on Windows', async (t) => {
   expect(await run(fakeOrganization({ files: {} }))).toBe(0);
   expect(clack.password).not.toHaveBeenCalled();
   expect(leftByHand()).toContain('macOS or Linux');
+
+  // A relay already deployed is there: only updating it takes another system
+  expect(await run(fakeOrganization({ files: { 'workflows/relay.json': relayJson(RELAY) } }))).toBe(0);
+  expect(clack.log.success).toHaveBeenCalledWith(
+    'Monitoring relay at https://relay.test (updating it takes macOS or Linux)',
+  );
+  expect(leftByHand()).not.toContain('to deploy the monitoring relay');
+});
+
+test("deploys the relay again when relay.json names another organization's", async () => {
+  const organization = fakeOrganization({
+    files: { 'workflows/relay.json': relayJson({ ...RELAY, owner: 'other' }) },
+  });
+  expect(await run(organization)).toBe(0);
+  expect(clack.log.warn).toHaveBeenCalledWith(
+    'workflows/relay.json names a relay of other, which rejects the repositories of datalogix',
+  );
+  // A worker and settings of its own
+  expect(deployRelay).toHaveBeenCalledWith(
+    expect.objectContaining({ owner: 'datalogix', worker: 'incident-relay-datalogix' }),
+  );
+  expect(organization.calls).toContainEqual(['file', 'workflows/relay.json', 'sha-workflows/relay.json']);
+});
+
+test('stops before asking anything for a user or an organization the gh login does not administer', async () => {
+  const user = fakeOrganization({ details: null });
+  await expect(run(user)).rejects.toThrow('datalogix is not an organization, or your gh login cannot see it');
+  const member = fakeOrganization({ role: 'member' });
+  await expect(run(member)).rejects.toThrow('org takes an admin of datalogix, and your gh login is a member');
+  await expect(run(fakeOrganization({ role: null }))).rejects.toThrow('your gh login is not a member');
+  expect(clack.password).not.toHaveBeenCalled();
+  expect(clack.confirm).not.toHaveBeenCalled();
+  expect([...user.calls, ...member.calls]).toStrictEqual([]);
+});
+
+test('tells to make a private .github repository public, as GitHub uses only public issue forms', async () => {
+  clack.password.mockResolvedValue('');
+  expect(await run(fakeOrganization({ files: {}, isPrivate: true }))).toBe(0);
+  expect(clack.log.warn).toHaveBeenCalledWith('datalogix/.github is private, so its issue forms reach no repository');
+  expect(leftByHand()).toContain('public in its settings');
+
+  await run(fakeOrganization({ files: {} }));
+  expect(leftByHand()).not.toContain('public in its settings');
+});
+
+test('goes on without the relay when the Cloudflare login fails', async () => {
+  cloudflareLoggedIn.mockResolvedValue(false);
+  cloudflareLogin.mockResolvedValue(false);
+  const organization = fakeOrganization();
+  expect(await run(organization)).toBe(1);
+  expect(deployRelay).not.toHaveBeenCalled();
+  // The repository and the forms do not need Cloudflare
+  expect(organization.calls).toStrictEqual([
+    ['repo', '.github'],
+    ...(await formPaths()).map((path) => ['file', path, null]),
+  ]);
+  expect(leftByHand()).toContain('npx wrangler login');
 });
 
 test('links to a fine-grained token filled in for the relay', () => {
@@ -185,4 +263,67 @@ test('links to a fine-grained token filled in for the relay', () => {
     contents: 'write',
     expires_in: '366',
   });
+  // GitHub limits the name to 40 characters
+  expect(new URL(relayTokenUrl('a'.repeat(45))).searchParams.get('name')).toBe('a'.repeat(40));
+});
+
+test('applies with --yes without asking, keeping a configured relay', async () => {
+  const organization = fakeOrganization({ files: { 'workflows/relay.json': relayJson(RELAY) } });
+  expect(await run(organization, { flags: { yes: true } })).toBe(0);
+  expect(clack.confirm).not.toHaveBeenCalled();
+  expect(clack.password).not.toHaveBeenCalled();
+  expect(deployRelay).not.toHaveBeenCalled();
+  expect(organization.calls).toStrictEqual((await formPaths()).map((path) => ['file', path, null]));
+});
+
+test('exits with 1 when a change fails', async () => {
+  clack.password.mockResolvedValue('');
+  const organization = {
+    ...fakeOrganization({ files: {} }),
+    putFile: async () => {
+      throw new Error('HTTP 409');
+    },
+  };
+  expect(await run(organization)).toBe(1);
+  expect(clack.outro).toHaveBeenCalledWith('Finished with problems: fix them and run org again');
+});
+
+test('accepts only a fine-grained token for the relay, or none', async () => {
+  await run(fakeOrganization());
+  const { validate } = clack.password.mock.calls[0][0];
+  expect(validate('ghp_x')).toBe('Paste a fine-grained token (github_pat_…)');
+  expect(validate('github_pat_abc')).toBeUndefined();
+  expect(validate('')).toBeUndefined();
+});
+
+test('does not write relay.json again when the update leaves it the same', async () => {
+  const forms = await issueForms();
+  const relay = { url: WORKER_URL, namespaceId: RELAY.namespaceId, owner: 'datalogix' };
+  const organization = fakeOrganization({
+    files: {
+      ...Object.fromEntries(
+        Object.entries(forms).map(([file, content]) => [`.github/ISSUE_TEMPLATE/${file}`, content]),
+      ),
+      'workflows/relay.json': relayJson(relay),
+    },
+    plan: 'team',
+  });
+  expect(await run(organization)).toBe(0);
+  expect(deployRelay).toHaveBeenCalledOnce();
+  expect(organization.calls).toStrictEqual([]);
+});
+
+test('tells where the Claude token goes when the plan cannot be read', async () => {
+  clack.password.mockResolvedValue('');
+  await run(fakeOrganization({ files: {}, details: { login: 'datalogix' } }));
+  expect(leftByHand()).toContain('--org datalogix --visibility all');
+  expect(leftByHand()).toContain('(on GitHub Free, setup asks for it in each project instead)');
+
+  await run(fakeOrganization({ files: {}, plan: 'team' }));
+  expect(leftByHand()).not.toContain('on GitHub Free');
+});
+
+test('reads the issue forms of a folder in order, only the .yml files', async (t) => {
+  const dir = await folder(t, { 'b.yml': 'b', 'a.yml': 'a', 'README.md': 'readme' });
+  expect(await issueForms(dir)).toStrictEqual({ 'a.yml': 'a', 'b.yml': 'b' });
 });

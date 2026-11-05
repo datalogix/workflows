@@ -56,9 +56,11 @@ digest=$(git diff --raw --no-abbrev --no-renames "origin/$BASE...HEAD" | sha256s
 echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
 if [ "${RUN_ATTEMPT:-1}" = 1 ]; then
+  marker="<!-- claude-security-review -->"
   state="<!-- claude-security-review-state: diff=$digest fail-on=$FAIL_ON -->"
+  # Only where publish.sh writes it, right before the marker that ends the comment, never inside the text of the review
   kept=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-    --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"<!-- claude-security-review -->\"))) | .body | contains(\"$state\")")
+    --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .body | endswith(\"$state\\n$marker\")")
   if [ "${kept%%$'\n'*}" = true ]; then
     echo "reused=true" >> "$GITHUB_OUTPUT"
     echo "review=false" >> "$GITHUB_OUTPUT"

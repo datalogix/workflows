@@ -5,6 +5,16 @@ const TIMEOUT = 15_000;
 // A list longer than this is a loop of next links, not a real account
 const MAX_PAGES = 50;
 
+/** The reason of a validation error (HTTP 422), from its JSON:API errors or message; null when there is none. */
+function validationMessage(text) {
+  try {
+    const body = JSON.parse(text);
+    return body?.errors?.[0]?.detail ?? body?.message ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** A client for `base` (e.g. https://forge.laravel.com/api) with the user's API token; `name` goes in its errors. */
 export function apiClient(base, token, name) {
   async function request(method, path, body) {
@@ -23,15 +33,24 @@ export function apiClient(base, token, name) {
         signal: AbortSignal.timeout(TIMEOUT),
       });
     } catch (error) {
-      throw new Error(`Could not reach the ${name} API: ${error.message}`, { cause: error });
+      // fetch fails with "fetch failed"; the reason (ENOTFOUND, ECONNRESET, a timeout) is its cause
+      throw new Error(`Could not reach the ${name} API: ${error.cause?.message ?? error.message}`, { cause: error });
     }
     const where = `${method} ${new URL(url).pathname}`;
     if (response.status === 401) throw new Error(`The ${name} API token was refused`);
     if (response.status === 403)
       throw new Error(`The ${name} API token is not allowed to ${where}: check its permissions`);
-    if (!response.ok) throw new Error(`The ${name} API answered HTTP ${response.status} to ${where}`);
+    if (response.status === 429) throw new Error(`The ${name} API limits the requests: try again in a minute`);
     const text = await response.text();
-    return text ? JSON.parse(text) : null;
+    if (!response.ok) {
+      const reason = response.status === 422 ? validationMessage(text) : null;
+      throw new Error(`The ${name} API answered HTTP ${response.status} to ${where}${reason ? `: ${reason}` : ''}`);
+    }
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      throw new Error(`The ${name} API answered something other than JSON to ${where}`);
+    }
   }
 
   /** Every item of a paginated list ({ data, included }), following its next links. */

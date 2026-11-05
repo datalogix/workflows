@@ -8,7 +8,7 @@ import vercel from './vercel.js';
  *   id            the deploy input and the script the deploy action runs (.github/actions/deploy/providers/<id>.sh)
  *   label         the option of the deploy question, e.g. "Laravel Forge"
  *   name, kind    how messages name the provider and what it deploys to, e.g. "Forge" and "site"
- *   where         where the app's environment variables are set, e.g. "the Forge site"
+ *   where         where the app's environment variables are set, e.g. "the environment of the Forge site"
  *   hookHint      where to find the deploy hook
  *   tokenHint     what setup does with an API token
  *   api(token)    the API client; find(api, repository) the sites (or environments) that deploy the repository, each

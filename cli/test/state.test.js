@@ -1,8 +1,6 @@
 import { expect, test } from 'vitest';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { collectState } from '../lib/state.js';
-import { labelDescription, LABELS } from '../kinds/project/state.js';
+import { labelDescription, LABELS, labelsFor } from '../kinds/project/state.js';
 import { renderProjectWorkflow } from '../kinds/project/workflow.js';
 import { WORKFLOW_PATH } from '../lib/workflow-file.js';
 import laravelApp from '../stacks/laravel/app.js';
@@ -42,6 +40,7 @@ test('reads the state of the project', async (t) => {
   expect(state.login).toBe('ana');
   expect(state.workflow).toBe(null);
   expect(state.current).toBe(null);
+  expect(state.codeOwners).toBe(null);
   expect(state.defaultBranch).toBe('main');
   expect(
     (await collectState(stateGitHub({ repo: async () => ({ default_branch: 'master' }) }), root, { detected: app }))
@@ -87,13 +86,14 @@ test('reads the datalogix ruleset by id and the environments that exist', async 
 });
 
 test('reads the workflow file and the code owners of the folder', async (t) => {
-  const root = await tempRoot(t, 'state-');
-  await mkdir(join(root, '.github/workflows'), { recursive: true });
-  await writeFile(
-    join(root, WORKFLOW_PATH),
-    await renderProjectWorkflow({ deploy: 'cloud', staging: false, solo: true }),
+  const root = await folder(
+    t,
+    {
+      [WORKFLOW_PATH]: await renderProjectWorkflow({ deploy: 'cloud', staging: false, solo: true }),
+      '.github/CODEOWNERS': '/.github/ @ana @datalogix/devs\n',
+    },
+    'state-',
   );
-  await writeFile(join(root, '.github/CODEOWNERS'), '/.github/ @ana @datalogix/devs\n');
 
   const state = await collectState(stateGitHub(), root, { detected: app });
   expect(state.current.deploy).toBe('cloud');
@@ -125,18 +125,29 @@ test('treats optional reads it cannot do as not set', async (t) => {
   const state = await collectState(stateGitHub({ hasOrganizationSecret: fail, login: fail }), root, { detected: app });
   expect(state.claudeToken.organization).toBe(false);
   expect(state.login).toBe(null);
+
+  // The Claude GitHub App too, when gh fails to read the installations (a 502, the network): check warns instead
+  const unseen = await collectState(
+    stateGitHub({ claudeApp: async () => Promise.reject(new Error('HTTP 502')) }),
+    root,
+    {
+      detected: app,
+    },
+  );
+  expect(unseen.claudeApp).toBe(null);
 });
 
 test('reads what a production branch needs, on a plan without rulesets', async (t) => {
-  const root = await tempRoot(t, 'state-');
-  await mkdir(join(root, '.github/workflows'), { recursive: true });
-  await writeFile(
-    join(root, WORKFLOW_PATH),
-    await renderProjectWorkflow(
-      { deploy: 'forge', staging: true, productionBranch: 'main', solo: true },
-      '',
-      'develop',
-    ),
+  const root = await folder(
+    t,
+    {
+      [WORKFLOW_PATH]: await renderProjectWorkflow(
+        { deploy: 'forge', staging: true, productionBranch: 'main', solo: true },
+        '',
+        'develop',
+      ),
+    },
+    'state-',
   );
 
   const state = await collectState(
@@ -168,15 +179,16 @@ test('reads what a production branch needs, on a plan without rulesets', async (
 
 test('reads the release GitHub App only for a production branch, or when setup asks', async (t) => {
   const root = await tempRoot(t, 'state-');
-  const unread = async () => expect.unreachable('release reads');
+  const reads = [];
   const state = await collectState(
     stateGitHub({
-      workflowPermissions: unread,
-      hasRepositorySecret: async (name) => (name.startsWith('RELEASE_APP_') ? unread() : false),
+      workflowPermissions: async () => void reads.push('workflowPermissions'),
+      hasRepositorySecret: async (name) => (name.startsWith('RELEASE_APP_') && reads.push(name), false),
     }),
     root,
     { detected: app },
   );
+  expect(reads).toStrictEqual([]);
   expect(state.releaseApp).toBe(false);
   expect(state.actionsPullRequests).toBe(null);
   expect(
@@ -197,6 +209,17 @@ test('describes the labels in English only for languages that start with en', ()
   }
 });
 
+test('creates the labels the workflows and the task manager use, with the env label of each environment', () => {
+  expect(labelsFor(['production']).map((label) => label.name)).toStrictEqual([
+    'claude',
+    'claude-plan',
+    'no-review',
+    'task',
+    'rollback',
+    'env:production',
+  ]);
+});
+
 test('takes the workflow file detection read, and the stack and kind it found', async (t) => {
   // Another content on disk: collectState does not read it again
   const root = await folder(t, { [WORKFLOW_PATH]: 'on disk\n' }, 'state-');
@@ -205,6 +228,8 @@ test('takes the workflow file detection read, and the stack and kind it found', 
   expect(state.workflow).toBe(workflow);
   expect(state.current.deploy).toBe('cloud');
   expect([state.stack, state.kind]).toStrictEqual(['laravel', 'project']);
+  // Detection found no file: none, whatever is on disk
+  expect((await collectState(stateGitHub(), root, { detected: { ...app, workflow: null } })).workflow).toBe(null);
 });
 
 test('reads only the stack of a workflow file without a detected kind', async (t) => {
