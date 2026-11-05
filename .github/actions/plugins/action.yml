@@ -1,7 +1,20 @@
 name: Datalogix plugins
 description: Path of this repository's Claude Code plugin marketplace, at the same version as the workflows. The runner downloads the whole repository at the action's ref, so the plugins come from the same tag (v2) instead of the default branch.
 
+inputs:
+  stack:
+    description: Stack of the project, whose plugin is always installed (laravel or js)
+    required: false
+    default: laravel
+  plugins:
+    description: Plugins the project asks for, one per line (name@marketplace), besides core and the stack's
+    required: false
+    default: ""
+
 outputs:
+  plugins:
+    description: The plugins to install, for the plugins input of the Claude Code action
+    value: ${{ steps.list.outputs.plugins }}
   marketplace:
     description: Local marketplace path, for the plugin_marketplaces input of the Claude Code action
     value: ${{ steps.path.outputs.marketplace }}
@@ -20,3 +33,10 @@ runs:
           exit 1
         fi
         echo "marketplace=$root" >> "$GITHUB_OUTPUT"
+
+    - id: list
+      shell: bash
+      env:
+        STACK: ${{ inputs.stack }}
+        PLUGINS: ${{ inputs.plugins }}
+      run: bash "$GITHUB_ACTION_PATH/plugins.sh"

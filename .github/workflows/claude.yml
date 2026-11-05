@@ -77,10 +77,8 @@ on:
         description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
       plugins:
         type: string
-        default: |
-          core@datalogix
-          laravel@datalogix
-        description: Claude Code plugins to install, one per line (name@marketplace)
+        default: ""
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed
       extra-instructions:
         type: string
         default: ""
@@ -181,6 +179,9 @@ jobs:
         if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true'
         id: plugins
         uses: datalogix/workflows/.github/actions/plugins@v2
+        with:
+          stack: ${{ inputs.stack }}
+          plugins: ${{ inputs.plugins }}
 
       - name: Run Claude Code
         if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true'
@@ -199,7 +200,7 @@ jobs:
           plugin_marketplaces: |
             ${{ steps.plugins.outputs.marketplace }}
             ${{ inputs.plugin-marketplaces }}
-          plugins: ${{ inputs.plugins }}
+          plugins: ${{ steps.plugins.outputs.plugins }}
 
           additional_permissions: |
             actions: read
@@ -251,6 +252,9 @@ jobs:
         if: steps.access.outputs.skip != 'true'
         id: plugins
         uses: datalogix/workflows/.github/actions/plugins@v2
+        with:
+          stack: ${{ inputs.stack }}
+          plugins: ${{ inputs.plugins }}
 
       - name: Plan with Claude Code
         if: steps.access.outputs.skip != 'true'
@@ -261,7 +265,7 @@ jobs:
           plugin_marketplaces: |
             ${{ steps.plugins.outputs.marketplace }}
             ${{ inputs.plugin-marketplaces }}
-          plugins: ${{ inputs.plugins }}
+          plugins: ${{ steps.plugins.outputs.plugins }}
 
           prompt: /${{ inputs.stack }}:plan ${{ github.event.issue.number }}
 

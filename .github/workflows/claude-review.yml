@@ -33,10 +33,8 @@ on:
         description: Extra marketplaces, one per line, besides the one with the code-review plugin and this repository's (at the same version as the workflows)
       plugins:
         type: string
-        default: |
-          core@datalogix
-          laravel@datalogix
-        description: Extra plugins, besides code-review
+        default: ""
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed, and code-review
       extra-instructions:
         type: string
         default: ""
@@ -82,6 +80,9 @@ jobs:
       - name: Locate the Datalogix plugins
         id: plugins
         uses: datalogix/workflows/.github/actions/plugins@v2
+        with:
+          stack: ${{ inputs.stack }}
+          plugins: ${{ inputs.plugins }}
 
       # A pull request that changes the workflow file cannot run Claude: the job only warns (it has no permission to
       # comment), and the security review's comment explains it on the pull request
@@ -101,7 +102,7 @@ jobs:
             ${{ inputs.plugin-marketplaces }}
           plugins: |
             code-review@claude-code-plugins
-            ${{ inputs.plugins }}
+            ${{ steps.plugins.outputs.plugins }}
           prompt: /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
           claude_args: |
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}

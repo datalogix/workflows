@@ -199,9 +199,6 @@ jobs:
     secrets: inherit
     with:
       stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
-      plugins: |
-        core@datalogix
-        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
       model: ${{ inputs.model }}
@@ -254,9 +251,6 @@ jobs:
     secrets: inherit
     with:
       stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
-      plugins: |
-        core@datalogix
-        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       model: ${{ inputs.model }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
@@ -272,9 +266,6 @@ jobs:
     secrets: inherit
     with:
       stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
-      plugins: |
-        core@datalogix
-        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       model: ${{ inputs.model }}
       fail-on: ${{ inputs.security-fail-on }}
       extra-instructions: ${{ inputs.extra-instructions }}
@@ -309,9 +300,6 @@ jobs:
     secrets: inherit
     with:
       stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
-      plugins: |
-        core@datalogix
-        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
       model: ${{ inputs.fix-ci-model }}
@@ -388,9 +376,6 @@ jobs:
     secrets: inherit
     with:
       stack: ${{ inputs.stack == 'js' && 'js' || 'laravel' }}
-      plugins: |
-        core@datalogix
-        ${{ inputs.stack == 'js' && 'js' || 'laravel' }}@datalogix
       environments: ${{ inputs.incident-environments }}
       types: ${{ inputs.incident-types }}
       model: ${{ inputs.model }}

@@ -37,10 +37,8 @@ on:
         description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
       plugins:
         type: string
-        default: |
-          core@datalogix
-          laravel@datalogix
-        description: Claude Code plugins for the analysis, one per line (name@marketplace)
+        default: ""
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed
       extra-instructions:
         type: string
         default: ""
@@ -93,6 +91,9 @@ jobs:
         id: plugins
         if: steps.sync.outputs.analyze == 'true'
         uses: datalogix/workflows/.github/actions/plugins@v2
+        with:
+          stack: ${{ inputs.stack }}
+          plugins: ${{ inputs.plugins }}
 
       - name: Analyze with Claude Code
         if: steps.sync.outputs.analyze == 'true'
@@ -103,7 +104,7 @@ jobs:
           plugin_marketplaces: |
             ${{ steps.plugins.outputs.marketplace }}
             ${{ inputs.plugin-marketplaces }}
-          plugins: ${{ inputs.plugins }}
+          plugins: ${{ steps.plugins.outputs.plugins }}
 
           prompt: /${{ inputs.stack }}:incident ${{ steps.sync.outputs.number }} ${{ steps.sync.outputs.live || '-' }} ${{ steps.sync.outputs.previous || '-' }}
 
