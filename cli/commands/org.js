@@ -11,7 +11,7 @@ import {
   relaySupported,
   relayWorker,
 } from '../kinds/project/relay.js';
-import { SETUP } from '../lib/evaluate.js';
+import { CLAUDE_INSTALL, SETUP } from '../lib/evaluate.js';
 import { packageRoot } from '../lib/project.js';
 import { bold, clack, cyan, dim, logResults, orExit, runTasks } from '../lib/ui.js';
 
@@ -20,7 +20,6 @@ import { bold, clack, cyan, dim, logResults, orExit, runTasks } from '../lib/ui.
 
 const FORMS = join(packageRoot, 'examples', 'issue-templates');
 const FORMS_PATH = '.github/ISSUE_TEMPLATE';
-const CLAUDE_APP = 'https://github.com/apps/claude/installations/new';
 
 /** The issue forms of this version, as { file name: content }. */
 export async function issueForms(dir = FORMS) {
@@ -141,7 +140,7 @@ export async function org(ctx) {
       );
     } else clack.log.error('The Claude GitHub App is not installed');
     left.push(
-      `Make sure the Claude GitHub App is installed on ${bold(name)}, for all repositories:\n  ${cyan(CLAUDE_APP)}`,
+      `Make sure the Claude GitHub App is installed on ${bold(name)}, for all repositories:\n  ${cyan(CLAUDE_INSTALL)}`,
     );
   }
 

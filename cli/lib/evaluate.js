@@ -7,6 +7,9 @@ export const SETUP = 'npx --allow-git=root github:datalogix/workflows#v2 setup';
 export const PROTECT = 'npx --allow-git=root github:datalogix/workflows#v2 protect';
 export const ORG = 'npx --allow-git=root github:datalogix/workflows#v2 org';
 
+// Where to install the Claude GitHub App, for what org, setup and check tell
+export const CLAUDE_INSTALL = 'https://github.com/apps/claude/installations/new';
+
 /** The items check lists, each { level: ok | warn | error, title, hint }, with a function to add each level. */
 export function createReport() {
   const items = [];

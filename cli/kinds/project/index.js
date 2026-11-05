@@ -1,7 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
+import {
+  CLAUDE_INSTALL,
+  codeOwnerItems,
+  createReport,
+  ORG,
+  PROTECT,
+  rulesetItems,
+  SETUP,
+  workflowItems,
+} from '../../lib/evaluate.js';
 import { driftPhrases, includedRefs, protectsBranch, rulesetDrift } from '../../lib/ruleset.js';
 import { checksOn, readOrFail } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
@@ -54,8 +63,6 @@ const PROJECT_STATE = {
   // The app's locale (e.g. pt_BR), read by the stack's inspect: the suggested domain ends with .com.br for pt_BR
   locale: null,
 };
-
-const CLAUDE_INSTALL = 'https://github.com/apps/claude/installations/new';
 
 export const deploys = (a) => Boolean(a.deploy) && a.deploy !== 'none';
 export const twoBranches = (a) => Boolean(a.branches && a.productionBranch);
