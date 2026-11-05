@@ -1,4 +1,4 @@
-import { askSteps, clack, dim, orExit, runTasks } from '../lib/ui.js';
+import { askSteps, clack, logResults, orExit, runTasks } from '../lib/ui.js';
 import { WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack, fromFlags, setupChoices } from '../stacks/index.js';
 
@@ -64,11 +64,7 @@ export async function setup(ctx) {
   }
 
   const results = await runTasks(tasks);
-  for (const result of results) {
-    const line = `${result.title}  ${dim(result.detail)}`;
-    if (result.ok) clack.log.success(line);
-    else clack.log.error(line);
-  }
+  logResults(results);
 
   clack.note(
     module.setup

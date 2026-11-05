@@ -71,6 +71,15 @@ function withDatabaseCheck(content) {
   const boot = /(public function boot\(\)(?:\s*:\s*void)?\s*\{\n)/.exec(content);
   const namespace = /^namespace [^;]+;\n/m.exec(content);
   if (!boot || !namespace) return null;
+  // Imports grouped in braces or across lines, or another class under a name the check uses, are left to the
+  // developer: sorting them or adding ours would break the file
+  const imports = [...content.matchAll(/^use ([^;]+);/gm)].map((match) => match[1]);
+  const names = new Map(IMPORTS.map((line) => [line.slice(line.lastIndexOf('\\') + 1, -1), line]));
+  const conflicts = (use) => {
+    const name = / as (\w+)$/.exec(use)?.[1] ?? use.slice(use.lastIndexOf('\\') + 1);
+    return names.has(name) && names.get(name) !== `use ${use};`;
+  };
+  if (imports.some((use) => /[{\n]/.test(use) || conflicts(use))) return null;
 
   const bodyStart = boot.index + boot[0].length;
   const rest = content.slice(bodyStart);

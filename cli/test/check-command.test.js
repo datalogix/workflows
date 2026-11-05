@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util';
 import { beforeEach, expect, test, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { check, evaluate } from '../commands/check.js';
@@ -40,6 +41,7 @@ async function packageFolder(t) {
 
 const packageGitHub = (methods = {}) =>
   fakeGitHub({
+    repository: 'datalogix/package',
     repo: async () => ({ full_name: 'datalogix/package', default_branch: 'main' }),
     rulesets: async () => [{ id: 1, name: 'datalogix' }],
     ruleset: async () => rulesetBody([PACKAGE_CHECKS.tests]),
@@ -64,6 +66,11 @@ test('exits with 0 on warnings only and with 1 on errors', async (t) => {
   const unprotected = packageGitHub({ rulesets: async () => [] });
   expect(await run(await packageFolder(t), unprotected)).toBe(0);
   expect(clack.outro).toHaveBeenCalledWith('0 error(s), 1 warning(s)');
+  // Each warning with its hint, each item that is set up on a line of its own
+  expect(clack.log.warn.mock.calls.map(([line]) => stripVTControlCharacters(line))).toStrictEqual([
+    'The default branch has no "datalogix" ruleset, so its checks may be only advice  → npx --allow-git=root github:datalogix/workflows#v2 protect',
+  ]);
+  expect(clack.log.success).toHaveBeenCalledWith('Code owners of .github/: @ana');
 
   // No workflow file: an error
   const bare = await folder(
@@ -85,14 +92,17 @@ test('warns when the folder is another repository, ignoring the case of the name
 
 test('exits with 1 when the repository cannot be seen, and stops on a read error', async (t) => {
   const root = await packageFolder(t);
+  const spinner = () => clack.spinner.mock.results.at(-1).value;
   expect(await run(root, packageGitHub({ repo: async () => null }))).toBe(1);
+  expect(spinner().error).toHaveBeenCalledWith('datalogix/package was not found, or your gh login cannot see it');
 
   const denied = packageGitHub({
     rulesets: async () => {
       throw new Error('HTTP 403');
     },
   });
-  await expect(run(root, denied)).rejects.toThrow('Cannot read the rulesets of datalogix/app: HTTP 403');
+  await expect(run(root, denied)).rejects.toThrow('Cannot read the rulesets of datalogix/package: HTTP 403');
+  expect(spinner().error).toHaveBeenCalledWith('Could not check datalogix/package');
 });
 
 test('looks up the relay with the spelling GitHub gives the repository', async (t) => {

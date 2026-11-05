@@ -123,26 +123,7 @@ jobs:
       # triage access, and labels only need triage). A user without access to the repository (404) has no permission
       - name: Require write access
         id: access
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SENDER: ${{ github.event.sender.login }}
-        run: |
-          err=$(mktemp)
-          if ! permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission 2>"$err"); then
-            if ! grep -qE 'HTTP 404|Not Found' "$err"; then
-              echo "::error::Could not read the permission of $SENDER: $(head -n 1 "$err")"
-              exit 1
-            fi
-            permission=''
-          fi
-          case "$permission" in
-            admin | maintain | write) ;;
-            *)
-              echo "::notice::$SENDER needs write access for Claude to run (has '${permission:-none}')"
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
+        uses: datalogix/workflows/.github/actions/write-access@v2
 
       # A fork's code would run with write access and the Claude token: comments on fork PRs are ignored. Review
       # events carry the head repository; a comment on a PR (issue_comment) does not, so it is read from the API.
@@ -239,7 +220,14 @@ jobs:
       id-token: write
 
     steps:
+      # The plan runs Claude with the Claude token on the issue's text: only for users who can push, like the claude
+      # job (adding a label only needs triage access)
+      - name: Require write access
+        id: access
+        uses: datalogix/workflows/.github/actions/write-access@v2
+
       - name: Checkout code
+        if: steps.access.outputs.skip != 'true'
         uses: actions/checkout@v7
         with:
           # Full history, so the plan can use git log
@@ -248,10 +236,12 @@ jobs:
           persist-credentials: false
 
       - name: Locate the Datalogix plugins
+        if: steps.access.outputs.skip != 'true'
         id: plugins
         uses: datalogix/workflows/.github/actions/plugins@v2
 
       - name: Plan with Claude Code
+        if: steps.access.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -271,7 +261,8 @@ jobs:
 
       # Also removes the implementation label, added before or during the plan: the implementation did not start, and
       # adding the label again after reading the plan starts it. An implementation started before the plan label was
-      # added keeps running
+      # added keeps running. Without write access (or when it could not be read), only the plan label leaves: left, it
+      # would keep the claude job from implementing the issue
       - name: Remove the labels
         if: always()
         shell: bash
@@ -280,8 +271,13 @@ jobs:
           ISSUE: ${{ github.event.issue.number }}
           PLAN_LABEL: ${{ inputs.plan-label }}
           LABEL: ${{ inputs.label }}
+          ALLOWED: ${{ steps.access.outcome == 'success' && steps.access.outputs.skip != 'true' }}
         run: |
           remove=(--remove-label "$PLAN_LABEL")
+          if [ "$ALLOWED" != true ]; then
+            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" "${remove[@]}"
+            exit 0
+          fi
           labels=$(gh issue view "$ISSUE" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' || true)
           if grep -qixF "$LABEL" <<< "$labels"; then
             remove+=(--remove-label "$LABEL")

@@ -1,8 +1,10 @@
 import { expect, test, vi } from 'vitest';
+import * as clack from '@clack/prompts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
 import { rulesetBody } from '../lib/ruleset.js';
+import { NO_TESTS } from '../lib/tools.js';
 import { collectState } from '../lib/state.js';
 import { parseInputs, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
@@ -13,6 +15,7 @@ import { byTitle, fakeGitHub, folder, PACKAGE_STATE, runResults, tempRoot } from
 vi.mock('@clack/prompts', async (importOriginal) => ({
   ...(await importOriginal()),
   progress: () => ({ start() {}, message() {}, advance() {}, stop() {} }),
+  confirm: vi.fn(async () => true),
 }));
 
 const { setup } = laravelPackage;
@@ -67,6 +70,70 @@ test('asks for the Codecov token only when the package uploads coverage and cann
     const current = packageAnswers(parseInputs(`jobs:\n  pipeline:\n    with:\n      ${input}\n`));
     expect(step.when({}, { state: { codecovToken: false, current } })).toBe(false);
   }
+  // Asked after the test suite question, which may turn it off
+  const ids = setup.steps().map((candidate) => candidate.id);
+  expect(ids.indexOf('codecovToken')).toBeGreaterThan(ids.indexOf('testRun'));
+  expect(step.when({ testRun: NO_TESTS }, { state: { codecovToken: false } })).toBe(false);
+  // A test command answered now replaces the file's none
+  const none = { codecovToken: false, current: { testCommand: NO_TESTS } };
+  expect(step.when({ testRun: 'other' }, { state: none })).toBe(true);
+  expect(step.when({}, { state: none })).toBe(false);
+});
+
+test('tells to protect the package only without a ruleset, or when it differs from the solo answer', () => {
+  const protect = (answers, ruleset) =>
+    setup
+      .nextSteps(answers, { results: [], state: { ...PACKAGE_STATE, ruleset } })
+      .filter((step) => step.includes('workflows#v2 protect'));
+  const checks = ['pipeline / tests / all-checks'];
+
+  expect(protect({ solo: true }, null)).toStrictEqual([
+    expect.stringMatching(/^After the first pull request shows its checks, protect the default branch:/),
+  ]);
+  expect(protect({ solo: true }, rulesetBody(checks))).toStrictEqual([]);
+  expect(protect({ solo: false }, rulesetBody(checks, { codeOwners: true }))).toStrictEqual([]);
+  expect(protect({ solo: false }, rulesetBody(checks))).toStrictEqual([
+    expect.stringContaining('Run protect again: the ruleset does not require code owner approval yet'),
+  ]);
+  expect(protect({ solo: true }, rulesetBody(checks, { codeOwners: true }))).toStrictEqual([
+    expect.stringContaining('requires code owner approval, but you work alone'),
+  ]);
+});
+
+test('tells what check reports about the ruleset: a check of tests turned off, older approvals kept', () => {
+  const protect = (ruleset, current = null) =>
+    setup
+      .nextSteps({ solo: false }, { results: [], state: { ...PACKAGE_STATE, current, ruleset } })
+      .find((step) => step.includes('Run protect again'));
+  const checks = ['pipeline / tests / all-checks'];
+  expect(protect(rulesetBody(checks, { codeOwners: true }), { tests: false })).toContain(
+    'still requires pipeline / tests / all-checks, which no longer runs',
+  );
+  const kept = rulesetBody(checks, { codeOwners: true });
+  Object.assign(kept.rules.find((rule) => rule.type === 'pull_request').parameters, {
+    dismiss_stale_reviews_on_push: false,
+    require_last_push_approval: false,
+  });
+  expect(protect(kept)).toContain('keeps code owner approvals of older commits');
+  expect(protect({ ...rulesetBody(checks, { codeOwners: true }), enforcement: 'evaluate' })).toContain(
+    'is evaluate, so nothing is enforced',
+  );
+});
+
+test('suggests the solo answer the ruleset implies, with what it means for a package', async () => {
+  const step = setup.steps().find((candidate) => candidate.id === 'solo');
+  const asked = async (ruleset) => {
+    clack.confirm.mockClear();
+    await step.ask({ header: '', ctx: { state: { ...PACKAGE_STATE, ruleset } } });
+    return clack.confirm.mock.calls[0][0];
+  };
+  const checks = ['pipeline / tests / all-checks'];
+  expect((await asked(null)).initialValue).toBe(true);
+  expect((await asked(rulesetBody(checks))).initialValue).toBe(true);
+  // A team's ruleset: Enter keeps the code owners
+  expect((await asked(rulesetBody(checks, { codeOwners: true }))).initialValue).toBe(false);
+  expect((await asked(null)).message).toContain('Changes to .github/ need no code owner approval');
+  expect((await asked(null)).message).not.toContain('count as your approval');
 });
 
 test('tells to open a pull request on a protected branch', () => {
@@ -112,9 +179,19 @@ test('reads only what a package needs from GitHub', async (t) => {
     );
 
   // The fake fails on anything else: the labels, environments and Claude token of an app are not read
-  const state = await read({ hasRepositorySecret: async (name) => name === 'CODECOV_TOKEN' });
+  // The organization's secret is read only when the repository has none
+  const organizationReads = [];
+  const organizationSecret = async (name) => (organizationReads.push(name), false);
+  const state = await read({
+    hasRepositorySecret: async (name) => name === 'CODECOV_TOKEN',
+    hasOrganizationSecret: organizationSecret,
+  });
   expect(state.codecovToken).toBe(true);
   expect(state.labels).toBe(undefined);
+  expect(organizationReads).toStrictEqual([]);
+  const neither = await read({ hasRepositorySecret: async () => false, hasOrganizationSecret: organizationSecret });
+  expect(neither.codecovToken).toBe(false);
+  expect(organizationReads).toStrictEqual(['CODECOV_TOKEN']);
 
   // An organization secret works too; one that cannot be read counts as missing
   const organization = await read({

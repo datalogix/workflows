@@ -29,17 +29,20 @@ export async function cloudEnvironments(api, repository) {
   return environments;
 }
 
-/** Turns off the environment's Push to deploy and makes it deploy `branch` (null keeps its branch). */
-export function cloudEnvironmentTask(api, environment, name, branch) {
+/**
+ * Turns off the Push to deploy of `target`, the Cloud environment that `environment` (production or staging) deploys
+ * to, and makes it deploy `branch` (null keeps its branch).
+ */
+export function cloudEnvironmentTask(api, target, environment, branch) {
   return {
-    id: `deploySite:${name}`,
-    title: `Laravel Cloud environment ${environment.application} ${environment.name} (${name})`,
+    id: `deploySite:${environment}`,
+    title: `Laravel Cloud environment ${target.application} ${target.name} (${environment})`,
     run: async () => {
       const changes = {};
-      if (environment.pushToDeploy) changes.uses_push_to_deploy = false;
-      if (branch && environment.branch !== branch) changes.branch = branch;
+      if (target.pushToDeploy) changes.uses_push_to_deploy = false;
+      if (branch && target.branch !== branch) changes.branch = branch;
       if (!Object.keys(changes).length) return 'unchanged';
-      await api.patch(`/environments/${encodeURIComponent(environment.id)}`, changes);
+      await api.patch(`/environments/${encodeURIComponent(target.id)}`, changes);
       // Cloud stages setting changes until the next deploy
       return [
         'uses_push_to_deploy' in changes && 'Push to deploy off',
@@ -58,7 +61,7 @@ export default {
   label: 'Laravel Cloud',
   name: 'Laravel Cloud',
   kind: 'environment',
-  where: 'the Laravel Cloud environment',
+  where: 'the environment variables of the Laravel Cloud environment',
   hookHint: 'Cloud: environment Settings > Deployments',
   tokenHint: 'turns off Push to deploy and sets the branch of each environment',
   api: cloudApi,

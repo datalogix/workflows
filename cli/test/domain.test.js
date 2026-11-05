@@ -6,6 +6,8 @@ test('validates domains and reads them from URLs', () => {
   expect(isDomain('https://app.example.com')).toBe(false);
   expect(isDomain('localhost')).toBe(false);
   expect(domainOf('https://staging.example.com/up')).toBe('staging.example.com');
+  // Setup writes the URL back as https://<domain><path>, without a port
+  expect(domainOf('https://app.example.com:8443/up')).toBe('app.example.com');
   expect(domainOf('nonsense')).toBe(null);
 });
 

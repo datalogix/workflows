@@ -76,24 +76,31 @@ export function forgeSiteTask(api, site, environment) {
     title: `Forge site ${site.name} (${environment})`,
     run: async () => {
       const changes = [];
-      const { data } = await api.get(`${sitePath(site)}/deployments/script`);
-      const script = data.attributes.content ?? '';
-      const updated = withCommitCheckout(script);
-      if (updated === null) {
-        throw new Error(
-          'the deploy script has neither cd $FORGE_RELEASE_DIRECTORY nor git pull origin $FORGE_SITE_BRANCH: change it by hand',
-        );
-      }
-      if (updated !== script) {
-        await api.put(`${sitePath(site)}/deployments/script`, {
-          content: updated,
-          auto_source: data.attributes.auto_source,
-        });
-        changes.push('deploy script checks out the commit');
-      }
+      // First, whatever the script: with Push to deploy on, every push reaches the site before its tests
       if (site.pushToDeploy) {
         await api.delete(`${sitePath(site)}/deployments/push-to-deploy`);
         changes.push('Push to deploy off');
+      }
+      try {
+        const { data } = await api.get(`${sitePath(site)}/deployments/script`);
+        const script = data.attributes.content ?? '';
+        const updated = withCommitCheckout(script);
+        if (updated === null) {
+          throw new Error(
+            'the deploy script has neither cd $FORGE_RELEASE_DIRECTORY nor git pull origin $FORGE_SITE_BRANCH: change it by hand',
+          );
+        }
+        if (updated !== script) {
+          await api.put(`${sitePath(site)}/deployments/script`, {
+            content: updated,
+            auto_source: data.attributes.auto_source,
+          });
+          changes.push('deploy script checks out the commit');
+        }
+      } catch (error) {
+        // A failure after Push to deploy went off says so
+        if (!changes.length) throw error;
+        throw new Error(`${changes.join(', ')}; ${error.message}`, { cause: error });
       }
       return changes.length ? changes.join(', ') : 'unchanged';
     },
@@ -130,7 +137,7 @@ export default {
   label: 'Laravel Forge',
   name: 'Forge',
   kind: 'site',
-  where: 'the Forge site',
+  where: 'the environment of the Forge site',
   hookHint: 'Forge: site Settings > Deployments',
   tokenHint:
     'with site:manage-deploys and, for Nightwatch, server:view and site:manage-environment; turns off Push to deploy, fixes the deploy script, reads the deploy hooks and sets NIGHTWATCH_TOKEN',

@@ -20,7 +20,7 @@ export function suggestedDomain(repository, locale) {
 /** Domain of a URL such as https://example.com/up, or null. */
 export function domainOf(url) {
   try {
-    return new URL(url).host;
+    return new URL(url).hostname;
   } catch {
     return null;
   }

@@ -353,7 +353,7 @@ describe('watch', () => {
     expect(callsTo(result, 'curl')).toHaveLength(3);
     expect(callsTo(result, 'sleep')).toStrictEqual(['30', '30']);
     expect(result.stdout).toMatch(/Health check 1\/2: HTTP 200\n/);
-    expect(result.stdout).toMatch(/Health check 3\/2: HTTP 200\n/);
+    expect(result.stdout).toMatch(/Health check 3 \(past the 2 planned, following errors\): HTTP 200\n/);
   });
 
   test('watch removes the rolled-back marks of releases no longer in the history', async () => {

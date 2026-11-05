@@ -2,15 +2,21 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { check } from '../commands/check.js';
 import { org } from '../commands/org.js';
+import { protect } from '../commands/protect.js';
+import { setup } from '../commands/setup.js';
 import { main } from '../lib/main.js';
+import { createGitHub } from '../lib/github.js';
 import { detectProject } from '../lib/project.js';
 import { run } from '../lib/shell.js';
+import { EMPTY_STATE } from '../lib/state.js';
 
 // gh, the project folder and the commands are replaced: main only parses, checks gh and dispatches
 vi.mock('../lib/shell.js', () => ({ run: vi.fn(), runOrThrow: vi.fn() }));
 vi.mock('../lib/project.js', async (importOriginal) => ({ ...(await importOriginal()), detectProject: vi.fn() }));
 vi.mock('../commands/check.js', () => ({ check: vi.fn(async () => 0) }));
 vi.mock('../commands/org.js', () => ({ org: vi.fn(async () => 0) }));
+vi.mock('../commands/protect.js', () => ({ protect: vi.fn(async () => 0) }));
+vi.mock('../commands/setup.js', () => ({ setup: vi.fn(async () => 0) }));
 vi.mock('@clack/prompts', async (importOriginal) => ({
   ...(await importOriginal()),
   intro: vi.fn(),
@@ -50,10 +56,15 @@ test('exits with 1 without the GitHub CLI or its login', async () => {
   expect(check).not.toHaveBeenCalled();
 });
 
-test('needs a repository for check and protect, from the folder or --repo', async () => {
+test('needs a repository for check and protect, from the folder or --repo, but not for setup', async () => {
   detectProject.mockResolvedValue({ root: '/project', repository: null });
   expect(await main(['check'])).toBe(1);
   expect(clack.cancel).toHaveBeenCalledWith('Run it from the project folder, or pass --repo owner/repo');
+  expect(await main(['protect'])).toBe(1);
+  expect(protect).not.toHaveBeenCalled();
+  // setup asks for the repository
+  expect(await main(['setup'])).toBe(0);
+  expect(setup).toHaveBeenCalledWith(expect.objectContaining({ repository: null }));
 
   expect(await main(['check', '--repo', 'datalogix/other'])).toBe(0);
   expect(check).toHaveBeenCalledWith(
@@ -79,4 +90,13 @@ test('returns the exit code of the command', async () => {
   expect(check).toHaveBeenCalledWith(
     expect.objectContaining({ repository: 'datalogix/app', folderRepository: 'datalogix/app' }),
   );
+});
+
+test('checks the gh login on github.com only, and gives the command what it needs', async () => {
+  expect(await main(['protect'])).toBe(0);
+  expect(run).toHaveBeenCalledWith('gh', ['auth', 'status', '--hostname', 'github.com']);
+  expect(clack.intro).toHaveBeenCalledWith(' datalogix · protect ');
+  const ctx = protect.mock.calls[0][0];
+  expect(ctx.createGitHub).toBe(createGitHub);
+  expect(ctx.state).toBe(EMPTY_STATE);
 });

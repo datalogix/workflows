@@ -1,4 +1,5 @@
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import * as clack from '@clack/prompts';
 import { apiClient, repositoryOf } from '../providers/deploy/api.js';
 import { cloudApi, cloudEnvironments, cloudEnvironmentTask } from '../providers/deploy/cloud.js';
 import {
@@ -11,10 +12,18 @@ import {
   withCommitCheckout,
   ZERO_DOWNTIME_SNIPPET,
 } from '../providers/deploy/forge.js';
-import app from '../stacks/laravel/app.js';
+import app, { suggestedTarget } from '../stacks/laravel/app.js';
 import { APP_STATE, askedSteps, fakeGitHub, RELAY as relay } from './helpers.js';
 
 const { steps: setupSteps, tasks: setupTasks, nextSteps } = app.setup;
+
+// The site questions are answered by each test; a warning is recorded
+vi.mock('@clack/prompts', async (importOriginal) => {
+  const original = await importOriginal();
+  return { ...original, log: { ...original.log, warn: vi.fn() }, select: vi.fn() };
+});
+
+beforeEach(() => vi.clearAllMocks());
 
 const FORGE = 'https://forge.laravel.com/api';
 const CLOUD = 'https://cloud.laravel.com/api';
@@ -22,16 +31,22 @@ const CLOUD = 'https://cloud.laravel.com/api';
 /**
  * A fake fetch: `routes` maps 'METHOD url' to the JSON body it answers (or { status, body }); every request is
  * recorded in `calls` ({ method, url, headers, body }), and one no route matches fails the test.
+ * `limit` is the most requests it answers.
  */
-function fakeFetch(routes) {
+function fakeFetch(routes, { limit = Infinity } = {}) {
   const calls = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, { method, headers, body }) => {
       calls.push({ method, url, headers, body: body ? JSON.parse(body) : undefined });
+      // A client that never stops fails here, not by running out of memory
+      if (calls.length > limit) throw new Error(`More than ${limit} requests`);
       const key = `${method} ${url}`;
       if (!(key in routes)) throw new Error(`No fake route for ${key}`);
       const route = routes[key];
+      // { error } fails like fetch does without an answer; { raw } answers a body that is not JSON
+      if (route?.error) throw route.error;
+      if (route && 'raw' in route) return new Response(route.raw, { status: route.status ?? 200 });
       const { status = 200, body: answer = null } = route && 'status' in route ? route : { body: route };
       return new Response(answer === null ? null : JSON.stringify(answer), { status });
     }),
@@ -83,6 +98,18 @@ test('leaves a deploy script that already uses the commit, and gives up on one i
   expect(withCommitCheckout('cd /home/forge/app\nphp artisan migrate\n')).toBeNull();
 });
 
+test.each([
+  ['in quotes and braces', '', 'cd "${FORGE_RELEASE_DIRECTORY}"', '\n'],
+  ['indented', '    ', 'cd $FORGE_RELEASE_DIRECTORY', '\n'],
+  ['with CRLF line endings', '', 'cd $FORGE_RELEASE_DIRECTORY', '\r\n'],
+])('places the checkout after the cd of a zero-downtime release %s', (_, indent, cd, eol) => {
+  const script = ['$CREATE_RELEASE()', `${indent}${cd}`, '$ACTIVATE_RELEASE()', ''].join(eol);
+  const snippet = ZERO_DOWNTIME_SNIPPET.replace(/^/gm, indent).replace(/\n/g, eol);
+  expect(withCommitCheckout(script)).toBe(
+    ['$CREATE_RELEASE()', `${indent}${cd}`, snippet, '$ACTIVATE_RELEASE()', ''].join(eol),
+  );
+});
+
 test('reads owner/repo from every form Forge stores a repository in', () => {
   for (const value of [
     'datalogix/App',
@@ -116,6 +143,27 @@ test('tells a refused token apart from a token without the permission', async ()
   await expect(api.get('/orgs')).rejects.toThrow('The Forge API token was refused');
   await expect(api.delete('/x')).rejects.toThrow('The Forge API token is not allowed to DELETE /api/x');
   await expect(api.get('/y')).rejects.toThrow('The Forge API answered HTTP 500 to GET /api/y');
+  await expect(api.delete('/x')).rejects.toThrow(/DELETE \/api\/x: check its permissions$/);
+});
+
+test('sends JSON with the token, and gives up on a list of more than 50 pages', async () => {
+  const calls = fakeFetch(
+    {
+      [`GET ${FORGE}/loop`]: { data: [{ id: 1 }], links: { next: `${FORGE}/loop` } },
+      [`PUT ${FORGE}/a`]: { data: {} },
+      [`PATCH ${FORGE}/b`]: { data: {} },
+    },
+    { limit: 60 },
+  );
+  const api = forgeApi('secret');
+  await api.put('/a', { x: 1 });
+  await api.patch('/b', { y: 2 });
+  await expect(api.all('/loop')).rejects.toThrow('The Forge API list /loop has more than 50 pages');
+  expect(calls.length).toBe(52);
+  const json = { Authorization: 'Bearer secret', Accept: 'application/json', 'Content-Type': 'application/json' };
+  expect(calls[0].headers).toStrictEqual(json);
+  expect(calls[1].headers).toStrictEqual(json);
+  expect(calls[2].headers).toStrictEqual({ Authorization: 'Bearer secret', Accept: 'application/json' });
 });
 
 const forgeSite = (id, name, url, branch, quickDeploy = true) => ({
@@ -149,6 +197,19 @@ test('finds the Forge sites of the repository in every organization', async () =
   expect(await forgeDeployHook(api, sites[0])).toBe('https://forge.laravel.com/hook/1');
 });
 
+test('skips a Forge site without a server, and reads a site without a branch as null', async () => {
+  const serverless = { ...forgeSite(1, 'old.example.com', 'datalogix/app', 'main'), relationships: undefined };
+  fakeFetch({
+    [`GET ${FORGE}/orgs`]: { data: [{ attributes: { slug: 'datalogix' } }] },
+    [`GET ${FORGE}/orgs/datalogix/sites`]: {
+      data: [serverless, forgeSite(2, 'app.example.com', 'datalogix/app', undefined)],
+    },
+  });
+  expect(await forgeSites(forgeApi('token'), 'datalogix/app')).toStrictEqual([
+    { organization: 'datalogix', server: 7, id: 2, name: 'app.example.com', branch: null, pushToDeploy: true },
+  ]);
+});
+
 const SITE = {
   organization: 'datalogix',
   server: 7,
@@ -167,8 +228,11 @@ test('fixes the deploy script of a Forge site and turns off its Push to deploy',
   });
   const task = forgeSiteTask(forgeApi('token'), SITE, 'production');
   expect(task).toMatchObject({ id: 'deploySite:production', title: 'Forge site app.example.com (production)' });
-  expect(await task.run()).toBe('deploy script checks out the commit, Push to deploy off');
-  expect(calls[1].body).toStrictEqual({ content: withCommitCheckout(STANDARD_SCRIPT), auto_source: true });
+  expect(await task.run()).toBe('Push to deploy off, deploy script checks out the commit');
+  expect(calls.find(({ method }) => method === 'PUT').body).toStrictEqual({
+    content: withCommitCheckout(STANDARD_SCRIPT),
+    auto_source: true,
+  });
 });
 
 test('changes nothing in a Forge site already set up, and fails on a script it cannot change', async () => {
@@ -178,10 +242,151 @@ test('changes nothing in a Forge site already set up, and fails on a script it c
     'unchanged',
   );
 
-  fakeFetch({
-    [`GET ${SCRIPT_URL}`]: { data: { attributes: { content: 'php artisan migrate', auto_source: false } } },
+  // Push to deploy goes off anyway, before the task fails on the script
+  const calls = fakeFetch({
+    [`GET ${SCRIPT_URL}`]: { data: { attributes: { content: 'git pull origin master', auto_source: false } } },
+    [`DELETE ${FORGE}/orgs/datalogix/servers/7/sites/1/deployments/push-to-deploy`]: { status: 202 },
   });
-  await expect(forgeSiteTask(forgeApi('token'), SITE, 'production').run()).rejects.toThrow('change it by hand');
+  await expect(forgeSiteTask(forgeApi('token'), SITE, 'production').run()).rejects.toThrow(
+    /^Push to deploy off; the deploy script has neither .*: change it by hand$/,
+  );
+  expect(calls.map(({ method }) => method)).toStrictEqual(['DELETE', 'GET']);
+});
+
+test('says Push to deploy went off when the deploy script cannot be read or written', async () => {
+  const pushToDeploy = {
+    [`DELETE ${FORGE}/orgs/datalogix/servers/7/sites/1/deployments/push-to-deploy`]: { status: 202 },
+  };
+  fakeFetch({ ...pushToDeploy, [`GET ${SCRIPT_URL}`]: { status: 500, body: { message: 'Server Error' } } });
+  await expect(forgeSiteTask(forgeApi('token'), SITE, 'production').run()).rejects.toThrow(/^Push to deploy off; /);
+
+  const calls = fakeFetch({
+    ...pushToDeploy,
+    [`GET ${SCRIPT_URL}`]: { data: { attributes: { content: STANDARD_SCRIPT, auto_source: true } } },
+    [`PUT ${SCRIPT_URL}`]: { status: 422, body: { message: 'Invalid' } },
+  });
+  await expect(forgeSiteTask(forgeApi('token'), SITE, 'production').run()).rejects.toThrow(/^Push to deploy off; /);
+  expect(calls.map(({ method }) => method)).toStrictEqual(['DELETE', 'GET', 'PUT']);
+
+  // Without Push to deploy to turn off, the error is the request's own
+  fakeFetch({ [`GET ${SCRIPT_URL}`]: { status: 500, body: { message: 'Server Error' } } });
+  await expect(forgeSiteTask(forgeApi('token'), { ...SITE, pushToDeploy: false }, 'production').run()).rejects.toThrow(
+    /^(?!Push to deploy off)/,
+  );
+});
+
+test('fails on a Forge site without a deploy script', async () => {
+  fakeFetch({ [`GET ${SCRIPT_URL}`]: { data: { attributes: { content: null, auto_source: false } } } });
+  await expect(forgeSiteTask(forgeApi('token'), { ...SITE, pushToDeploy: false }, 'production').run()).rejects.toThrow(
+    /^the deploy script has neither /,
+  );
+});
+
+test('tells why the API failed: the network error, the validation message, the rate limit or a body not JSON', async () => {
+  const api = apiClient(FORGE, 'token', 'Forge');
+  const fails = (route) => {
+    fakeFetch({ [`GET ${FORGE}/user`]: route });
+    return api.get('/user');
+  };
+  const network = new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND forge.laravel.com') });
+  await expect(fails({ error: network })).rejects.toThrow(
+    'Could not reach the Forge API: getaddrinfo ENOTFOUND forge.laravel.com',
+  );
+  await expect(fails({ status: 422, body: { errors: [{ detail: 'The branch does not exist.' }] } })).rejects.toThrow(
+    'The Forge API answered HTTP 422 to GET /api/user: The branch does not exist.',
+  );
+  await expect(fails({ status: 422, body: { message: 'Invalid.' } })).rejects.toThrow(': Invalid.');
+  await expect(fails({ status: 422, raw: 'Unprocessable' })).rejects.toThrow(/answered HTTP 422 to GET \/api\/user$/);
+  await expect(fails({ status: 500, body: { message: 'Server error' } })).rejects.toThrow(
+    /answered HTTP 500 to GET \/api\/user$/,
+  );
+  await expect(fails({ status: 429 })).rejects.toThrow('The Forge API limits the requests: try again in a minute');
+  await expect(fails({ raw: '<html>Down for maintenance</html>' })).rejects.toThrow(
+    'The Forge API answered something other than JSON to GET /api/user',
+  );
+});
+
+test('suggests for production a site on its branch that is not named after staging', () => {
+  const staging = { name: 'staging.example.com', branch: 'main' };
+  const production = { name: 'example.com', branch: 'main' };
+  expect(suggestedTarget([staging, production], 'production', 'main')).toBe(production);
+  expect(suggestedTarget([staging, production], 'staging', 'main')).toBe(staging);
+  expect(suggestedTarget([{ name: 'app-production', branch: 'other' }], 'production', 'main')).toStrictEqual({
+    name: 'app-production',
+    branch: 'other',
+  });
+});
+
+test('suggests first a site on the branch named after the environment', () => {
+  const other = { name: 'example.com', branch: 'main' };
+  const named = { name: 'production.example.com', branch: 'main' };
+  expect(suggestedTarget([other, named], 'production', 'main')).toBe(named);
+});
+
+test('keeps the token and the sites it finds', async () => {
+  const step = setupSteps().find((candidate) => candidate.id === 'deployToken');
+  fakeFetch({
+    [`GET ${FORGE}/orgs`]: { data: [{ attributes: { slug: 'datalogix' } }] },
+    [`GET ${FORGE}/orgs/datalogix/sites`]: { data: [forgeSite(1, 'app.example.com', 'datalogix/app', 'main')] },
+  });
+  const answers = { ...forgeAnswers, deployToken: ' token ' };
+  const ctx = { state: APP_STATE };
+  await step.then(answers, ctx);
+  expect(answers.deployToken).toBe(' token ');
+  expect(answers.deployProblem).toBeUndefined();
+  expect(ctx.deployTargets).toStrictEqual([SITE]);
+
+  // A token of spaces is no token: nothing is read
+  const calls = fakeFetch({});
+  const blank = { state: APP_STATE };
+  await step.then({ ...forgeAnswers, deployToken: '  ' }, blank);
+  expect(blank.deployTargets).toStrictEqual([]);
+  expect(calls).toStrictEqual([]);
+});
+
+test('does not offer for staging the site chosen for production', async () => {
+  const step = setupSteps().find((candidate) => candidate.id === 'stagingSite');
+  const staging = forgeAnswers.stagingSite;
+  clack.select.mockResolvedValueOnce(0);
+  const ctx = { state: APP_STATE, deployTargets: [SITE, staging] };
+  expect(await step.ask({ header: '1/1', answers: forgeAnswers, ctx })).toBe(staging);
+  expect(clack.select.mock.calls[0][0].options.map((option) => option.label)).toStrictEqual([
+    'dev.app.example.com',
+    'None of these',
+  ]);
+});
+
+test('warns and asks for the deploy hook when Forge does not give it', async () => {
+  const step = setupSteps().find((candidate) => candidate.id === 'stagingSite');
+  fakeFetch({ [`GET ${FORGE}/orgs/datalogix/servers/7/sites/3/deployments/deploy-hook`]: { status: 403 } });
+  const answers = { ...forgeAnswers, deployHooks: { production: forgeAnswers.deployHooks.production } };
+  await step.then(answers, { state: APP_STATE });
+  expect(answers.deployHooks).toStrictEqual({ production: forgeAnswers.deployHooks.production });
+  expect(clack.log.warn).toHaveBeenCalledWith(
+    'Could not read the deploy hook of dev.app.example.com: The Forge API token is not allowed to GET /api/orgs/datalogix/servers/7/sites/3/deployments/deploy-hook: check its permissions',
+  );
+});
+
+test('goes on without the token when the deploy target cannot be read or deploys nothing of the repository', async () => {
+  const step = setupSteps().find((candidate) => candidate.id === 'deployToken');
+  const run = async (route) => {
+    fakeFetch({ [`GET ${FORGE}/orgs`]: route });
+    const answers = { ...forgeAnswers, deployToken: 'token', deployProblem: undefined };
+    const ctx = { state: APP_STATE };
+    await step.then(answers, ctx);
+    return { answers, ctx };
+  };
+
+  const refused = await run({ status: 401 });
+  expect(refused.answers).toMatchObject({ deployToken: '', deployProblem: 'The Forge API token was refused' });
+  expect(refused.ctx.deployTargets).toStrictEqual([]);
+
+  const none = await run({ data: [] });
+  expect(none.answers).toMatchObject({
+    deployToken: '',
+    deployProblem: 'no Forge site deploys datalogix/app',
+  });
+  expect(none.ctx.deployTargets).toStrictEqual([]);
 });
 
 test('finds the Laravel Cloud environments of the repository with their branch', async () => {
@@ -219,6 +424,51 @@ test('turns off Push to deploy of a Laravel Cloud environment and sets its branc
   expect(
     await cloudEnvironmentTask(cloudApi('token'), { ...environment, pushToDeploy: false }, 'staging', 'main').run(),
   ).toBe('unchanged');
+});
+
+test('changes only the branch of a Laravel Cloud environment without Push to deploy, and nothing for no branch', async () => {
+  const environment = { application: 'App', id: 'env-2', name: 'staging', branch: 'main', pushToDeploy: false };
+  const calls = fakeFetch({ [`PATCH ${CLOUD}/environments/env-2`]: { data: {} } });
+  expect(await cloudEnvironmentTask(cloudApi('token'), environment, 'staging', 'develop').run()).toBe(
+    'branch develop, from the next deploy',
+  );
+  expect(calls[0].body).toStrictEqual({ branch: 'develop' });
+
+  expect(await cloudEnvironmentTask(cloudApi('token'), environment, 'staging', null).run()).toBe('unchanged');
+  expect(calls.length).toBe(1);
+});
+
+const cloudEnvironment = (id, name) => ({ application: 'App', id, name, branch: 'main', pushToDeploy: true });
+
+test('sets up the chosen Laravel Cloud environments, without Nightwatch in them', async () => {
+  const answers = {
+    ...forgeAnswers,
+    deploy: 'cloud',
+    incidents: true,
+    productionSite: cloudEnvironment('env-1', 'production'),
+    stagingSite: cloudEnvironment('env-2', 'staging'),
+  };
+  const state = { ...APP_STATE, defaultBranch: 'trunk' };
+  const tasks = setupTasks(answers, { github: fakeGitHub(), root: '', state, relay });
+  const titles = tasks.map((task) => task.title);
+  expect(titles).toEqual(
+    expect.arrayContaining([
+      'Laravel Cloud environment App production (production)',
+      'Laravel Cloud environment App staging (staging)',
+    ]),
+  );
+  expect(titles.filter((title) => title.includes('NIGHTWATCH_TOKEN of'))).toStrictEqual([]);
+
+  // With one branch, production keeps its branch and staging tracks the default one
+  const calls = fakeFetch({
+    [`PATCH ${CLOUD}/environments/env-1`]: { data: {} },
+    [`PATCH ${CLOUD}/environments/env-2`]: { data: {} },
+  });
+  for (const task of tasks.filter((candidate) => candidate.id?.startsWith('deploySite:'))) await task.run();
+  expect(calls.map(({ url, body }) => [url, body])).toStrictEqual([
+    [`${CLOUD}/environments/env-1`, { uses_push_to_deploy: false }],
+    [`${CLOUD}/environments/env-2`, { uses_push_to_deploy: false, branch: 'trunk' }],
+  ]);
 });
 
 const forgeAnswers = {
@@ -310,6 +560,18 @@ test("puts the Nightwatch token in a Forge site's .env only when it has none", a
     'added to .env, from the next deploy',
   );
   expect(calls[1].body).toStrictEqual({ environment: 'APP_ENV=production\nNIGHTWATCH_TOKEN=n$1w\n' });
+});
+
+test("reads a quoted Nightwatch token in a Forge site's .env, and adds one on a line of its own", async () => {
+  fakeFetch({ [`GET ${ENV_URL}`]: { data: { attributes: { content: 'NIGHTWATCH_TOKEN="abc"\n' } } } });
+  expect(await forgeNightwatchTask(forgeApi('token'), SITE, 'production', 'new').run()).toBe('unchanged');
+
+  const calls = fakeFetch({
+    [`GET ${ENV_URL}`]: { data: { attributes: { content: 'APP_ENV=production' } } },
+    [`PUT ${ENV_URL}`]: { data: {} },
+  });
+  await forgeNightwatchTask(forgeApi('token'), SITE, 'production', 'new').run();
+  expect(calls[1].body).toStrictEqual({ environment: 'APP_ENV=production\nNIGHTWATCH_TOKEN=new\n' });
 });
 
 test('sets up Nightwatch in each chosen Forge site, and tells what is left of it', () => {

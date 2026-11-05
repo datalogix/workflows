@@ -212,8 +212,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          # Pint compares with the base branch, which needs the history; it only runs on pull requests
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # Pint compares with the base branch, which needs the history; it only runs on pull requests. 0 is falsy in
+          # expressions, so it goes last
+          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
 
       - name: Check for lint tools
         id: lint

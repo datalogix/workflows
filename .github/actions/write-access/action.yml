@@ -1,0 +1,18 @@
+name: Datalogix write access
+description: Whether the user who triggered the run can push to the repository, which running Claude takes
+
+outputs:
+  skip:
+    description: true when the user has no write access, so the job leaves Claude out
+    value: ${{ steps.access.outputs.skip }}
+
+runs:
+  using: composite
+
+  steps:
+    - id: access
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SENDER: ${{ github.event.sender.login }}
+      run: bash "$GITHUB_ACTION_PATH/write-access.sh"

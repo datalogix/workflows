@@ -1,11 +1,12 @@
+import { stripVTControlCharacters as plain } from 'node:util';
 import { beforeEach, expect, test, vi } from 'vitest';
 import * as prompts from '@clack/prompts';
-import { askSteps, confirmFolder, orExit, runTasks, stepBar, taskOutcome } from '../lib/ui.js';
+import { askSteps, confirmFolder, logResults, orExit, question, runTasks, stepBar, taskOutcome } from '../lib/ui.js';
 
 vi.mock('@clack/prompts', async (importOriginal) => ({
   ...(await importOriginal()),
-  progress: () => ({ start() {}, message() {}, advance() {}, stop() {} }),
-  log: { warn: vi.fn() },
+  progress: vi.fn(() => ({ start() {}, message() {}, advance() {}, stop: vi.fn() })),
+  log: { warn: vi.fn(), success: vi.fn(), error: vi.fn() },
   confirm: vi.fn(),
   cancel: vi.fn(),
   // What a question returns when it is cancelled (Ctrl+C)
@@ -27,6 +28,7 @@ test('draws the progress of the questions', () => {
   expect(stepBar(0, 4)).toBe('□□□□□□□□□□  0/4');
   expect(stepBar(2, 4)).toBe('■■■■■□□□□□  2/4');
   expect(stepBar(4, 4)).toBe('■■■■■■■■■■  4/4');
+  expect(stepBar(0, 0)).toBe('□□□□□□□□□□  0/0');
 });
 
 test('asks only the steps that apply, counting them as answers change', async () => {
@@ -59,6 +61,9 @@ test('checks values given as flags like the question would', async () => {
   await expect(askSteps(steps, { flags: { domain: 'https://app.example.com' } })).rejects.toThrow(
     /--domain: Type only the domain/,
   );
+  // parse turns the flag's text into the answer the question gives
+  const parsed = [{ id: 'lint', flag: 'lint', parse: (value) => value.split(','), ask: async () => 'asked' }];
+  expect(await askSteps(parsed, { flags: { lint: 'pint,phpstan' } })).toStrictEqual({ lint: ['pint', 'phpstan'] });
 });
 
 test('exits with 1 when a question is cancelled, and passes an answer through', (t) => {
@@ -112,13 +117,24 @@ test('runs every task, keeping the first line of a failure', async () => {
     { title: 'B', ok: true, detail: 'done' },
     { id: 'c', title: 'C', ok: true, detail: 'created', data: { x: 1 } },
   ]);
+  const bar = (index) => prompts.progress.mock.results[index].value;
+  expect(bar(0).stop).toHaveBeenCalledWith('Applied with 1 problem(s)');
   expect(await runTasks([])).toStrictEqual([]);
+  expect(bar(1).stop).toHaveBeenCalledWith('All applied');
   expect(taskOutcome(undefined)).toStrictEqual({ detail: 'done' });
+  expect(taskOutcome({ data: { x: 1 } })).toStrictEqual({ detail: 'done', data: { x: 1 } });
 });
 
-test('puts what a question turns on below it, one dimmed line each', async () => {
-  const { question } = await import('../lib/ui.js');
-  const { stripVTControlCharacters: plain } = await import('node:util');
+test('shows each result, a failure as an error', () => {
+  logResults([
+    { title: 'A', ok: true, detail: 'created' },
+    { title: 'B', ok: false, detail: 'HTTP 403' },
+  ]);
+  expect(prompts.log.success.mock.calls.map(([line]) => plain(line))).toStrictEqual(['A  created']);
+  expect(prompts.log.error.mock.calls.map(([line]) => plain(line))).toStrictEqual(['B  HTTP 403']);
+});
+
+test('puts what a question turns on below it, one dimmed line each', () => {
   expect(plain(question('1/2', 'Turn it on?'))).toBe('1/2\nTurn it on?');
   expect(plain(question('1/2', 'Turn it on?', 'It does this'))).toBe('1/2\nTurn it on?\n  It does this');
   expect(plain(question('1/2', 'Pick', ['A: one', 'B: two']))).toBe('1/2\nPick\n  A: one\n  B: two');

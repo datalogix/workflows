@@ -14,7 +14,7 @@ Packages call a single `package` workflow, today the test matrix. Only public Co
 ## Requirements
 
 - [Node.js](https://nodejs.org) 22.12 or newer. The commands run with `npx` straight from this repository at the `v2` tag; `--allow-git=root` lets npm 12 or newer install it from git (it refuses git packages by default) without allowing git for its dependencies.
-- The [GitHub CLI](https://cli.github.com), logged in with `gh auth login`: every command acts as you.
+- The [GitHub CLI](https://cli.github.com), logged in to github.com with `gh auth login`: every command acts as you, always on github.com (`GH_HOST` is ignored).
 - Only for monitoring problems as issues: a Cloudflare account, where `org` deploys the monitoring relay (it logs `wrangler` in for you), and macOS or Linux to deploy it and to store each project's webhook secret.
 
 ## Quick start
@@ -48,7 +48,7 @@ issue ──► Claude plans / implements ──► pull request
                                             │
                               you approve (if risky) and merge
                                             │
-                     staging (deploy + 5 min watch) ──► production (deploy + 5 min watch)
+                     staging (deploy + 3 min watch) ──► production (deploy + 3 min watch)
                                                                    │
                                      health check fails ──► automatic rollback + issue
                                      Nightwatch problem ──► issue + Claude's diagnosis ──► you: `claude` or `rollback`

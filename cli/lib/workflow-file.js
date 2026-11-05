@@ -48,9 +48,16 @@ export function parseInputs(content) {
  * the block (at most the end of the job), or null without one.
  */
 function inputsBlock(lines) {
-  const job = pipelineEnd(lines);
-  const start = lines.slice(0, job).findIndex((line) => WITH.test(line));
-  return start === -1 ? null : { start, end: job };
+  // Inside the pipeline job only: another job before it may have a with: of its own
+  const job = pipelineStart(lines);
+  const end = pipelineEnd(lines);
+  const offset = lines.slice(job + 1, end).findIndex((line) => WITH.test(line));
+  return offset === -1 ? null : { start: job + 1 + offset, end };
+}
+
+/** The index of the pipeline job's line, or -1 without one (then the whole file is read as it). */
+function pipelineStart(lines) {
+  return lines.findIndex((line) => /^ {2}pipeline:/.test(line));
 }
 
 /**
@@ -58,7 +65,7 @@ function inputsBlock(lines) {
  * comments less indented than the job's keys right before the next key belong to what follows.
  */
 function pipelineEnd(lines) {
-  const start = lines.findIndex((line) => /^ {2}pipeline:/.test(line));
+  const start = pipelineStart(lines);
   if (start === -1) return lines.length;
   let end = start + 1;
   while (end < lines.length && (lines[end].trim() === '' || /^ {4}/.test(lines[end]) || /^\s*#/.test(lines[end]))) {
@@ -102,9 +109,14 @@ export function hasInputComments(content) {
   const block = inputsBlock(lines);
   if (!block) return false;
   if (/#/.test(lines[block.start])) return true;
+  // Whether the lines that follow belong to a block scalar (key: |, key: >-), whose deeper # lines are part of the
+  // value, which is written back
+  let scalarBlock = false;
   for (const line of lines.slice(block.start + 1, block.end)) {
-    if (/^\s+#/.test(line)) return true;
-    if (line.trim() && !/^ {6}/.test(line)) return false;
+    const input = /^ {6}[\w-]+:\s*(.*)$/.exec(line);
+    if (input) scalarBlock = /^[|>][-+\d]*\s*(?:#.*)?$/.test(input[1]);
+    else if (/^ {0,6}#/.test(line) || (/^\s*#/.test(line) && !scalarBlock)) return true;
+    else if (line.trim() && !/^ {6}/.test(line)) return false;
   }
   return false;
 }
@@ -124,10 +136,15 @@ export function pushBranches(content) {
   const inline = on[1].replace(/\s+#.*$/, '').trim();
   if (inline.startsWith('{')) return inlinePushBranches(inline);
   if (inline) return /\bpush\b/.test(inline) ? null : [];
-  const triggers = text.slice(on.index + on[0].length + 1).split(/^\S/m)[0];
-  const push = /^ {2}push:[ \t]*(?:#.*)?$/m.exec(triggers);
+  // A comment in column 0 does not end the triggers
+  const triggers = text.slice(on.index + on[0].length + 1).split(/^[^\s#]/m)[0];
+  const push = /^ {2}push:[ \t]*(.*)$/m.exec(triggers);
   if (!push) return [];
-  const block = triggers.slice(push.index + push[0].length + 1).split(/^ {0,3}\S/m)[0];
+  // push: { branches: [main] } on its line; push: null or ~ has no filter
+  const value = push[1].replace(/(?:^|\s+)#.*$/, '').trim();
+  if (value.startsWith('{')) return inlinePushBranches(`{ push: ${value} }`);
+  if (value) return null;
+  const block = triggers.slice(push.index + push[0].length + 1).split(/^ {0,3}[^\s#]/m)[0];
   const branches = listAt(block, 'branches');
   if (branches) return branches;
   const ignored = listAt(block, 'branches-ignore');
@@ -202,11 +219,20 @@ function matchesGlob(pattern, branch) {
   }
 }
 
-/** Value of a single-line input, without a trailing comment or quotes. */
+/** Value of a single-line input, without a trailing comment or quotes ('' and \" escapes read as YAML does). */
 export function scalar(raw) {
   if (raw === undefined) return undefined;
-  const quoted = /^(['"])(.*?)\1/.exec(raw);
-  if (quoted) return quoted[2];
+  const single = /^'((?:[^']|'')*)'/.exec(raw);
+  if (single) return single[1].replace(/''/g, "'");
+  const double = /^"((?:[^"\\]|\\.)*)"/.exec(raw);
+  if (double) {
+    try {
+      return JSON.parse(`"${double[1]}"`);
+    } catch {
+      // A YAML escape JSON lacks (\x41, say): as written
+      return double[1];
+    }
+  }
   return raw.replace(/\s+#.*$/, '');
 }
 
@@ -235,6 +261,25 @@ export function listOf(raw) {
 export function usesRef(content, ref) {
   const path = unversioned(ref).replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
   return new RegExp(`^\\s*(?:-\\s*)?uses:\\s*['"]?${path}([^\\s'"#]+)`, 'm').exec(lf(content))?.[1] ?? null;
+}
+
+/**
+ * How the file calls the reusable workflow `ref` (`owner/repo/path@v2`), as { status, version } with the version
+ * found: 'missing' without a file or a `uses:` of it, 'release' at the major of `ref` or one of its tags (`v2.1.0`),
+ * 'other-major' at another major or its tags (`v1`, `v3.0.0`), whose checks differ, and 'other-ref' at anything else
+ * (a branch or a commit, to test a change).
+ */
+export function refStatus(content, ref) {
+  const version = content ? usesRef(content, ref) : null;
+  if (!version) return { status: 'missing', version: null };
+  const major = /^v(\d+)(?:\.\d+\.\d+)?$/.exec(version)?.[1];
+  if (major === undefined) return { status: 'other-ref', version };
+  return { status: `v${major}` === refVersion(ref) ? 'release' : 'other-major', version };
+}
+
+/** The version of a workflow reference: `v2` of `owner/repo/path@v2`. */
+export function refVersion(ref) {
+  return ref.slice(ref.indexOf('@') + 1);
 }
 
 /** A workflow reference without its version: `owner/repo/path@`. */
@@ -273,9 +318,13 @@ export function withInputs(base, inputs, after = '') {
  */
 export function hasChangesOutsideInputs(content, base) {
   const lines = lf(content).split('\n');
-  const existing = lines.slice(0, pipelineEnd(lines)).join('\n');
-  const cut = existing.search(new RegExp(WITH.source, 'm'));
-  return (cut === -1 ? existing : existing.slice(0, cut)).trimEnd() !== base;
+  const block = inputsBlock(lines);
+  return (
+    lines
+      .slice(0, block ? block.start : pipelineEnd(lines))
+      .join('\n')
+      .trimEnd() !== base
+  );
 }
 
 /**

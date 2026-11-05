@@ -1,16 +1,18 @@
 import { expect, test } from 'vitest';
-import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
+import { packageAnswers, packageTemplate, renderPackageWorkflow } from '../kinds/package/workflow.js';
 import { PROJECT_REF, projectAnswers, projectTemplate, renderProjectWorkflow } from '../kinds/project/workflow.js';
 import {
   droppedInputComments,
   hasChangesOutsideInputs,
   hasInputComments,
   inputComment,
+  lf,
   listOf,
   parseInputs,
   pushBranches,
   runsOnPush,
   scalar,
+  refStatus,
   usesRef,
 } from '../lib/workflow-file.js';
 
@@ -191,6 +193,9 @@ test('matches a branch against the push filter like GitHub', () => {
   expect(runsOnPush(['*'], 'release/1.0')).toBe(false);
   expect(runsOnPush(['**'], 'release/1.0')).toBe(true);
   expect(runsOnPush(['v[12].x'], 'v2.x')).toBe(true);
+  // ? makes the character before it optional, as in a regular expression
+  expect(runsOnPush(['v2?'], 'v')).toBe(true);
+  expect(runsOnPush(['v?'], 'v2')).toBe(false);
   expect(runsOnPush(['v1.x'], 'v1-x')).toBe(false);
   // The last matching pattern wins
   expect(runsOnPush(['**', '!main'], 'main')).toBe(false);
@@ -211,6 +216,7 @@ test('reads the push filter, also as branches-ignore or tags only', () => {
   // Only tags: no branch push runs the workflow
   expect(push('    tags: ["v*"]\n')).toStrictEqual([]);
   expect(runsOnPush(push('    tags: ["v*"]\n'), 'main')).toBe(false);
+  expect(push('    tags-ignore:\n      - "v*"\n')).toStrictEqual([]);
   expect(push('    paths: [src/**]\n')).toBe(null);
 });
 
@@ -223,6 +229,8 @@ test('reads a workflow file with CRLF line ends, also in the template comparison
   const content = (await renderProjectWorkflow({ deploy: 'none' })).replace(/\n/g, '\r\n');
   expect(await changesOutside(content)).toBe(false);
   expect(usesRef(content, PROJECT_REF)).toBe('v2');
+  // A lone CR (old Mac line ends) is a line end too
+  expect(lf('on:\r  push:\r\n')).toBe('on:\n  push:\n');
 });
 
 test('reads comments in the push filter, and tells no push trigger from one without a filter', () => {
@@ -254,6 +262,24 @@ test('reads the version of a reusable workflow from its uses key only', () => {
   const file = `    # uses: ${ref}\n    uses: "datalogix/workflows/.github/workflows/project.yml@v1"\n`;
   expect(usesRef(file, ref)).toBe('v1');
   expect(usesRef('    # uses: datalogix/workflows/.github/workflows/project.yml@v2\n', ref)).toBe(null);
+  // A step written as a list item
+  expect(usesRef(`      - uses: ${ref}\n`, ref)).toBe('v2');
+});
+
+test('tells a release of the major from another major and from a branch or a commit', () => {
+  const ref = 'datalogix/workflows/.github/workflows/project.yml@v2';
+  const at = (version) => refStatus(`    uses: datalogix/workflows/.github/workflows/project.yml@${version}\n`, ref);
+  expect(at('v2')).toStrictEqual({ status: 'release', version: 'v2' });
+  expect(at('v2.10.3')).toStrictEqual({ status: 'release', version: 'v2.10.3' });
+  expect(at('v1')).toStrictEqual({ status: 'other-major', version: 'v1' });
+  expect(at('v3')).toStrictEqual({ status: 'other-major', version: 'v3' });
+  expect(at('v1.2.0')).toStrictEqual({ status: 'other-major', version: 'v1.2.0' });
+  expect(at('main')).toStrictEqual({ status: 'other-ref', version: 'main' });
+  expect(at('feat/gate')).toStrictEqual({ status: 'other-ref', version: 'feat/gate' });
+  expect(at('c771104')).toStrictEqual({ status: 'other-ref', version: 'c771104' });
+  expect(at('v2.1')).toStrictEqual({ status: 'other-ref', version: 'v2.1' });
+  expect(refStatus(null, ref)).toStrictEqual({ status: 'missing', version: null });
+  expect(refStatus('on: push\n', ref)).toStrictEqual({ status: 'missing', version: null });
 });
 
 test('finds comments in the with block', () => {
@@ -261,6 +287,20 @@ test('finds comments in the with block', () => {
     true,
   );
   expect(hasInputComments('jobs:\n  pipeline:\n    with:\n      php-version: "8.3" # server\n')).toBe(false);
+});
+
+test('tells a comment in the with block from a # line of a multi-line value', () => {
+  const block = (inputs) => hasInputComments(`jobs:\n  pipeline:\n    with:\n${inputs}`);
+  // Part of a block scalar, after blank or deeper lines too
+  expect(block('      extra: |\n        # not a comment\n      deploy: forge\n')).toBe(false);
+  expect(block('      extra: >-\n        first\n\n        # still the value\n')).toBe(false);
+  expect(block('      extra: |2 # kept\n        # the value\n')).toBe(false);
+  // A deeper comment after a single-line value is a comment
+  expect(block('      deploy: forge\n        # production only\n      staging: false\n')).toBe(true);
+  expect(block('      extra: |\n        value\n      deploy: forge\n          # prod\n')).toBe(true);
+  expect(block('      extra: "|"\n        # a comment\n')).toBe(true);
+  // A comment at the inputs' indentation ends the multi-line value
+  expect(block('      extra: |\n        value\n      # deploys\n      deploy: forge\n')).toBe(true);
 });
 
 test('reads the comment after an input value', () => {
@@ -313,6 +353,10 @@ test('keeps what the file has after the with block, such as another job', async 
   expect(await renderPackageWorkflow(`${await renderPackageWorkflow()}\n${extra}`)).toBe(
     `${await renderPackageWorkflow()}\n${extra}`,
   );
+  // Also without a with block: the other job is not compared with the template
+  expect(hasChangesOutsideInputs(`${await renderPackageWorkflow()}\n${extra}`, await packageTemplate('main'))).toBe(
+    false,
+  );
 });
 
 test('reads a with line that ends with a comment', async () => {
@@ -344,8 +388,11 @@ test('reads edge cases of the workflow file as nothing set', () => {
   expect(pushBranches('jobs: {}\n')).toBe(null);
   expect(listOf("'not json'")).toBe(null);
   expect(listOf('\'{"a": 1}\'')).toBe(null);
-  expect(scalar('"a b" # comment')).toBe('a b');
   expect(scalar('main # deploys')).toBe('main');
+});
+
+test('reads a quoted value before a comment', () => {
+  expect(scalar('"a b" # comment')).toBe('a b');
 });
 
 test('writes github-deployments only when it is off and the app deploys, and reads it back', async () => {
@@ -422,4 +469,43 @@ test('writes the monitoring service only when it is not Nightwatch, and reads it
   expect(projectAnswers(parseInputs(sentry)).monitoring).toBe('sentry');
   // Not asked again: the file keeps it
   expect(parseInputs(await renderProjectWorkflow({ deploy: 'none' }, sentry)).monitoring).toBe('sentry');
+});
+
+test('reads the inputs of the pipeline job only, even after another job with inputs', async () => {
+  const other = '  other:\n    uses: ./.github/workflows/other.yml\n    with:\n      tests: false\n\n';
+  const workflow = (await renderProjectWorkflow({ deploy: 'forge', domain: 'app.test' })).replace(
+    '  pipeline:',
+    `${other}  pipeline:`,
+  );
+  expect(parseInputs(workflow)).toMatchObject({ deploy: 'forge' });
+  expect(parseInputs(workflow).tests).toBeUndefined();
+  // Setup keeps the other job's inputs out of the pipeline's
+  const rendered = await renderProjectWorkflow({ deploy: 'forge', domain: 'app.test' }, workflow);
+  expect(parseInputs(rendered).tests).toBeUndefined();
+});
+
+test('reads a push filter written on the push line, and a comment in column 0 inside on:', () => {
+  expect(pushBranches('on:\n  push: { branches: [main, develop] }\n  pull_request:\n')).toStrictEqual([
+    'main',
+    'develop',
+  ]);
+  expect(pushBranches('on:\n  push: {}\n')).toBe(null);
+  expect(pushBranches('on:\n  push: ~\n')).toBe(null);
+  expect(pushBranches('on:\n# deploys\n  push:\n    branches: [main]\n  pull_request:\n')).toStrictEqual(['main']);
+  expect(pushBranches('on:\n  push:\n# the branches that deploy\n    branches: [main]\n')).toStrictEqual(['main']);
+});
+
+test('counts as a comment of the with block only a line at the inputs indentation, not one of a multi-line value', () => {
+  const block = (lines) => `jobs:\n  pipeline:\n    uses: x\n    with:\n${lines}\n`;
+  expect(hasInputComments(block('      test-command: |\n        # run the suite\n        vendor/bin/pest'))).toBe(
+    false,
+  );
+  expect(hasInputComments(block('      # the suite\n      test-command: vendor/bin/pest'))).toBe(true);
+});
+
+test('reads quoted values with their escapes, as YAML does', () => {
+  expect(scalar("'it''s'")).toBe("it's");
+  expect(scalar('"say \\"hi\\""')).toBe('say "hi"');
+  expect(scalar('"a # b" # comment')).toBe('a # b');
+  expect(scalar("'' # empty")).toBe('');
 });

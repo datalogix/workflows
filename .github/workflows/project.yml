@@ -100,7 +100,7 @@ on:
       pint:
         type: boolean
         default: true
-        description: Run Laravel Pint on the files changed by the pull request, when it is installed
+        description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+)
       phpstan:
         type: boolean
         default: true

@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { deploys, projectKind } from '../../kinds/project/index.js';
+import { answeredEnvironments, deploys, projectKind, twoBranches } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { deployProviders } from '../../providers/deploy/index.js';
@@ -105,7 +105,11 @@ function healthCheckTask(root) {
         throw error;
       }
       const updated = addDatabaseCheck(content);
-      if (updated === null) throw new Error(`${PROVIDER_PATH} has no boot() method to extend; ${byHand}`);
+      if (updated === null) {
+        throw new Error(
+          `${PROVIDER_PATH} has no boot() method, or imports setup cannot extend (grouped, or another DB or Event class); ${byHand}`,
+        );
+      }
       await writeFile(path, updated);
       return `database check added to ${PROVIDER_PATH}`;
     },
@@ -116,14 +120,13 @@ function healthCheckTask(root) {
 const PROVIDERS = deployProviders(['forge', 'cloud']);
 
 const withToken = (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]) && Boolean(a.deployToken?.trim());
-const environmentsOf = (a) => (a.staging ? ['production', 'staging'] : ['production']);
 
 /**
  * The branch an environment deploys: with two branches, the development one to staging and the production one to
  * production; otherwise the default branch (null: whatever the site has).
  */
 function branchOf(a, environment, state) {
-  if (a.branches && a.productionBranch) return environment === 'staging' ? a.developmentBranch : a.productionBranch;
+  if (twoBranches(a)) return environment === 'staging' ? a.developmentBranch : a.productionBranch;
   return state.defaultBranch ?? null;
 }
 
@@ -168,20 +171,31 @@ const deployTokenStep = {
   },
 };
 
+/**
+ * The site (or environment) suggested for an environment: one on its branch named after it, else one on its branch not
+ * named after the other environment (without two branches both deploy the same branch), else one named after it.
+ */
+export function suggestedTarget(targets, environment, branch) {
+  const other = environment === 'staging' ? 'production' : 'staging';
+  const named = (target, name) => target.name.toLowerCase().includes(name);
+  return (
+    targets.find((target) => target.branch === branch && named(target, environment)) ??
+    targets.find((target) => target.branch === branch && !named(target, other)) ??
+    targets.find((target) => named(target, environment))
+  );
+}
+
 /** Which site (or environment) of the target an environment deploys to; with Forge, its deploy hook comes along. */
 function deploySiteStep(environment) {
   return {
     id: `${environment}Site`,
-    when: (a, ctx) => withToken(a) && environmentsOf(a).includes(environment) && Boolean(ctx.deployTargets?.length),
+    when: (a, ctx) =>
+      withToken(a) && answeredEnvironments(a).includes(environment) && Boolean(ctx.deployTargets?.length),
     ask: async ({ header, answers, ctx }) => {
       const provider = PROVIDERS[answers.deploy];
       const taken = environment === 'staging' ? answers.productionSite : null;
       const targets = ctx.deployTargets.filter((target) => target !== taken);
-      const branch = branchOf(answers, environment, ctx.state);
-      const initial =
-        targets.find((target) => target.branch === branch && target.name.toLowerCase().includes(environment)) ??
-        targets.find((target) => target.branch === branch) ??
-        targets.find((target) => target.name.toLowerCase().includes(environment));
+      const initial = suggestedTarget(targets, environment, branchOf(answers, environment, ctx.state));
       const index = orExit(
         await clack.select({
           message: question(header, `${provider.name} ${provider.kind} of ${environment}`),
@@ -220,7 +234,7 @@ function deploySiteTasks(answers, { state }) {
   if (!withToken(answers)) return [];
   const provider = PROVIDERS[answers.deploy];
   const api = provider.api(answers.deployToken.trim());
-  return environmentsOf(answers)
+  return answeredEnvironments(answers)
     .filter((environment) => answers[`${environment}Site`])
     .flatMap((environment) => {
       const site = answers[`${environment}Site`];
@@ -256,16 +270,18 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
   }
   const resultOf = (environment) => results.find((result) => result.id === `nightwatchEnv:${environment}`);
   const left = deploys(answers)
-    ? environmentsOf(answers).filter((environment) => !resultOf(environment)?.ok || resultOf(environment).data?.missing)
+    ? answeredEnvironments(answers).filter(
+        (environment) => !resultOf(environment)?.ok || resultOf(environment).data?.missing,
+      )
     : [];
   const problems = left
     .filter((environment) => resultOf(environment) && !resultOf(environment).ok)
     .map((environment) => `${environment}: ${resultOf(environment).detail}`);
-  const where = PROVIDERS[answers.deploy]?.where ?? 'the server';
+  const where = PROVIDERS[answers.deploy]?.where ?? 'the environment of the server';
   if (!deploys(answers) || left.length) {
     steps.push(
       [
-        `Set ${bold('NIGHTWATCH_TOKEN')} (the application's token in Nightwatch) in the environment of ${where}${left.length ? ` of ${left.map((environment) => bold(environment)).join(' and ')}` : ''}, if it is not there yet.`,
+        `Set ${bold('NIGHTWATCH_TOKEN')} (the application's token in Nightwatch) in ${where}${left.length ? ` of ${left.map((environment) => bold(environment)).join(' and ')}` : ''}, if it is not there yet.`,
         ...(problems.length ? [dim(`  Setup could not do it through the API (${problems.join('; ')}).`)] : []),
       ].join('\n'),
     );
@@ -275,14 +291,14 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
 
 /** The branch a Cloud environment must track: both with two branches, staging otherwise (Forge gets it in the hook). */
 function cloudBranch(answers, environment, state) {
-  if (answers.branches && answers.productionBranch) return branchOf(answers, environment, state);
+  if (twoBranches(answers)) return branchOf(answers, environment, state);
   return environment === 'staging' ? branchOf(answers, environment, state) : null;
 }
 
 /** What Forge or Laravel Cloud need by hand, so they deploy only what the workflows ask for: what setup did not do. */
 function deployNextSteps(answers, { twoBranches, results = [] }) {
   const resultOf = (environment) => results.find((result) => result.id === `deploySite:${environment}`);
-  const left = environmentsOf(answers).filter((environment) => !resultOf(environment)?.ok);
+  const left = answeredEnvironments(answers).filter((environment) => !resultOf(environment)?.ok);
   if (!left.length) return [];
   // Why the API did not do it: the token or the search failed, or the task of that environment did
   const problems = [

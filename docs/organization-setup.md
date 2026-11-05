@@ -8,7 +8,7 @@ Steps 1 and 2 are required. Steps 3 and 4 are optional (the shared issue forms, 
 npx --allow-git=root github:datalogix/workflows#v2 org --org datalogix
 ```
 
-It checks the Claude GitHub App, creates the public `datalogix/.github` repository with the issue forms of this version, deploys the monitoring relay (it logs in to Cloudflare in the browser and asks for the relay's GitHub token, with a link that fills the token in), and lists what is left by hand. Running it again updates the issue forms, and the relay when you say so (also to replace its token).
+It checks the Claude GitHub App, creates the public `datalogix/.github` repository with the issue forms of this version, deploys the monitoring relay (it logs in to Cloudflare in the browser and asks for the relay's GitHub token, with a link that fills the token in), and lists what is left by hand. Running it again updates the issue forms, and the relay when you say so (also to replace its token). It stops before asking anything when the owner is not an organization or your `gh` login is not one of its admins, and tells you to make `.github` public when it is private. If the Cloudflare login fails, it still writes the issue forms and leaves the relay for the next run; a `relay.json` that names another organization's relay (copied from it) is replaced by a relay deployed for this one.
 
 ## 1. Install the Claude GitHub App
 
@@ -49,6 +49,8 @@ Where it goes depends on the organization's plan, because [organization secrets 
 `org` creates the public repository `datalogix/.github` and writes the files of [`examples/issue-templates`](../examples/issue-templates) to `.github/ISSUE_TEMPLATE/` in it. The repository must be public: GitHub only shares a public one's forms.
 
 **Why:** GitHub uses them in every repository of the organization that has no issue templates of its own. Opening an issue with **Tarefa para o Claude** applies the `claude` label (Claude implements it); **Planejar com o Claude** applies `claude-plan` (Claude only posts a plan).
+
+The forms only work in repositories that have their labels, which `setup` and the manual setup create. GitHub does not create a label the repository lacks, so elsewhere, including in packages, the issue opens without it and nothing runs.
 
 ## 4. Deploy the monitoring relay (only for production errors)
 
