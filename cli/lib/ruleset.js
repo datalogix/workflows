@@ -126,16 +126,15 @@ export function mergeRuleset(existing, body, { unprotect = [], defaultBranch = n
 
 /**
  * Whether a ref condition of a ruleset matches the default branch (`defaultBranch`, its name, when known):
- * ~DEFAULT_BRANCH, ~ALL or a pattern of refs/heads/<name>, where * matches within a path segment and ** across them,
- * also no directory at all before a slash (as fnmatch does).
+ * ~DEFAULT_BRANCH, ~ALL or a pattern of refs/heads/<name>, as fnmatch with FNM_PATHNAME reads it: * and ** match within
+ * a path segment; only ** as a whole segment, before a slash, matches across them, also no directory at all.
  */
 export function matchesDefaultBranch(pattern, defaultBranch) {
   if (pattern === '~DEFAULT_BRANCH' || pattern === '~ALL') return true;
   if (!defaultBranch) return false;
-  const source = pattern.replace(/\*\*\/|\*\*|\*|\?|\[[^\]]*\]|[.+(){}|^$\\]/g, (token) => {
+  const source = pattern.replace(/(?<![^/])\*\*\/|\*+|\?|\[[^\]]*\]|[.+(){}|^$\\]/g, (token) => {
     if (token === '**/') return '(?:.*/)?';
-    if (token === '**') return '.*';
-    if (token === '*') return '[^/]*';
+    if (token.startsWith('*')) return '[^/]*';
     if (token === '?') return '[^/]';
     // [!...] negates the class in fnmatch, [^...] in a regular expression
     return token.startsWith('[') ? token.replace(/^\[!/, '[^') : `\\${token}`;

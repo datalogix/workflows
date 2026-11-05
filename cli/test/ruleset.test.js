@@ -91,7 +91,7 @@ test('reads include and exclude patterns that match the default branch', () => {
   expect(on(['refs/heads/release/*'])).toBe(false);
   expect(on(['refs/heads/*/main'])).toBe(false);
   expect(on(['refs/heads/[!m]ain'])).toBe(false);
-  // * stays within a segment, ** crosses them
+  // * and ** stay within a segment; only ** before a slash crosses them
   expect(
     rulesetDrift(
       { ...body, conditions: { ref_name: { include: ['refs/heads/*'], exclude: [] } } },
@@ -103,6 +103,14 @@ test('reads include and exclude patterns that match the default branch', () => {
   expect(
     rulesetDrift(
       { ...body, conditions: { ref_name: { include: ['refs/heads/**'], exclude: [] } } },
+      {
+        defaultBranch: 'team/main',
+      },
+    ).defaultBranch,
+  ).toBe(false);
+  expect(
+    rulesetDrift(
+      { ...body, conditions: { ref_name: { include: ['refs/heads/**/*'], exclude: [] } } },
       {
         defaultBranch: 'team/main',
       },
@@ -151,4 +159,8 @@ test('matches the default branch with **/ as no directory at all, as fnmatch doe
   expect(matchesDefaultBranch('refs/heads/**/*', 'team/main')).toBe(true);
   expect(matchesDefaultBranch('refs/heads/**/other', 'main')).toBe(false);
   expect(matchesDefaultBranch('refs/heads/release/**/*', 'main')).toBe(false);
+  // Only as a whole segment: elsewhere it reads as *
+  expect(matchesDefaultBranch('refs/heads/**', 'team/main')).toBe(false);
+  expect(matchesDefaultBranch('refs/heads/ma**/in', 'main')).toBe(false);
+  expect(matchesDefaultBranch('refs/heads/rel**/x', 'relx')).toBe(false);
 });
