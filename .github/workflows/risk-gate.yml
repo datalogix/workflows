@@ -105,7 +105,14 @@ jobs:
         middleware.js
         src/middleware.ts
         src/middleware.js
+        proxy.ts
+        proxy.js
+        src/proxy.ts
+        src/proxy.js
+        middleware/*
+        app/middleware/*
         server/*
+        src/server/*
         app/api/*
         src/app/api/*
         pages/api/*
