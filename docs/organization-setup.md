@@ -50,6 +50,8 @@ Where it goes depends on the organization's plan, because [organization secrets 
 
 **Why:** GitHub uses them in every repository of the organization that has no issue templates of its own. Opening an issue with **Tarefa para o Claude** applies the `claude` label (Claude implements it); **Planejar com o Claude** applies `claude-plan` (Claude only posts a plan).
 
+The forms only work in repositories that have their labels, which `setup` and the manual setup create. GitHub does not create a label the repository lacks, so elsewhere, including in packages, the issue opens without it and nothing runs.
+
 ## 4. Deploy the monitoring relay (only for production errors)
 
 Skip this if you do not want Nightwatch problems turned into issues: leave the token empty when `org` asks for it.
