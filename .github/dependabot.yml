@@ -13,6 +13,10 @@ updates:
           - "*"
     commit-message:
       prefix: ci
+    # The references to this repository's own workflows and actions move together with a new major, by hand (see
+    # docs/maintaining.md), and the major tag does not exist until its release
+    ignore:
+      - dependency-name: datalogix/workflows
 
   - package-ecosystem: npm
     directories:
