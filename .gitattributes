@@ -1,3 +1,10 @@
 * text=auto eol=lf
 
+# Always LF, even if Git's detection guesses binary: CRLF breaks bash and the Actions runner
+*.sh text eol=lf
+*.yml text eol=lf
 *.md diff=markdown
+package-lock.json linguist-generated=true
+
+# No export-ignore: the Actions runner, the plugins action and `npx github:` all use the
+# GitHub archive of the tag, which honors it. package.json "files" trims the CLI package.

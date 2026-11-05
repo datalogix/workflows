@@ -1,0 +1,24 @@
+name: Datalogix workflow file
+description: Whether a pull request's copy of the workflow file the run started from differs from the default branch's, in which case claude-code-action refuses to run
+
+outputs:
+  changed:
+    description: true when the pull request's copy of the workflow file differs from the default branch's, or the default branch has none
+    value: ${{ steps.file.outputs.changed }}
+  path:
+    description: Path of the workflow file the run started from (e.g. .github/workflows/datalogix.yml)
+    value: ${{ steps.file.outputs.path }}
+
+runs:
+  using: composite
+
+  steps:
+    # claude-code-action only gets its GitHub App token when the workflow file is identical to the default branch's
+    - id: file
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        # The merge commit the run uses; empty outside a pull request
+        MERGE_SHA: ${{ github.event.pull_request && github.sha || '' }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "$GITHUB_ACTION_PATH/workflow-file.sh"

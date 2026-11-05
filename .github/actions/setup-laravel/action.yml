@@ -79,7 +79,8 @@ runs:
           ~/.local/share/pnpm/store
           ~/.cache/yarn
           ~/.yarn/berry/cache
-        key: node-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'package.json') }}
+        # package.json only without a lockfile, so a change to its scripts or version keeps the cache
+        key: node-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'yarn.lock', 'package-lock.json') || hashFiles('package.json') }}
         restore-keys: node-${{ runner.os }}-
 
     - name: Install Node dependencies

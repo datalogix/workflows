@@ -1,0 +1,46 @@
+name: Incident issue
+description: Creates, reopens or closes the GitHub issue of a monitoring problem from an incident repository_dispatch event (normalized by the relay, see relay/src/providers/index.js)
+
+inputs:
+  environments:
+    description: JSON list of monitoring environment names whose problems become GitHub issues
+    required: true
+  types:
+    description: JSON list of problem types to handle (exception, performance)
+    required: true
+  label:
+    description: Label of the GitHub issues created from the monitoring service
+    required: true
+  token:
+    default: ${{ github.token }}
+  language:
+    description: Language of the issues and comments (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+
+outputs:
+  number:
+    description: Number of the GitHub issue that was created or reopened
+    value: ${{ steps.sync.outputs.number }}
+  analyze:
+    description: true when Claude should analyze the problem
+    value: ${{ steps.sync.outputs.analyze }}
+  live:
+    description: Release live in the problem's environment, from the deploy history
+    value: ${{ steps.sync.outputs.live }}
+  previous:
+    description: Release deployed before the live one
+    value: ${{ steps.sync.outputs.previous }}
+
+runs:
+  using: composite
+
+  steps:
+    - id: sync
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ENVIRONMENTS: ${{ inputs.environments }}
+        TYPES: ${{ inputs.types }}
+        LABEL: ${{ inputs.label }}
+        LANGUAGE: ${{ inputs.language }}
+      run: bash "$GITHUB_ACTION_PATH/sync.sh"

@@ -1,0 +1,16 @@
+name: Planejar com o Claude
+description: O Claude analisa a issue e publica um plano de implementação, sem mudar código
+labels: [claude-plan]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: O que precisa ser feito
+      description: Descreva o problema ou a funcionalidade.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto
+      description: Links, telas, erros ou arquivos relevantes.

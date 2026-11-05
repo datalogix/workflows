@@ -2,16 +2,25 @@ name: release
 
 on:
   release:
-    types: [published]
+    # released: a new release, or a pre-release promoted to release (which does not fire published again). Pre-releases
+    # do not fire it; the job checks prerelease anyway, as a guard: the major tag never moves to a pre-release
+    types: [released]
 
 permissions:
   contents: write
+
+# Runs one at a time, so a run always sees the tag moved by the one before
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   major-tag:
     if: ${{ !github.event.release.prerelease }}
 
     runs-on: ubuntu-latest
+
+    timeout-minutes: 5
 
     steps:
       - name: Checkout code
@@ -21,13 +30,24 @@ jobs:
         shell: bash
         env:
           TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Release tag must follow vX.Y.Z, got $TAG"
             exit 1
           fi
 
+          # Only the newest release of the line moves it: a hotfix of an older minor or a re-run of an old release
+          # must not send every project back to older code. Releases, not tags: the tag of a pre-release or a draft
+          # would hold back every release after it
           major="${TAG%%.*}"
+          latest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1000 \
+            --json tagName --jq '.[].tagName' | grep -E "^$major\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+          if [ "$latest" != "$TAG" ]; then
+            echo "::notice::$TAG is not the newest $major release ($latest); $major was not moved"
+            exit 0
+          fi
+
           git tag -f "$major" "$GITHUB_SHA"
           git push -f origin "refs/tags/$major"
           echo "Moved $major to $TAG ($GITHUB_SHA)"

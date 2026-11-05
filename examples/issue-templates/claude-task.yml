@@ -1,0 +1,23 @@
+name: Tarefa para o Claude
+description: O Claude implementa a tarefa e abre um pull request
+labels: [claude]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: O que precisa ser feito
+      description: Descreva o comportamento esperado, onde ele aparece e qualquer restrição.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite
+      description: Como saber que está pronto.
+      placeholder: |
+        - [ ] ...
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto
+      description: Links, telas, erros ou arquivos relevantes.
