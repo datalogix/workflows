@@ -11,6 +11,7 @@ export const VALUE = [
   'production-branch',
   'health-path',
   'production',
+  'monitoring',
   'layers',
   'approvals-medium',
   'approvals-high',
@@ -92,11 +93,11 @@ Commands
             Safe to run again (updates the forms, and the relay if you say so).
 
 Options (each one skips its question in setup)
-  --stack laravel             Stack of the folder (default: detected)
+  --stack laravel|js          Stack of the folder (default: detected)
   --kind app|package          An app or a package (default: detected)
   --org <organization>        Organization of org (default: the owner of the git remote)
   --repo owner/repo           Repository (default: from the git remote)
-  --deploy <target>           Where the app is deployed (laravel: forge, cloud or none)
+  --deploy <target>           Where the app is deployed (laravel: forge, cloud or none; js: vercel or none)
   --domain app.example.com    Production domain
   --staging / --no-staging    Deploy to staging before production
   --staging-domain <domain>   Staging domain
@@ -106,7 +107,8 @@ Options (each one skips its question in setup)
   --health-path /up           Health check path
   --production auto|manual    Deploy production automatically, or only from Run workflow
   --github-deployments / --no-github-deployments  Record each deploy in the repository's Deployments
-  --incidents / --no-incidents  Turn problems of the monitoring service (laravel: Nightwatch) into GitHub issues
+  --monitoring <service>      The app's monitoring service (laravel: nightwatch, sentry, inspector or none)
+  --incidents / --no-incidents  Turn problems of the monitoring service (see --monitoring) into GitHub issues
   --solo / --no-solo          You work alone on the project (protect: packages only; apps read the workflow file)
   --approvals-medium 1        Human approvals a medium-risk pull request needs (team projects)
   --approvals-high 1          Human approvals a high-risk pull request needs (team projects)

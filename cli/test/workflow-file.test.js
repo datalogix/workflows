@@ -55,6 +55,7 @@ test('keeps inputs it does not manage and reads answers back', async () => {
 
   expect(projectAnswers(parseInputs(withExtra))).toStrictEqual({
     stack: null,
+    monitoring: 'nightwatch',
     deploy: 'cloud',
     staging: false,
     productionBranch: null,
@@ -66,6 +67,7 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     review: undefined,
     fixCi: undefined,
     js: undefined,
+    e2e: undefined,
     incidents: false,
     incidentStaging: undefined,
     incidentPerformance: undefined,
@@ -456,6 +458,18 @@ test('writes the layers, production, approvals and js inputs only when they leav
   expect(parseInputs(await renderProjectWorkflow({ deploy: 'forge', staging: true }, content))).toStrictEqual(
     parseInputs(content),
   );
+});
+
+test('writes the monitoring service only when it is not Nightwatch, and reads it back', async () => {
+  const nightwatch = await renderProjectWorkflow({ deploy: 'none', monitoring: 'nightwatch' });
+  expect(parseInputs(nightwatch).monitoring).toBe(undefined);
+  expect(projectAnswers(parseInputs(nightwatch)).monitoring).toBe('nightwatch');
+
+  const sentry = await renderProjectWorkflow({ deploy: 'none', monitoring: 'sentry' }, nightwatch);
+  expect(parseInputs(sentry).monitoring).toBe('sentry');
+  expect(projectAnswers(parseInputs(sentry)).monitoring).toBe('sentry');
+  // Not asked again: the file keeps it
+  expect(parseInputs(await renderProjectWorkflow({ deploy: 'none' }, sentry)).monitoring).toBe('sentry');
 });
 
 test('reads the inputs of the pipeline job only, even after another job with inputs', async () => {

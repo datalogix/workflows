@@ -33,6 +33,7 @@ const run = (state, options = {}) =>
     relay,
     probe: () => expect.unreachable('probe'),
     relayLookup: () => expect.unreachable('relay'),
+    relayRead: () => expect.unreachable('relay'),
     ...options,
   });
 
@@ -678,6 +679,166 @@ test('warns when Nightwatch is on and the app does not require its agent', async
   expect(
     await warns({ deploy: 'none', solo: true, incidents: false }, { nightwatch: false, environments: markers }),
   ).toContain(warning);
+});
+
+test('reports the Inspector keys missing in the relay, by environment', async () => {
+  const answers = { deploy: 'forge', staging: true, solo: true, monitoring: 'inspector' };
+  const relayTitles = async (secret, overrides = {}) => {
+    const read = [];
+    const items = await run(await stateFor({ ...answers, ...overrides }), {
+      repository: 'datalogix/app',
+      probe: async () => 200,
+      relayLookup: async () => expect.unreachable('hasSecret'),
+      relayRead: async (_relay, provider) => (read.push(provider), secret),
+    });
+    expect(read).toStrictEqual(['inspector']);
+    return items.filter((item) => /monitoring relay/.test(item.title)).map((item) => item.title);
+  };
+
+  const both = JSON.stringify({ production: 'p', staging: 's' });
+  expect(await relayTitles(both)).toStrictEqual(['Registered in the monitoring relay']);
+  expect(await relayTitles(JSON.stringify({ production: 'p' }))).toStrictEqual([
+    'Inspector key of staging missing in the monitoring relay: its problems are rejected',
+  ]);
+  expect(await relayTitles('')).toStrictEqual([
+    'Not registered in the monitoring relay: Inspector problems are rejected',
+  ]);
+  expect(await relayTitles(null)).toStrictEqual(['Could not read the monitoring relay']);
+  // Staging problems off, or no staging: only production needs a key
+  expect(await relayTitles(JSON.stringify({ production: 'p' }), { incidentStaging: false })).toStrictEqual([
+    'Registered in the monitoring relay',
+  ]);
+  expect(await relayTitles(JSON.stringify({ production: 'p' }), { staging: false })).toStrictEqual([
+    'Registered in the monitoring relay',
+  ]);
+});
+
+test('warns when Inspector is on and the app does not require its SDK', async () => {
+  const state = async (overrides) => ({
+    ...(await stateFor({ deploy: 'none', solo: true, monitoring: 'inspector' })),
+    health: { laravel: true, route: '/up', databaseCheck: true },
+    ...overrides,
+  });
+  const warning = 'composer.json does not require inspector-apm/inspector-laravel, so nothing reaches Inspector';
+  const warns = async (overrides) =>
+    titles(await run(await state(overrides), { relayRead: async () => JSON.stringify({ production: 'p' }) }), 'warn');
+  expect(await warns({ inspector: false })).toContain(warning);
+  expect(await warns({ inspector: true })).not.toContain(warning);
+});
+
+test('looks the repository up in the relay under its monitoring service', async () => {
+  const providers = [];
+  const lookup = async (_relay, provider) => {
+    providers.push(provider);
+    return false;
+  };
+  for (const [monitoring, name] of [
+    ['nightwatch', 'Nightwatch'],
+    ['sentry', 'Sentry'],
+  ]) {
+    const items = await run(await stateFor({ deploy: 'none', monitoring }), {
+      repository: 'datalogix/app',
+      relayLookup: lookup,
+    });
+    expect(titles(items, 'warn')).toContainEqual(
+      `Not registered in the monitoring relay: ${name} problems are rejected`,
+    );
+  }
+  expect(providers).toStrictEqual(['nightwatch', 'sentry']);
+});
+
+test("checks a JavaScript app: Sentry's SDK and the relay, nothing of Laravel or deploys", async () => {
+  const workflow = await renderProjectWorkflow({ stack: 'js', monitoring: 'sentry', incidents: true });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'next',
+    sentry: false,
+  };
+  const providers = [];
+  const items = await run(state, {
+    repository: 'datalogix/app',
+    relayLookup: async (_relay, provider) => (providers.push(provider), true),
+  });
+  expect(providers).toStrictEqual(['sentry']);
+  const titles = items.map((item) => item.title);
+  expect(titles).toContainEqual('package.json does not require @sentry/nextjs, so nothing reaches Sentry');
+  expect(titles.join('\n')).not.toMatch(/nightwatch|DEPLOY_HOOK|HEALTH_URL|bootstrap\/app\.php/i);
+});
+
+test('checks the Vercel token and project of a JavaScript app that deploys, not a deploy hook', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'vercel',
+    staging: true,
+    monitoring: 'none',
+    incidents: false,
+  });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'next',
+    healthFile: 'app/api/health/route.ts',
+    healthRoute: false,
+    environments: {
+      production: environment({ deployHook: false, variables: { VERCEL_PROJECT: 'prj_1' } }),
+      staging: environment({ variables: { VERCEL_PROJECT: null } }),
+    },
+  };
+  const items = await run(state, { repository: 'datalogix/app', probe: async () => 200 });
+  const errors = titles(items, 'error');
+  expect(errors).toContainEqual('Environment production has no VERCEL_TOKEN secret');
+  expect(errors).toContainEqual('Environment staging has no VERCEL_PROJECT variable');
+  expect(errors.join('\n')).not.toContain('DEPLOY_HOOK');
+  expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('No health route at app/api/health/route.ts'));
+});
+
+test('takes a protected health URL as passing only with the bypass secret of the environment', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'vercel',
+    staging: false,
+    monitoring: 'none',
+    incidents: false,
+  });
+  const items = (protectionSecret) =>
+    run(
+      {
+        ...APP_STATE,
+        stack: 'js',
+        workflow,
+        current: projectAnswers(parseInputs(workflow)),
+        framework: 'next',
+        healthFile: 'app/api/health/route.ts',
+        healthRoute: true,
+        environments: {
+          production: environment({ variables: { VERCEL_PROJECT: 'prj_1' }, protectionSecret }),
+          staging: environment({ exists: false }),
+        },
+      },
+      { repository: 'datalogix/app', probe: async () => 401 },
+    );
+  const passing = await items(true);
+  expect(titles(passing, 'warn').join('\n')).not.toContain('401');
+  expect(titles(passing, 'ok')).toContainEqual(
+    expect.stringContaining('is protected (401); the deploys pass with VERCEL_AUTOMATION_BYPASS_SECRET'),
+  );
+  expect(titles(await items(false), 'warn')).toContainEqual(
+    expect.stringContaining('answers 401 and the environment has no VERCEL_AUTOMATION_BYPASS_SECRET secret'),
+  );
+});
+
+test('does not look at the relay nor warn about problems without a monitoring service', async () => {
+  const items = await run(await stateFor({ deploy: 'none', solo: true, monitoring: 'none', incidents: true }), {
+    repository: 'datalogix/app',
+  });
+  const all = items.map((item) => item.title).join('\n');
+  expect(all).not.toMatch(/monitoring relay/);
+  expect(all).not.toMatch(/Nightwatch/);
 });
 
 test('probes every health URL and looks up the relay together, reporting them in order', async (t) => {

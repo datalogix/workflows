@@ -25,7 +25,7 @@ Review the security of the changes in PR #$1 and write the findings to `$2`. **D
 
 ## Output
 
-Write `$2` with exactly this JSON structure (an empty `findings` array when there is nothing to report). Write `summary`, `title`, `description` and `recommendation` in the team language (see the laravel:conventions skill).
+Write `$2` with exactly this JSON structure (an empty `findings` array when there is nothing to report). Write `summary`, `title`, `description` and `recommendation` in the team language (see the core:conventions skill).
 
 ```json
 {

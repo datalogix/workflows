@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chooseStack, setup } from '../commands/setup.js';
 import { answeredEnvironments, dropsProductionBranch, environmentsOf, PROJECT_CHECKS } from '../kinds/project/index.js';
-import { hasSecret, loadRelayConfig, registerSecret } from '../kinds/project/relay.js';
+import { hasSecret, loadRelayConfig, readSecret, registerSecret } from '../kinds/project/relay.js';
 import { LABELS, labelsFor } from '../kinds/project/state.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
 import { rulesetBody } from '../lib/ruleset.js';
@@ -25,9 +25,14 @@ import {
   tempRoot,
 } from './helpers.js';
 
-// What the prompts showed, and the answer a test gives them
+// What the prompts showed, and the answer a test gives them (or a function of the prompt that gives it)
 const prompts = vi.hoisted(() => ({ stops: [], asked: [], answer: undefined }));
-const reply = vi.hoisted(() => async (options) => (prompts.asked.push(options), prompts.answer));
+const reply = vi.hoisted(
+  () => async (options) => (
+    prompts.asked.push(options),
+    typeof prompts.answer === 'function' ? prompts.answer(options) : prompts.answer
+  ),
+);
 
 // Quiet spinners and progress bars: the tests read the results, not the terminal
 vi.mock('@clack/prompts', async (importOriginal) => ({
@@ -51,6 +56,7 @@ vi.mock('../kinds/project/relay.js', async (importOriginal) => {
   return {
     ...original,
     hasSecret: vi.fn(original.hasSecret),
+    readSecret: vi.fn(original.readSecret),
     loadRelayConfig: vi.fn(original.loadRelayConfig),
     registerSecret: vi.fn(),
   };
@@ -60,6 +66,7 @@ vi.mock('../kinds/project/relay.js', async (importOriginal) => {
 beforeEach(() => {
   Object.assign(prompts, { stops: [], asked: [], answer: undefined });
   vi.mocked(hasSecret).mockReset();
+  vi.mocked(readSecret).mockReset();
   vi.mocked(loadRelayConfig).mockReset();
   vi.mocked(registerSecret).mockReset();
   // No test reaches the network: the health URLs take a probe, Forge and Cloud a fake fetch
@@ -183,6 +190,7 @@ const setupFlags = {
   yes: true,
   repo: 'datalogix/app',
   deploy: 'none',
+  monitoring: 'nightwatch',
   incidents: false,
   language: 'pt-BR',
   lint: 'none',
@@ -258,6 +266,34 @@ describe('setup steps', () => {
     const step = stepOf('monitoringMarkers');
     expect(step.when({ deploy: 'forge' })).toBe(true);
     expect(step.when({ deploy: 'cloud' })).toBe(false);
+  });
+
+  test('offers to keep a token the environment has, even when the workflow file names another service', () => {
+    const answers = { repository: 'datalogix/app', deploy: 'forge', monitoring: 'nightwatch', monitoringMarkers: true };
+    const environments = {
+      ...APP_STATE.environments,
+      production: environment({ monitoringToken: false, monitoringTokens: { NIGHTWATCH_TOKEN: true } }),
+    };
+    const asked = askedSteps(setupSteps(), { ...answers, staging: false }, { state: { ...APP_STATE, environments } });
+    expect(asked).toContain('productionMonitoringTokenKeep');
+    expect(asked).not.toContain('productionMonitoringToken');
+  });
+
+  test('keeps a deploy target written by hand among the options, and asks for no hook of a provider without one', async () => {
+    const step = setupSteps().find((candidate) => candidate.id === 'deploy');
+    prompts.answer = 'vercel';
+    const ctx = { state: { ...APP_STATE, current: { deploy: 'vercel' } } };
+    expect(await step.ask({ header: '', answers: {}, ctx })).toBe('vercel');
+    expect(prompts.asked[0].initialValue).toBe('vercel');
+    expect(prompts.asked[0].options.map((option) => option.value)).toContain('vercel');
+    expect(
+      askedSteps(setupSteps(), { repository: 'datalogix/app', deploy: 'vercel', staging: false, domain: 'app.test' }),
+    ).not.toContain('productionHook');
+    const steps = nextSteps(
+      { repository: 'datalogix/app', deploy: 'vercel', incidents: false },
+      { relay, results: [], state: APP_STATE },
+    );
+    expect(steps.join('\n')).not.toMatch(/Forge|Laravel Cloud/);
   });
 
   test('asks for the Nightwatch token of production only with deploy markers', () => {
@@ -412,6 +448,64 @@ describe('setup steps', () => {
     );
     expect(steps).toContainEqual(expect.stringContaining('only accepts repositories of'));
     expect(steps).not.toContainEqual(expect.stringContaining('/nightwatch/'));
+  });
+
+  test('asks about problems as issues only with a monitoring service, and performance only from Nightwatch', () => {
+    const ids = (answers) => askedSteps(setupSteps(), { repository: 'datalogix/app', deploy: 'none', ...answers });
+    expect(ids({ monitoring: 'none' })).not.toContain('incidents');
+    expect(ids({ monitoring: 'nightwatch', incidents: true })).toContain('incidentPerformance');
+    expect(ids({ monitoring: 'sentry', incidents: true })).not.toContain('incidentPerformance');
+    // Deploy markers: Nightwatch on Forge only
+    expect(ids({ deploy: 'forge', monitoring: 'nightwatch' })).toContain('monitoringMarkers');
+    expect(ids({ deploy: 'forge', monitoring: 'sentry' })).not.toContain('monitoringMarkers');
+  });
+
+  test('asks for an Inspector key per environment and keeps the stored ones left empty', async () => {
+    const step = setupSteps().find((candidate) => candidate.id === 'webhookSecret');
+    const answers = {
+      repository: 'datalogix/app',
+      deploy: 'forge',
+      staging: true,
+      monitoring: 'inspector',
+      incidents: true,
+      incidentStaging: true,
+    };
+    const ask = async (stored, typed, given = answers) => {
+      Object.assign(prompts, { stops: [], asked: [] });
+      vi.mocked(readSecret).mockResolvedValueOnce(stored);
+      prompts.answer = (options) => typed[/key of (\w+)/.exec(options.message)[1]] ?? '';
+      const ctx = { relay, state: APP_STATE };
+      const value = await step.ask({ header: '', answers: given, ctx });
+      return { value, ctx, messages: prompts.asked.map((options) => options.message) };
+    };
+
+    const first = await ask('', { production: ' p-key ', staging: 's-key' });
+    expect(readSecret).toHaveBeenLastCalledWith(relay, 'inspector', 'datalogix/app');
+    expect(first.messages).toStrictEqual([
+      expect.stringMatching(/Inspector key of production.*empty to set it later/),
+      expect.stringMatching(/Inspector key of staging.*empty to set it later/),
+    ]);
+    expect(JSON.parse(first.value)).toStrictEqual({ production: 'p-key', staging: 's-key' });
+    expect(first.ctx.relayRegistered).toBe(false);
+
+    // Only production typed again: staging keeps its stored key
+    const again = await ask(JSON.stringify({ production: 'old', staging: 's-key' }), { production: 'new' });
+    expect(again.messages[1]).toContain('empty to keep the current one');
+    expect(JSON.parse(again.value)).toStrictEqual({ production: 'new', staging: 's-key' });
+    expect(again.ctx.relayRegistered).toBe(true);
+
+    // Nothing typed stores nothing; without staging problems only production is asked
+    expect((await ask(JSON.stringify({ production: 'old' }), {})).value).toBe('');
+    const production = await ask('', { production: 'p-key' }, { ...answers, incidentStaging: false });
+    expect(production.messages).toHaveLength(1);
+    expect(production.value).toBe(JSON.stringify({ production: 'p-key' }));
+
+    // A relay that cannot be read: unknown, and all the keys or none, since the JSON is stored whole
+    const unread = await ask(null, { staging: 's-key' });
+    expect(unread.ctx.relayRegistered).toBe(null);
+    expect(unread.value).toBe('');
+    const all = await ask(null, { production: 'p-key', staging: 's-key' });
+    expect(JSON.parse(all.value)).toStrictEqual({ production: 'p-key', staging: 's-key' });
   });
 
   test('tells to store the signing secret by hand on Windows', (t) => {
@@ -836,6 +930,21 @@ describe('setup tasks', () => {
       (candidate) => candidate.title === 'Environment production',
     );
     expect(await task.run()).toBe('NIGHTWATCH_TOKEN removed');
+    // Also when the project leaves the service, read from the secret and not from the workflow file
+    const left = fakeGitHub();
+    const switched = {
+      ...APP_STATE,
+      environments: {
+        ...APP_STATE.environments,
+        production: environment({ monitoringToken: false, monitoringTokens: { NIGHTWATCH_TOKEN: true } }),
+      },
+    };
+    const leaving = setupTasks(
+      { ...answers, monitoring: 'sentry', monitoringMarkers: undefined },
+      { github: left, root, state: switched, relay },
+    ).find((candidate) => candidate.title === 'Environment production');
+    expect(await leaving.run()).toBe('NIGHTWATCH_TOKEN removed');
+    expect(left.calls).toStrictEqual([['delete secret', 'NIGHTWATCH_TOKEN', 'production']]);
     expect(github.calls).toStrictEqual([['delete secret', 'NIGHTWATCH_TOKEN', 'production']]);
   });
 
@@ -1322,6 +1431,17 @@ describe('setup tasks', () => {
     expect(error.cause).toBe(denied);
   });
 
+  test('registers the Sentry signing secret under the sentry provider', async () => {
+    vi.mocked(registerSecret).mockResolvedValueOnce(undefined);
+    const answers = { repository: 'datalogix/app', deploy: 'none', codeOwners: '@ana', monitoring: 'sentry' };
+    const task = setupTasks(
+      { ...answers, incidents: true, webhookSecret: 'client-secret' },
+      { github: fakeGitHub(), root: '', state: APP_STATE, relay },
+    ).find((candidate) => candidate.id === 'monitoringRelay');
+    await task.run();
+    expect(vi.mocked(registerSecret)).toHaveBeenLastCalledWith(relay, 'sentry', 'datalogix/app', 'client-secret');
+  });
+
   test('registers the signing secret in the relay only with incidents and a secret', () => {
     const ids = (answers) =>
       idsOf(
@@ -1765,9 +1885,30 @@ describe('next steps', () => {
     );
     expect(protect).toMatch(/^After the first pull request shows its checks, protect the branches:/);
   });
+
+  test('names the Inspector keys in the next steps and does not ask to name its environments', () => {
+    const answers = { repository: 'datalogix/app', deploy: 'none', incidents: true, monitoring: 'inspector' };
+    const steps = nextSteps(answers, { relay, relayRegistered: false, results: [], state: APP_STATE });
+    expect(steps).toContainEqual(expect.stringContaining('/inspector/datalogix/app'));
+    expect(steps).toContainEqual(expect.stringContaining('store its application keys'));
+    expect(steps).not.toContainEqual(expect.stringContaining('name the environments'));
+    expect(steps).toContainEqual(expect.stringContaining('composer require inspector-apm/inspector-laravel'));
+    expect(
+      nextSteps(answers, { relay, relayRegistered: false, results: [], state: { ...APP_STATE, inspector: true } }),
+    ).not.toContainEqual(expect.stringContaining('composer require inspector-apm/inspector-laravel'));
+  });
 });
 
 describe('setup command', () => {
+  test('turns problems as issues off without a monitoring service', async (t) => {
+    const root = await folder(t, { artisan: '' }, 'setup-');
+    const { incidents, ...flags } = setupFlags;
+    expect(incidents).toBe(false);
+    expect(await setup(setupContext(root, setupGitHub(), { ...flags, monitoring: 'none' }))).toBe(0);
+    const inputs = parseInputs(await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8'));
+    expect([inputs.monitoring, inputs.incidents]).toStrictEqual(['none', 'false']);
+  });
+
   test('runs setup without questions and fails when a task fails', async (t) => {
     const root = await folder(t, { artisan: '' }, 'setup-');
     const ctx = (github) => setupContext(root, github);
@@ -1831,13 +1972,26 @@ describe('setup command', () => {
   });
 
   test('refuses a folder no stack recognizes, unless --stack or --kind says what it is', async (t) => {
-    const root = await folder(t, { 'package.json': '{}', 'nuxt.config.ts': '' }, 'setup-');
+    const root = await folder(t, { Gemfile: '', Rakefile: '' }, 'setup-');
     for (const flags of [{}, { yes: true }]) {
       await expect(chooseStack({ root, flags })).rejects.toThrow('This folder is not a Laravel app or package');
     }
     expect(prompts.asked).toStrictEqual([]);
     expect((await chooseStack({ root, flags: { kind: 'package' } })).label).toBe('Laravel package');
     expect((await chooseStack({ root, flags: { stack: 'laravel' } })).label).toBe('Laravel app');
+  });
+
+  test('asks whether a JavaScript folder is an app or a library, starting from the detected one', async (t) => {
+    const library = await folder(t, { 'package.json': '{"name": "lib"}' }, 'setup-');
+    prompts.answer = 'JavaScript package';
+    expect((await chooseStack({ root: library, flags: {} })).label).toBe('JavaScript package');
+    expect(prompts.asked).toMatchObject([{ initialValue: 'JavaScript package' }]);
+    expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual([
+      'JavaScript app',
+      'JavaScript package',
+    ]);
+    const app = await folder(t, { 'package.json': '{"dependencies": {"next": "^16"}}' }, 'setup-');
+    expect((await chooseStack({ root: app, flags: { yes: true } })).label).toBe('JavaScript app');
   });
 
   test('asks the kind, starting from the detected one, when the folder has no workflow file', async (t) => {
@@ -1847,4 +2001,38 @@ describe('setup command', () => {
     expect(prompts.asked).toMatchObject([{ initialValue: 'Laravel app' }]);
     expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual(['Laravel app', 'Laravel package']);
   });
+});
+
+test('sets a Next app up with stack js and Sentry, not deployed by the workflows', async (t) => {
+  const manifest = { dependencies: { next: '^16' }, scripts: { 'test:e2e': 'playwright test' } };
+  const root = await folder(t, { 'package.json': JSON.stringify(manifest) }, 'setup-');
+  const { monitoring, ...flags } = setupFlags;
+  expect([flags.deploy, monitoring]).toStrictEqual(['none', 'nightwatch']);
+  prompts.answer = false;
+  // Only the end-to-end tests question is left without a flag
+  expect(
+    await setup(
+      setupContext(root, setupGitHub(), { ...flags, yes: false, monitoring: 'sentry', stack: 'js', kind: 'app' }),
+    ),
+  ).toBe(1);
+  expect(prompts.asked.map((options) => options.message)).toStrictEqual([
+    expect.stringContaining('Run the end-to-end tests (test:e2e) in the tests?'),
+    'Apply these changes?',
+  ]);
+
+  expect(await setup(setupContext(root, setupGitHub(), { ...flags, monitoring: 'sentry' }))).toBe(0);
+  const inputs = parseInputs(await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8'));
+  expect(inputs).toMatchObject({ stack: 'js', monitoring: 'sentry', incidents: 'false' });
+  expect(inputs.deploy).toBe(undefined);
+});
+
+test("tells to install Sentry's SDK of the framework, and checks for it", async () => {
+  const jsApp = (await import('../stacks/js/app.js')).default;
+  const state = { ...APP_STATE, framework: 'nuxt', sentry: false };
+  const steps = jsApp.setup.nextSteps(
+    { repository: 'datalogix/app', monitoring: 'sentry', incidents: true },
+    { relay, results: [], state },
+  );
+  expect(steps).toContainEqual(expect.stringContaining('npx @sentry/wizard@latest -i nuxt'));
+  expect(steps).not.toContainEqual(expect.stringContaining('NIGHTWATCH_TOKEN'));
 });

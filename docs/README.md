@@ -4,11 +4,12 @@ Start with the [organization setup](organization-setup.md), done once: the Claud
 
 ## By stack
 
-Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Only Laravel is supported today; the `setup` command detects the stack and kind of the folder.
+Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages and JavaScript apps (Next, Nuxt) and libraries are supported; the `setup` command detects the stack and kind of the folder.
 
 | Stack | App | App tests | Package | Package tests |
 | --- | --- | --- | --- | --- |
 | Laravel | [Adding a Laravel app](laravel/app.md) ([by hand](laravel/app-manual-setup.md)) | [Laravel app tests](laravel/app-tests.md) | [Adding a Laravel package](laravel/package.md) | [Laravel package tests](laravel/package-tests.md) |
+| JavaScript (`js`) | [Adding a Next or Nuxt app](js/app.md) ([by hand](js/app-manual-setup.md)) | [JavaScript app tests](js/app-tests.md) | [Adding a JavaScript library](js/package.md) | [JavaScript library tests](js/package-tests.md) |
 
 ## Common to every stack
 
@@ -18,7 +19,7 @@ Each stack has the same four pages (plus a manual setup for apps): adding an app
 | [Daily use](daily-use.md) | Working with Claude, a feature from issue to production, what to do when something breaks |
 | [Verification layers](verification-layers.md) | The eight layers every change goes through, the branch ruleset, solo maintainers, project rules for the security review |
 | [Deploy](deploy.md) | Staging and production deploys, health checks, rollbacks and the release history |
-| [Production errors](production-errors.md) | Nightwatch problems as GitHub issues, the relay and how to add another monitoring provider |
+| [Production errors](production-errors.md) | Nightwatch, Sentry and Inspector problems as GitHub issues, the relay and how to add another monitoring provider |
 | [Task manager](task-manager.md) | How the task manager turns client tasks into GitHub issues, picks up issues labeled `task` and follows them |
 | [Claude's conventions and environment](claude.md) | The rules Claude follows, how the project is prepared for it, models and usage limits |
 | [Reference](reference.md) | The inputs of `project`, `package` and the workflows they call, the events `project` handles, the relay settings |

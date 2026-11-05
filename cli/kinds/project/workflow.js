@@ -13,9 +13,12 @@ import { TOOL_INPUTS, toolAnswers, toolInputs } from '../../lib/tools.js';
 export const PROJECT_REF = 'datalogix/workflows/.github/workflows/project.yml@v2';
 // Default of the language input of project.yml
 export const DEFAULT_LANGUAGE = 'pt-BR';
+// Default of the monitoring input of project.yml
+const DEFAULT_MONITORING = 'nightwatch';
 
 /** Inputs the setup command manages; any other input in an existing file is kept as it is. */
 const MANAGED = [
+  'stack',
   'review',
   'security-review',
   'risk-gate',
@@ -28,11 +31,13 @@ const MANAGED = [
   'approvals-high',
   'count-author',
   'github-deployments',
+  'monitoring',
   'incidents',
   'incident-environments',
   'incident-types',
   'language',
   'js',
+  'e2e',
   ...TOOL_INPUTS,
 ];
 
@@ -53,6 +58,7 @@ export function projectAnswers(inputs) {
     productionBranch: scalar(inputs['production-branch']) || null,
     solo: scalar(inputs['count-author'])?.toLowerCase() === 'true',
     githubDeployments: flagOf(inputs['github-deployments']),
+    monitoring: scalar(inputs.monitoring)?.toLowerCase() || DEFAULT_MONITORING,
     incidents: flagOf(inputs.incidents),
     incidentStaging: environments ? environments.includes('staging') : undefined,
     incidentPerformance: types ? types.includes('performance') : undefined,
@@ -61,6 +67,7 @@ export function projectAnswers(inputs) {
     approvalsMedium: scalar(inputs['approvals-medium']) || null,
     approvalsHigh: scalar(inputs['approvals-high']) || null,
     js: flagOf(inputs.js),
+    e2e: flagOf(inputs.e2e),
     language: scalar(inputs.language) || DEFAULT_LANGUAGE,
     ...toolAnswers(inputs),
   };
@@ -79,6 +86,9 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
   const keep = (input) => {
     if (current[input] !== undefined) managed[input] = current[input];
   };
+  // laravel is the default of project.yml: only another stack is written, first
+  if (answers.stack === undefined) keep('stack');
+  else if (answers.stack !== 'laravel') managed.stack = answers.stack;
   for (const [answer, input] of Object.entries(LAYERS)) {
     if (answers[answer] === undefined) keep(input);
     else if (answers[answer] === false) managed[input] = 'false';
@@ -96,6 +106,8 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
     else if (String(answers[answer]).trim() !== defaultValue) managed[input] = String(answers[answer]).trim();
   }
   if (answers.solo) managed['count-author'] = 'true';
+  if (answers.monitoring === undefined) keep('monitoring');
+  else if (answers.monitoring !== DEFAULT_MONITORING) managed.monitoring = answers.monitoring;
   if (answers.incidents === false) managed.incidents = 'false';
   // The lists keep values setup does not ask about (another environment, a list set when there was no staging)
   const list = (input, defaults, value, answer) => {
@@ -117,6 +129,8 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
   }
   if (answers.js === undefined) keep('js');
   else if (answers.js === false) managed.js = 'false';
+  if (answers.e2e === undefined) keep('e2e');
+  else if (answers.e2e === false) managed.e2e = 'false';
   Object.assign(managed, toolInputs(answers, current));
 
   const kept = Object.entries(current).filter(([key]) => !MANAGED.includes(key));

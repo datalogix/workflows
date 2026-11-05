@@ -6,14 +6,16 @@
  *   id    string  the URL segment and the prefix of its keys in the SECRETS namespace, e.g. "nightwatch"
  *   name  string  shown in GitHub issues, e.g. "Nightwatch"
  *
- *   verify(request, body, secret) => Promise<boolean>
+ *   verify(request, body, secret) => Promise<boolean | object>
  *     Proves that the raw body (a Uint8Array) came from the provider, with the secret configured for the repository.
+ *     An object counts as verified and is passed to normalize, e.g. Inspector's { environment } of the key that matched.
  *
  *   sentAt(webhook) => number
  *     When the provider sent the parsed webhook, in epoch milliseconds (NaN when missing).
  *
- *   normalize(webhook) => Incident | null
- *     Converts the parsed webhook into the incident format below, or returns null for events to ignore.
+ *   normalize(webhook, verified) => Incident | null | Promise<Incident | null>
+ *     Converts the parsed webhook into the incident format below, or returns null for events to ignore. verified is
+ *     what verify returned.
  *
  * Incident (what the incident workflow reads):
  *   {
@@ -37,6 +39,8 @@
  * A new provider also needs tests with a real webhook from it and its setup in docs/production-errors.md.
  */
 
+import inspector from './inspector.js';
 import nightwatch from './nightwatch.js';
+import sentry from './sentry.js';
 
-export const providers = Object.fromEntries([nightwatch].map((provider) => [provider.id, provider]));
+export const providers = Object.fromEntries([nightwatch, sentry, inspector].map((provider) => [provider.id, provider]));

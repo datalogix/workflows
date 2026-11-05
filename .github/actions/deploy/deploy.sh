@@ -14,6 +14,35 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/github.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/inputs.sh"
 # shellcheck source=SCRIPTDIR/../lib/releases.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/releases.sh"
+
+# The deploy provider (providers/<id>.sh) defines provider_settle_seconds (prints the seconds a deploy usually takes, or
+# the most provider_wait <seconds> follows it, when the provider can tell it finished), provider_check and
+# provider_trigger <sha>, which returns non-zero, with an ::error::, when the provider did not accept the deploy; and
+# optionally provider_wait (returns 1 when the deploy ended without going live, 2 when it had not ended within the
+# seconds) and provider_health_headers (prints the headers the health URL needs). The name is checked before it becomes
+# a path
+providers_dir="$(dirname "${BASH_SOURCE[0]}")/providers"
+if [[ "${PROVIDER:-}" =~ ^[a-z][a-z0-9-]*$ ]] && [ -f "$providers_dir/$PROVIDER.sh" ]; then
+  # shellcheck source=/dev/null
+  source "$providers_dir/$PROVIDER.sh"
+elif [ "${1:-}" != report-rollback ]; then
+  # The report needs no provider: it still tells the issue that the rollback could not run, and removes the label
+  known=""
+  for file in "$providers_dir"/*.sh; do known+="${known:+, }$(basename "$file" .sh)"; done
+  echo "::error::provider must be one of $known, got '${PROVIDER:-}'"
+  exit 1
+fi
+
+# The monitoring service (monitoring/<id>.sh) defines monitoring_name and, with deploy markers, mark_<id> <sha> <name>,
+# which marks a deploy when the environment has its token and only warns when it cannot. none, or a service without a
+# script, has neither
+monitoring=${MONITORING:-nightwatch}
+monitoring_file="$(dirname "${BASH_SOURCE[0]}")/monitoring/$monitoring.sh"
+if [[ "$monitoring" =~ ^[a-z][a-z0-9-]*$ ]] && [ -f "$monitoring_file" ]; then
+  # shellcheck source=/dev/null
+  source "$monitoring_file"
+fi
+
 history=$(history_ref "$environment_key")
 rejected=$(rolled_back_ref "$environment_key")
 live_path=$(live_ref "$environment_key")
@@ -46,34 +75,70 @@ set_live() {
 }
 
 mark_rolled_back() {
+  [ -n "$1" ] || return 0
   gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/$rejected/$1" -f "sha=$1" >/dev/null 2>&1 || true
 }
 
-trigger() {
-  local sha=$1 code
-  if [ "$PROVIDER" = cloud ]; then
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X POST --get --data-urlencode "commit_hash=$sha" "$DEPLOY_HOOK" || true)
-  else
-    # Forge deploys the branch head; the commit variable makes the deploy script check out this exact commit
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X POST --get \
-      --data-urlencode "forge_deploy_branch=$BRANCH" \
-      --data-urlencode "forge_deploy_commit=$sha" \
-      --data-urlencode "commit=$sha" \
-      "$DEPLOY_HOOK" || true)
+# For providers deployed by a hook: the DEPLOY_HOOK secret is required
+require_deploy_hook() {
+  if [ -z "${DEPLOY_HOOK:-}" ]; then
+    echo "::error::Add the DEPLOY_HOOK secret to the $ENVIRONMENT environment (Settings > Environments)"
+    exit 1
   fi
-  # No retries: a hook that answered late may have deployed already
+}
+
+# POSTs to the deploy hook with the given query parameters (curl --data-urlencode ...). No retries: a hook that
+# answered late may have deployed already
+post_hook() {
+  local code
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X POST --get "$@" "$DEPLOY_HOOK" || true)
   if [ "${code:0:1}" != 2 ]; then
     echo "::error::The deploy hook answered HTTP ${code:-000}"
     return 1
   fi
-  set_live "$sha"
+}
+
+# A provider that follows its deploy (provider_wait) records the change of release once the deploy is ready: a build
+# that fails leaves the previous one live. The wait runs in another step of the job, so the commits wait in files
+live_pending_file="${RUNNER_TEMP:-/tmp}/datalogix-live-$environment_key"
+rejected_pending_file="${RUNNER_TEMP:-/tmp}/datalogix-rolled-back-$environment_key"
+
+# Records the release as live and, on a rollback, never returns to the one it leaves, even if it passed its checks
+record_change() {
+  set_live "$1"
+  mark_rolled_back "$2"
+}
+
+# The second argument is the release a rollback leaves
+trigger() {
+  local sha=$1 leaving=${2:-}
+  provider_trigger "$sha" || return 1
+  if declare -F provider_wait >/dev/null; then
+    echo "$sha" > "$live_pending_file"
+    echo "$leaving" > "$rejected_pending_file"
+  else
+    record_change "$sha" "$leaving"
+  fi
   echo "Deploy of $sha to $ENVIRONMENT triggered"
 }
 
 settle() {
   local seconds=${1:-0}
   if [ "$seconds" -eq 0 ]; then
-    if [ "$PROVIDER" = cloud ]; then seconds=300; else seconds=120; fi
+    seconds=$(provider_settle_seconds)
+  fi
+  # A provider that can tell when the deploy finished follows it, for at most those seconds
+  if declare -F provider_wait >/dev/null; then
+    echo "Waiting up to $seconds seconds for $PROVIDER to finish the deploy"
+    local waited=0
+    provider_wait "$seconds" || waited=$?
+    # A deploy still going when the wait ends is taken as live: it may finish after this job, and a rollback must then
+    # start from it. Should it fail, a rollback from a release outside the history returns to the newest good one
+    if [ "$waited" -ne 1 ] && [ -s "$live_pending_file" ]; then
+      record_change "$(cat "$live_pending_file")" "$(cat "$rejected_pending_file" 2>/dev/null || true)"
+      rm -f "$live_pending_file" "$rejected_pending_file"
+    fi
+    return "$((waited == 0 ? 0 : 1))"
   fi
   echo "Waiting $seconds seconds for $PROVIDER to finish the deploy"
   sleep "$seconds"
@@ -84,11 +149,19 @@ settle() {
 # fewer checks than max-failures) is not taken as healthy
 watch_health() {
   # As a decimal number: arithmetic reads 08 as octal and fails, which would end the loop before any check
-  local minutes=$((10#$1)) fails=0 check=0 code
+  local minutes=$((10#$1)) fails=0 check=0 code headers=()
+  # Headers the provider needs on the health URL (provider_health_headers, e.g. a protection bypass), through a file:
+  # they may hold a secret, which never goes in the command line
+  if declare -F provider_health_headers >/dev/null; then
+    local header_file
+    header_file=$(mktemp)
+    provider_health_headers > "$header_file"
+    [ -s "$header_file" ] && headers=(-H "@$header_file")
+  fi
   while ((check < minutes * 2 || fails > 0)); do
     if ((check > 0)); then sleep 30; fi
     check=$((check + 1))
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$HEALTH_URL" 2>/dev/null || true)
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 ${headers[@]+"${headers[@]}"} "$HEALTH_URL" 2>/dev/null || true)
     if [ "$code" = 200 ]; then
       fails=0
       # A healthy watch is otherwise silent for minutes. Errors extend the window past the planned checks
@@ -107,30 +180,17 @@ watch_health() {
   done
 }
 
-# Laravel Cloud already reports its deploys to Nightwatch
-report_nightwatch() {
-  local sha=$1 name=$2
-  [ "$PROVIDER" = forge ] && [ -n "${NIGHTWATCH_TOKEN:-}" ] || return 0
-  # The token goes through a header file, never in the command line
-  jq -n --arg deploy "$sha" --arg ref "$sha" --arg name "$name" --arg url "$RUN_URL" '{deploy: $deploy, ref: $ref, name: $name, url: $url}' |
-    curl -sS --fail --max-time 30 -o /dev/null -X POST https://nightwatch.laravel.com/api/deployments \
-      -H @<(printf 'Authorization: Bearer %s\n' "$NIGHTWATCH_TOKEN") -H 'Content-Type: application/json' --data @- ||
-    echo "::warning::Could not report the deploy to Nightwatch"
+# Marks the deploy in the monitoring service, when it has deploy markers
+report_markers() {
+  if declare -F "mark_$monitoring" >/dev/null; then "mark_$monitoring" "$1" "$2"; fi
 }
 
 check() {
-  case "$PROVIDER" in
-    forge | cloud) ;;
-    *) echo "::error::provider must be forge or cloud, got '$PROVIDER'"; exit 1 ;;
-  esac
   case "$MODE" in
     deploy | rollback) ;;
     *) echo "::error::mode must be deploy or rollback, got '$MODE'"; exit 1 ;;
   esac
-  if [ -z "$DEPLOY_HOOK" ]; then
-    echo "::error::Add the DEPLOY_HOOK secret to the $ENVIRONMENT environment (Settings > Environments)"
-    exit 1
-  fi
+  provider_check
   if [ -z "$HEALTH_URL" ]; then
     echo "::error::Add the HEALTH_URL variable to the $ENVIRONMENT environment, e.g. https://example.com/up"
     exit 1
@@ -187,15 +247,14 @@ choose() {
 
 deploy() {
   local name
-  trigger "$SHA"
   if [ "$MODE" = rollback ]; then
-    # Only now that the environment changed: never return to the release rolled back, even if it passed its checks
-    mark_rolled_back "${FROM:-}"
+    trigger "$SHA" "${FROM:-}"
     name="$ENVIRONMENT rollback to ${SHA:0:7}"
   else
+    trigger "$SHA"
     name="$ENVIRONMENT ${SHA:0:7}"
   fi
-  report_nightwatch "$SHA" "$name"
+  report_markers "$SHA" "$name"
 }
 
 watch() {
@@ -226,11 +285,10 @@ rollback() {
 
   echo "target=$target" >> "$GITHUB_OUTPUT"
   echo "Rolling $ENVIRONMENT back to $target"
-  trigger "$target"
-  # Only now that the environment changed, as in a rollback by label: a release recorded as good before (deployed
-  # again with Re-run jobs) is never a rollback target after failing
-  mark_rolled_back "$GITHUB_SHA"
-  report_nightwatch "$target" "$ENVIRONMENT rollback to ${target:0:7}"
+  # As in a rollback by label: a release recorded as good before (deployed again with Re-run jobs) is never a rollback
+  # target after failing
+  trigger "$target" "$GITHUB_SHA"
+  report_markers "$target" "$ENVIRONMENT rollback to ${target:0:7}"
 
   settle "${SETTLE:-0}"
   if watch_health 3; then
@@ -242,31 +300,59 @@ rollback() {
   fi
 }
 
-open_issue() {
-  local short=${GITHUB_SHA:0:7} result body
+# Where to look after a failed deploy: the monitoring service's errors, when there is one, and the provider's logs
+errors_hint() {
+  local rerun_en="To redeploy this commit after the fix, use **Re-run jobs** on this run: $RUN_URL"
+  local rerun_pt="Para redeployar este commit depois da correção, use **Re-run jobs** nesta execução: $RUN_URL"
+  if declare -F monitoring_name >/dev/null; then
+    local name
+    name=$(monitoring_name)
+    t "Check the errors in $name and the deploy logs in $PROVIDER. $rerun_en" \
+      "Verifique os erros no $name e os logs do deploy no $PROVIDER. $rerun_pt"
+  else
+    t "Check the deploy logs in $PROVIDER. $rerun_en" "Verifique os logs do deploy no $PROVIDER. $rerun_pt"
+  fi
+}
+
+# What happened after the health checks failed
+rollback_result() {
+  local short=${GITHUB_SHA:0:7}
   # shellcheck disable=SC2153 # TARGET is set by the step env in deploy.yml
   case "${ROLLBACK:-}" in
     success)
-      result=$(t "The environment was rolled back automatically to \`${TARGET:0:7}\` and is responding again." \
-        "O ambiente foi revertido automaticamente para \`${TARGET:0:7}\` e voltou a responder.") ;;
+      t "The environment was rolled back automatically to \`${TARGET:0:7}\` and is responding again." \
+        "O ambiente foi revertido automaticamente para \`${TARGET:0:7}\` e voltou a responder." ;;
     failure)
       if [ -n "${TARGET:-}" ]; then
-        result=$(t "**The automatic rollback to \`${TARGET:0:7}\` did not help**. The environment needs attention now." \
-          "**A reversão automática para \`${TARGET:0:7}\` não resolveu**. O ambiente precisa de atenção agora.")
+        t "**The automatic rollback to \`${TARGET:0:7}\` did not help**. The environment needs attention now." \
+          "**A reversão automática para \`${TARGET:0:7}\` não resolveu**. O ambiente precisa de atenção agora."
       else
-        result=$(t "**The automatic rollback could not start** (no earlier good release, or the release history could not be read: see the run); the environment still runs \`$short\` and needs attention now." \
-          "**A reversão automática não pôde começar** (não há versão boa anterior, ou o histórico de versões não pôde ser lido: veja a execução); o ambiente continua com \`$short\` e precisa de atenção agora.")
+        t "**The automatic rollback could not start** (no earlier good release, or the release history could not be read: see the run); the environment still runs \`$short\` and needs attention now." \
+          "**A reversão automática não pôde começar** (não há versão boa anterior, ou o histórico de versões não pôde ser lido: veja a execução); o ambiente continua com \`$short\` e precisa de atenção agora."
       fi ;;
     *)
-      result=$(t "The automatic rollback is off; the environment still runs \`$short\`." \
-        "A reversão automática está desligada; o ambiente continua com \`$short\`.") ;;
+      t "The automatic rollback is off; the environment still runs \`$short\`." \
+        "A reversão automática está desligada; o ambiente continua com \`$short\`." ;;
   esac
+}
+
+open_issue() {
+  local short=${GITHUB_SHA:0:7} headline result body
+  # WAIT is the outcome of the wait for the deploy: without its end there were no health checks and no rollback
+  if [ "${WAIT:-}" = failure ]; then
+    headline=$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** did not finish in $PROVIDER: see the reason in the run." \
+      "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** não terminou no $PROVIDER: veja o motivo na execução.")
+    result=$(t "Its health was not checked and nothing was rolled back. If it was still going, it may go live after this run: check which release is live." \
+      "A saúde não foi verificada e nada foi revertido. Se ainda estava em andamento, pode entrar no ar depois desta execução: confira qual versão está no ar.")
+  else
+    headline=$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** failed the health checks of \`$HEALTH_URL\`." \
+      "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** falhou nos health checks de \`$HEALTH_URL\`.")
+    result=$(rollback_result)
+  fi
   body=$(printf '%s\n\n%s\n\n%s\n\n%s' \
-    "$(t "The deploy of commit $GITHUB_SHA to **$ENVIRONMENT** failed the health checks of \`$HEALTH_URL\`." \
-      "O deploy do commit $GITHUB_SHA em **$ENVIRONMENT** falhou nos health checks de \`$HEALTH_URL\`.")" \
+    "$headline" \
     "$result" \
-    "$(t "Check the errors in Nightwatch and the deploy logs in $PROVIDER. To redeploy this commit after the fix, use **Re-run jobs** on this run: $RUN_URL" \
-      "Verifique os erros no Nightwatch e os logs do deploy no $PROVIDER. Para redeployar este commit depois da correção, use **Re-run jobs** nesta execução: $RUN_URL")" \
+    "$(errors_hint)" \
     "$(t "To ask Claude to investigate, add the \`claude-plan\` label." \
       "Para pedir ao Claude que investigue, adicione o label \`claude-plan\`.")")
 
@@ -289,6 +375,9 @@ report_rollback() {
     success)
       body=$(t "**$ENVIRONMENT** was rolled back from \`${FROM:0:7}\` to \`${SHA:0:7}\` and is responding normally. Release \`${FROM:0:7}\` will not be used in future rollbacks. To publish it again once fixed, merge again." \
         "**$ENVIRONMENT** foi revertido de \`${FROM:0:7}\` para \`${SHA:0:7}\` e está respondendo normalmente. A versão \`${FROM:0:7}\` não será usada em reversões futuras. Para voltar a publicá-la depois de corrigida, faça um novo merge.") ;;
+    deploy-failed)
+      body=$(t "The rollback of **$ENVIRONMENT** to \`${SHA:0:7}\` was triggered, but its deploy did not finish in $PROVIDER: see the reason in the run. Check the environment." \
+        "A reversão de **$ENVIRONMENT** para \`${SHA:0:7}\` foi disparada, mas o deploy não terminou no $PROVIDER: veja o motivo na execução. Confira o ambiente.") ;;
     cancelled)
       body=$(t "The rollback of **$ENVIRONMENT** to \`${SHA:0:7}\` was triggered, but the check was interrupted (timeout or cancellation). Check the environment." \
         "A reversão de **$ENVIRONMENT** para \`${SHA:0:7}\` foi disparada, mas a verificação foi interrompida (tempo esgotado ou cancelamento). Confira o ambiente.") ;;

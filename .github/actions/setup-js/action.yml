@@ -1,0 +1,76 @@
+name: Setup JavaScript
+description: Prepares a JavaScript project with Node and its dependencies, installed with pnpm, yarn or npm according to the lockfile
+
+inputs:
+  node-version:
+    description: Node version (empty reads .nvmrc or .node-version, otherwise the current LTS)
+    default: ""
+
+outputs:
+  run:
+    description: How to run a package.json script (npm run, pnpm run or yarn run)
+    value: ${{ steps.manager.outputs.run }}
+  lockfile:
+    description: The lockfile the dependencies were installed from (package-lock.json, pnpm-lock.yaml, yarn.lock), empty without one
+    value: ${{ steps.manager.outputs.lockfile }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version || (hashFiles('.nvmrc', '.node-version') == '' && 'lts/*' || '') }}
+        node-version-file: ${{ inputs.node-version == '' && (hashFiles('.nvmrc') != '' && '.nvmrc' || (hashFiles('.node-version') != '' && '.node-version' || '')) || '' }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.npm
+          ~/.local/share/pnpm/store
+          ~/.cache/yarn
+          ~/.yarn/berry/cache
+        key: node-${{ runner.os }}-${{ inputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'package.json') }}
+        restore-keys: node-${{ runner.os }}-${{ inputs.node-version }}-
+
+    - name: Detect the package manager
+      id: manager
+      shell: bash
+      run: |
+        if [ -f pnpm-lock.yaml ]; then
+          echo "run=pnpm run" >> "$GITHUB_OUTPUT"
+          echo "lockfile=pnpm-lock.yaml" >> "$GITHUB_OUTPUT"
+        elif [ -f yarn.lock ]; then
+          echo "run=yarn run" >> "$GITHUB_OUTPUT"
+          echo "lockfile=yarn.lock" >> "$GITHUB_OUTPUT"
+        elif [ -f package-lock.json ]; then
+          echo "run=npm run" >> "$GITHUB_OUTPUT"
+          echo "lockfile=package-lock.json" >> "$GITHUB_OUTPUT"
+        else
+          echo "run=npm run" >> "$GITHUB_OUTPUT"
+          echo "lockfile=" >> "$GITHUB_OUTPUT"
+        fi
+
+    # As setup-laravel installs them
+    - name: Install dependencies
+      shell: bash
+      run: |
+        # Corepack ships with Node only up to 24
+        enable_corepack() {
+          command -v corepack >/dev/null || npm install -g corepack
+          corepack enable
+        }
+
+        if [ -f pnpm-lock.yaml ]; then
+          enable_corepack
+          PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 pnpm install --frozen-lockfile
+        elif [ -f yarn.lock ]; then
+          enable_corepack
+          YARN_NPM_MINIMAL_AGE_GATE=0 yarn install --frozen-lockfile
+        elif [ -f package-lock.json ]; then
+          npm ci --min-release-age=0
+        else
+          npm install --min-release-age=0
+        fi

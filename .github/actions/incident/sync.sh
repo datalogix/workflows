@@ -146,7 +146,7 @@ case "$event" in
 
     analyze=true
     if [ -n "$number" ]; then
-      comment=$(t "The problem happened again, according to $provider: $url" "O problema voltou a ocorrer, segundo o $provider: $url")
+      comment=$(t "The problem happened again, according to $provider${url:+: $url}" "O problema voltou a ocorrer, segundo o $provider${url:+: $url}")
       # Analyzed again only with another release live than the last analysis: the same one adds nothing to it
       if [ "$live_read" = true ] && [ "$(analyzed_release)" = "release:$live" ]; then
         analyze=false

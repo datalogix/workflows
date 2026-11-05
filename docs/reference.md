@@ -8,13 +8,14 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 
 | Input                                                             | Default                        | Description                                                              |
 | ----------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------ |
-| `stack`                                                           | `laravel`                      | Stack of the project, which picks its tests, the environment prepared for Claude and the Claude plugin (`laravel@datalogix`); only `laravel` is supported (another one fails the run) |
+| `stack`                                                           | `laravel`                      | Stack of the project, `laravel` or [`js`](js/app.md) (Next, Nuxt; another one fails the run), which picks its tests, the environment prepared for Claude, the Claude plugins (`core@datalogix` with `laravel@datalogix` or `js@datalogix`) and the default high-risk paths. Deploys: `forge` and `cloud` with `laravel`, `vercel` with `js` |
 | `tests` / `review` / `security-review` / `risk-gate` / `fix-ci`   | `true`                         | Turn each layer on or off; `tests`, `security-review` and `risk-gate` have required checks, so run `protect` again after changing them |
 | `php-version` / `node-version`                                    | detected                       | Override the environment versions                                        |
 | `pint` / `phpstan`                                                | `true`                         | Run Pint (on the files changed by the pull request) and PHPStan when they are installed; see [Lint and test suite](laravel/app-tests.md#lint-and-test-suite) |
 | `lint-command`                                                    | empty                          | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check` |
 | `test-command`                                                    | detected                       | Test command, `none` skips the test suite; see [Test scripts](laravel/app-tests.md#test-scripts) |
 | `js`                                                              | `true`                         | Run the `typecheck`, `lint` and `test` scripts of `package.json`         |
+| `e2e`                                                             | `true`                         | `stack: js`: run the `test:e2e` script after the build (see [JavaScript app tests](js/app-tests.md)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
@@ -22,14 +23,15 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `approvals-medium` / `approvals-high`                             | `1` / `1`                      | Human approvals for medium and high risk pull requests                   |
 | `count-author`                                                    | `false`                        | Count a human author with write access as one approval (solo maintainers) |
 | `extra-high-risk-paths`                                           | empty                          | More patterns (one per line) that make a pull request high risk, added to the risk gate's defaults (e.g. `app/Services/Payment/*`) |
-| `deploy`                                                          | `none`                         | Deploy the default branch with `forge` or `cloud` (with `production-branch`, the production branch goes to production) |
+| `deploy`                                                          | `none`                         | Deploy the default branch with `forge`, `cloud` or [`vercel`](deploy.md#vercel) (the one setup offers for `stack: js`; with `production-branch`, the production branch goes to production) |
 | `staging`                                                         | `true`                         | Deploy and watch `staging` before `production`                           |
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
 | `production-branch`                                               | empty                          | Branch deployed to production (e.g. `main`); the default branch then deploys only staging. List both branches in `push.branches` (e.g. `[develop, main]`; setup does). See [Production branch](deploy.md#production-branch) |
-| `settle-seconds`                                                  | `0`                            | Wait after triggering a deploy or rollback before watching; `0` uses 120 on Forge and 300 on Laravel Cloud |
+| `settle-seconds`                                                  | `0`                            | Wait after triggering a deploy or rollback before watching; `0` uses 120 on Forge and 300 on Laravel Cloud. Vercel follows the build until it is ready, for at most this (`0`: 900) |
 | `watch-minutes`                                                   | `3`                            | Minutes each environment is watched after a deploy                       |
 | `staging-watch-minutes`                                           | `0`                            | Minutes staging is watched, so production follows sooner (e.g. `1`); `0` uses `watch-minutes` |
 | `github-deployments`                                              | `true`                         | Record each deploy and rollback in the repository's **Deployments**; `false` still uses the environments' secrets, variables and required reviewers |
+| `monitoring`                                                      | `nightwatch`                   | Monitoring service of the app: `nightwatch`, `sentry`, `inspector` or `none`. Its problems become issues (with `incidents`; never with `none`), the issue of a failed deploy names it, and Nightwatch marks each deploy on Forge. See [Production errors](production-errors.md) |
 | `incidents`                                                       | `true`                         | Turn monitoring problems into GitHub issues analyzed by Claude           |
 | `incident-environments`                                           | `["production", "staging"]`    | Monitoring environments whose problems become GitHub issues (JSON)       |
 | `incident-types`                                                  | `["exception", "performance"]` | Problem types that become GitHub issues (JSON)                           |
@@ -52,12 +54,12 @@ Secrets: `CLAUDE_CODE_OAUTH_TOKEN` (required); `RELEASE_APP_CLIENT_ID` and `RELE
 
 ## `package`
 
-The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Packages](laravel/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, plus:
+The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Laravel packages](laravel/package.md) and [JavaScript libraries](js/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, or with `stack: js` [`node-package-tests`](js/package-tests.md#inputs) (with `node`, `os`, `test-command`, `lint-command` and `timeout-minutes`), plus:
 
 | Input   | Default | Description                                                                                |
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
-| `stack` | `laravel` | Stack of the package, which picks its tests; only `laravel` is supported (another one fails the run) |
-| `tests` | `true`  | Run the test suite across the matrix, Pint, PHPStan and the lint command; it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
+| `stack` | `laravel` | Stack of the package, which picks its tests: `laravel` or `js` (another one fails the run) |
+| `tests` | `true`  | Run the test suite (`laravel`: across the matrix, Pint, PHPStan and the lint command); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 
 Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
 
@@ -66,9 +68,17 @@ Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
 
 The tests of a Laravel app: see [Laravel app tests](laravel/app-tests.md#inputs).
 
+## `node-app-tests`
+
+The tests of a Next or Nuxt app (`stack: js`): see [JavaScript app tests](js/app-tests.md#inputs).
+
 ## `laravel-package-tests`
 
 The tests of a Laravel package: see [Laravel package tests](laravel/package-tests.md#inputs).
+
+## `node-package-tests`
+
+The tests of a JavaScript or TypeScript library: see [JavaScript library tests](js/package-tests.md#inputs).
 
 ## `claude`
 
@@ -89,7 +99,8 @@ The tests of a Laravel package: see [Laravel package tests](laravel/package-test
 | `language`                                | `pt-BR`                                                                                          | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
 | `allowed-tools`                           | `Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*`                              | Tools Claude may use                                                      |
 | `disallowed-tools`                        | force push, branch deletion, `gh pr merge`, `gh pr review`, `gh release`, `gh repo`, `gh secret` | Tools Claude may never use                                                |
-| `plugin-marketplaces` / `plugins`         | empty / `laravel@datalogix`                                                                      | Extra marketplaces, besides this repository's at the workflows' version (always added), and plugins to install |
+| `plugin-marketplaces` / `plugins`         | empty                                                                                            | Extra marketplaces, besides this repository's at the workflows' version (always added), and extra plugins, besides `core@datalogix` and the stack's (always installed) |
+| `stack`                                   | `laravel`                                                                                        | `laravel` or `js`: the environment prepared for Claude (`setup-laravel` or `setup-js`) and the commands and conventions skill of its plugin (`<stack>@datalogix`, which `plugins` must list). The other Claude workflows and `incident` take it too |
 | `show-full-output`                        | `false`                                                                                          | Print Claude's full output in the logs (may expose secrets)               |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
@@ -106,7 +117,7 @@ Reviews a pull request. `project` calls it once, when the pull request is opened
 | `allowed-bots`                    | `*`                                    | Bots whose pull requests are reviewed                  |
 | `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes) |
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
-| `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins, besides `code-review`       |
+| `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins, besides `code-review` and those of `claude`       |
 | `timeout-minutes`                 | `30`                                   | Job timeout                                            |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
@@ -122,7 +133,7 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 | `ignored-authors`                 | `["dependabot[bot]", "renovate[bot]"]` | Authors that are not reviewed (JSON), unless someone else pushed the commits; dependencies are covered by `composer audit` and the Node audit |
 | `allowed-bots`                    | `*`                                    | Bots whose pull requests are reviewed                                               |
 | `max-turns` / `timeout-minutes`   | `40` / `30`                            | Limits                                                                              |
-| `plugin-marketplaces` / `plugins` | same as `claude`                       | Claude Code plugins to install                                                      |
+| `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins                                                      |
 | `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes)                              |
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 
@@ -136,7 +147,8 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
 | Input                                                   | Default                                                                                                                                    | Description                                                                |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `high-risk-paths`                                       | migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
+| `stack`                                                 | `laravel`                                                                                                                                  | Picks the default `high-risk-paths`: Laravel's, or JavaScript's for `js` |
+| `high-risk-paths`                                       | Laravel: migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*`. `js`: `middleware.*`, `proxy.*`, `server/*`, `app/api/*`, `pages/api/*` (also under `src/`), `middleware/*`, `app/middleware/*`, auth files and folders, `prisma/*`, `drizzle/*`, `migrations/*`, `nuxt.config.*`, `next.config.*`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
 | `extra-high-risk-paths`                                 | empty | More patterns, added to `high-risk-paths`: a project's own sensitive paths without repeating (or dropping) the defaults |
 | `low-risk-paths`                                        | tests, Markdown, `docs/*`, `lang/*.json`, editor and git config                                                                                 | A pull request touching only these is low risk; everything else is medium (`lang/*.php` too: it is PHP the app runs) |
 | `ignored-paths`                                         | lock files, `public/build/*`                                                                                                               | Make it at least medium risk, but not counted in the changed lines         |
@@ -160,7 +172,7 @@ Patterns use shell matching where `*` also matches `/`, so `app/Policies/*` cove
 | `extra-instructions`                 | empty            | Extra instructions for this project (no double quotes)                |
 | `language`                           | `pt-BR`          | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 | `allowed-tools` / `disallowed-tools` | same as `claude` | Tools Claude may or may never use                                     |
-| `plugin-marketplaces` / `plugins`    | same as `claude` | Claude Code plugins to install                                        |
+| `plugin-marketplaces` / `plugins`    | same as `claude` | Extra Claude Code plugins                                        |
 
 Runs inside `project` after failed tests. Called from a workflow of its own on `workflow_run` instead (of the workflow that runs the tests), it reads the failed run from that event.
 
@@ -173,17 +185,18 @@ Called by `project` once per environment, and for rollbacks. Reads the environme
 | Input             | Default   | Description                                                                                     |
 | ----------------- | --------- | ----------------------------------------------------------------------------------------------- |
 | `environment`     | required  | GitHub environment to deploy                                                                    |
-| `provider`        | required  | `forge` or `cloud`                                                                              |
+| `provider`        | required  | `forge`, `cloud` or `vercel`                                                                    |
 | `branch`          | empty     | Branch the environment deploys, sent to Forge with the commit; empty uses the default branch    |
 | `mode`            | `deploy`  | `deploy` publishes the run's commit; `rollback` returns to the release before the live one      |
 | `issue`           | `0`       | Issue that asked for the rollback; gets the result as a comment and loses the `rollback` label  |
 | `rollback-label`  | `rollback`| Label removed from that issue after a rollback                                                  |
-| `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud |
+| `settle-seconds`  | `0`       | Wait after triggering the deploy before watching; `0` uses 120 on Forge and 300 on Laravel Cloud. Vercel follows the build until it is ready, for at most this (`0`: 900) |
 | `watch-minutes`   | `3`       | Minutes to watch the health URL                                                                 |
 | `max-failures`    | `3`       | Consecutive failed checks (every 30 seconds) that trigger the rollback                          |
 | `rollback`        | `true`    | Redeploy the last good release when the checks fail                                             |
 | `github-deployments` | `true` | Record the deploy in the repository's **Deployments**; `false` still uses the environment (custom deployment protection rules need the record: with them, `false` fails the job) |
 | `timeout-minutes` | `60`      | Job timeout                                                                                     |
+| `monitoring`      | `nightwatch` | Monitoring service named in the issue of a failed deploy, and marked with each deploy when it has deploy markers (`none`: no service) |
 | `language`        | `pt-BR`   | Language of the issues and comments: `en` for a value starting with `en`, otherwise `pt-BR`     |
 
 An automatic rollback is watched for 3 minutes; a rollback from the `rollback` label (`project`) for 5.
@@ -210,7 +223,7 @@ Called by `project` on `repository_dispatch` events of type `incident`, sent by 
 | `label`                           | `incident`                     | Label of the created issues; each also gets `env:<environment>` (both created automatically)  |
 | `model`                           | `opus`                         | Model for the analysis                                                                        |
 | `max-turns` / `timeout-minutes`   | `40` / `30`                    | Limits                                                                                        |
-| `plugin-marketplaces` / `plugins` | same as `claude`               | Claude Code plugins to install                                                                |
+| `plugin-marketplaces` / `plugins` | same as `claude`               | Extra Claude Code plugins                                                                |
 | `extra-instructions`              | empty                          | Extra instructions for this project (no double quotes)                                        |
 | `language`                        | `pt-BR`                        | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 

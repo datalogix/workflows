@@ -13,6 +13,7 @@
  *   ALLOWED_OWNER  (var)       GitHub owner whose repositories may be targeted, e.g. datalogix (in any case)
  *   GITHUB_TOKEN   (secret)    Fine-grained token with Contents: read and write on the project repositories
  *   SECRETS        (KV)        One entry per repository and provider: "<provider>:<owner>/<repo>" (lowercase) => secret.
+ *                              (Inspector's is a JSON object of keys by environment, see providers/inspector.js.)
  *                              Kept in KV, not in a single secret, so one project can be added or changed
  *                              (by the setup command) without rewriting the others. Also holds, for a while, the
  *                              events already delivered ("delivery:<provider>:<owner>/<repo>:<sha256 of the body>").
@@ -22,6 +23,14 @@ import { providers } from './providers/index.js';
 import { deliveryKey, secretKey } from './keys.js';
 
 const MAX_MESSAGE_LENGTH = 2000;
+// A provider may put the whole message in the title, and a title that long is refused
+const MAX_TITLE_LENGTH = 200;
+
+/** Counted and cut by code point, so an emoji is not cut in half. */
+function cut(text, limit) {
+  const chars = Array.from(text);
+  return chars.length > limit ? chars.slice(0, limit).join('') + '…' : text;
+}
 const MAX_BODY_BYTES = 1024 * 1024;
 // Wide enough for the provider's retries, which keep the original timestamp; narrow enough to stop old replays
 const MAX_EVENT_AGE_MS = 60 * 60 * 1000;
@@ -104,7 +113,7 @@ export default {
       return new Response('Invalid JSON', { status: 400 });
     }
 
-    const incident = provider.normalize(webhook);
+    const incident = await provider.normalize(webhook, verified);
     if (!incident) {
       // An event the provider sends but the incident flow does not use: acknowledge so it is not retried
       return new Response(null, { status: 204 });
@@ -123,13 +132,8 @@ export default {
     }
 
     const message = incident.issue.details?.message;
-    if (typeof message === 'string') {
-      // Counted and cut by code point, so an emoji is not cut in half
-      const chars = Array.from(message);
-      if (chars.length > MAX_MESSAGE_LENGTH) {
-        incident.issue.details.message = chars.slice(0, MAX_MESSAGE_LENGTH).join('') + '…';
-      }
-    }
+    if (typeof message === 'string') incident.issue.details.message = cut(message, MAX_MESSAGE_LENGTH);
+    if (typeof incident.issue.title === 'string') incident.issue.title = cut(incident.issue.title, MAX_TITLE_LENGTH);
 
     let response;
     try {

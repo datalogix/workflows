@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { callsTo, runScript, unmatchedReads } from './fakes.js';
 
@@ -70,7 +73,11 @@ describe('check', () => {
   test('check rejects an unknown provider or mode and a missing health URL', async () => {
     const provider = await step('check', { env: { PROVIDER: 'heroku' } });
     expect(provider.code).toBe(1);
-    expect(provider.stdout).toMatch(/provider must be forge or cloud, got 'heroku'/);
+    expect(provider.stdout).toMatch(/provider must be one of cloud, forge, vercel, got 'heroku'/);
+    // The name becomes a path, so it never leaves providers/
+    const path = await step('check', { env: { PROVIDER: '../monitoring/nightwatch' } });
+    expect(path.code).toBe(1);
+    expect(path.stdout).toMatch(/provider must be one of cloud, forge, vercel, got '\.\.\/monitoring\/nightwatch'/);
 
     const mode = await step('check', { env: { MODE: 'redeploy' } });
     expect(mode.code).toBe(1);
@@ -256,6 +263,15 @@ describe('deploy', () => {
     });
     expect(cloud.code).toBe(0);
     expect(reported(cloud)).toStrictEqual([]);
+  });
+
+  test('deploy marks Nightwatch only when it is the monitoring service', async () => {
+    const env = { SHA: sha('c'), NIGHTWATCH_TOKEN: 'token' };
+    for (const monitoring of ['sentry', 'inspector', 'none', '../x']) {
+      const result = await step('deploy', { env: { ...env, MONITORING: monitoring } });
+      expect(result.code).toBe(0);
+      expect(callsTo(result, 'curl').filter((call) => call.includes('nightwatch.laravel.com'))).toStrictEqual([]);
+    }
   });
 
   test('deploy warns when Nightwatch rejects the deploy marker', async () => {
@@ -524,6 +540,32 @@ describe('open-issue', () => {
     expect(callsTo(result, 'gh')).not.toContainEqual(expect.stringMatching(/^label create env:/));
   });
 
+  test('open-issue says the deploy did not finish, without health checks or a rollback, when the wait failed', async () => {
+    const issue = (result) => callsTo(result, 'gh').find((call) => call.startsWith('issue create'));
+    const portuguese = issue(
+      await step('open-issue', { env: { PROVIDER: 'vercel', WAIT: 'failure', ROLLBACK: 'skipped' } }),
+    );
+    expect(portuguese).toMatch(/não terminou no vercel/);
+    expect(portuguese).toMatch(/A saúde não foi verificada e nada foi revertido/);
+    expect(portuguese).not.toMatch(/A reversão automática está desligada/);
+    expect(portuguese).toMatch(/--label env:production/);
+    const english = issue(
+      await step('open-issue', { env: { PROVIDER: 'vercel', WAIT: 'failure', ROLLBACK: 'skipped', LANGUAGE: 'en' } }),
+    );
+    expect(english).toMatch(/did not finish in vercel/);
+  });
+
+  test('open-issue names the monitoring service, when the project has one', async () => {
+    const hint = async (monitoring) => {
+      const result = await step('open-issue', { env: { ROLLBACK: 'failure', MONITORING: monitoring } });
+      return callsTo(result, 'gh').find((call) => call.startsWith('issue create'));
+    };
+    expect(await hint('nightwatch')).toMatch(/Verifique os erros no Nightwatch e os logs do deploy no forge\./);
+    expect(await hint('sentry')).toMatch(/Verifique os erros no Sentry e os logs do deploy no forge\./);
+    expect(await hint('inspector')).toMatch(/Verifique os erros no Inspector e os logs do deploy no forge\./);
+    expect(await hint('none')).toMatch(/Verifique os logs do deploy no forge\. Para redeployar/);
+  });
+
   test('open-issue labels the issue with its environment, so the rollback label reverts that one', async () => {
     const result = await step('open-issue', { env: { ENVIRONMENT: 'Staging', ROLLBACK: 'failure' } });
     const gh = callsTo(result, 'gh');
@@ -579,6 +621,16 @@ describe('report-rollback', () => {
     expect(callsTo(result, 'gh')[0]).toMatch(/^issue comment 12 .*The rollback of production to `aaaaaaa` failed/);
   });
 
+  test('report-rollback tells the issue and removes the label also with a provider that does not exist', async () => {
+    const result = await step('report-rollback', {
+      env: { MODE: 'rollback', PROVIDER: 'Forge', ISSUE: '5', LABEL: 'rollback', RESULT: 'skipped' },
+    });
+    expect(result.code).toBe(0);
+    const gh = callsTo(result, 'gh');
+    expect(gh).toContainEqual(expect.stringMatching(/^issue comment 5 .*Não foi possível reverter/));
+    expect(gh).toContainEqual(expect.stringContaining('--remove-label rollback'));
+  });
+
   test('report-rollback tells a failed hook apart from failed health checks', async () => {
     const report = async (RESULT, LANGUAGE = '') =>
       callsTo(
@@ -590,14 +642,180 @@ describe('report-rollback', () => {
 
     expect(await report('failure')).toMatch(/falhou nos health checks/);
     expect(await report('cancelled')).toMatch(/foi disparada, mas a verificação foi interrompida/);
+    expect(await report('deploy-failed')).toMatch(/o deploy não terminou no forge/);
     expect(await report('skipped')).toMatch(/Não foi possível reverter/);
     expect(await report('')).toMatch(/Não foi possível reverter/);
 
     expect(await report('success', 'en')).toMatch(/rolled back from `ccccccc` to `aaaaaaa` and is responding normally/);
     expect(await report('failure', 'en')).toMatch(/failed the health checks/);
     expect(await report('cancelled', 'en')).toMatch(/was triggered, but the check was interrupted/);
+    expect(await report('deploy-failed', 'en')).toMatch(/its deploy did not finish in forge/);
     expect(await report('skipped', 'en')).toMatch(/Could not roll back/);
     expect(await report('', 'en')).toMatch(/Could not roll back/);
+  });
+});
+
+describe('vercel', () => {
+  const VERCEL = { PROVIDER: 'vercel', DEPLOY_HOOK: '', VERCEL_TOKEN: 'vercel-token', VERCEL_PROJECT: 'app' };
+  const temp = () => mkdtemp(join(tmpdir(), 'runner-'));
+
+  test('check needs the token and the project, not a deploy hook', async () => {
+    expect((await step('check', { env: VERCEL })).code).toBe(0);
+    const token = await step('check', { env: { ...VERCEL, VERCEL_TOKEN: '' } });
+    expect(token.code).toBe(1);
+    expect(token.stdout).toMatch(/Add the VERCEL_TOKEN secret to the production environment/);
+    const project = await step('check', { env: { ...VERCEL, VERCEL_PROJECT: '' } });
+    expect(project.code).toBe(1);
+    expect(project.stdout).toMatch(/Add the VERCEL_PROJECT variable/);
+  });
+
+  test('deploy creates a deployment of the exact commit, with the token in a header file', async () => {
+    const runner = await temp();
+    const result = await step('deploy', {
+      env: { ...VERCEL, SHA: sha('c'), RUNNER_TEMP: runner, VERCEL_TEAM_ID: 'team_1', ENVIRONMENT: 'Staging' },
+      curl: [
+        { match: 'api.vercel.com/v13/deployments', codes: ['200'], bodies: [{ id: 'dpl_1', readyState: 'QUEUED' }] },
+      ],
+    });
+    expect(result.code).toBe(0);
+    const [call] = callsTo(result, 'curl');
+    expect(call).toMatch(/-X POST .*https:\/\/api\.vercel\.com\/v13\/deployments\?forceNew=1&teamId=team_1 /);
+    expect(call).not.toMatch(/-H Authorization/);
+    expect(call).toMatch(/<header> Authorization: Bearer vercel-token/);
+    const body = JSON.parse(call.split('<stdin> ')[1]);
+    expect(body).toStrictEqual({
+      name: 'app',
+      project: 'app',
+      // The GitHub environment's name, lowercase
+      target: 'staging',
+      gitSource: { type: 'github', org: 'datalogix', repo: 'app', ref: 'main', sha: sha('c') },
+    });
+    expect(await readFile(join(runner, 'datalogix-vercel-staging'), 'utf8')).toBe('dpl_1\n');
+  });
+
+  test('deploy fails when Vercel refuses the deployment', async () => {
+    const result = await step('deploy', {
+      env: { ...VERCEL, SHA: sha('c'), RUNNER_TEMP: await temp() },
+      curl: [{ match: 'api.vercel.com', codes: ['403'], bodies: [{ error: { message: 'Not authorized' } }] }],
+    });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toMatch(/::error::Vercel answered HTTP 403: Not authorized/);
+  });
+
+  test('records the deployment as live only once it is ready', async () => {
+    const runner = await temp();
+    const env = { ...VERCEL, SHA: sha('c'), RUNNER_TEMP: runner, SETTLE: '30' };
+    const live = (result) => callsTo(result, 'gh').filter((call) => call.includes('datalogix/live/production'));
+    const deploy = await step('deploy', {
+      env,
+      curl: [{ match: 'api.vercel.com/v13/deployments', codes: ['200'], bodies: [{ id: 'dpl_1' }] }],
+    });
+    expect(deploy.code).toBe(0);
+    expect(live(deploy)).toStrictEqual([]);
+
+    const failed = await step('settle', {
+      env,
+      curl: [{ match: 'v13/deployments/dpl_1', codes: ['200'], bodies: [{ readyState: 'ERROR' }] }],
+    });
+    expect(failed.code).toBe(1);
+    expect(live(failed)).toStrictEqual([]);
+
+    const ready = await step('settle', {
+      env,
+      curl: [{ match: 'v13/deployments/dpl_1', codes: ['200'], bodies: [{ readyState: 'READY' }] }],
+    });
+    expect(ready.code).toBe(0);
+    expect(live(ready)).toContainEqual(expect.stringContaining(`sha=${sha('c')}`));
+  });
+
+  test('watch sends the protection bypass in a header file, never in the command line', async () => {
+    const result = await step('watch', {
+      env: { ...VERCEL, SHA: sha('c'), MINUTES: '1', VERCEL_AUTOMATION_BYPASS_SECRET: 'bypass-secret' },
+      gh: [{ match: 'git/refs$', stdout: {} }],
+    });
+    const health = callsTo(result, 'curl').filter((call) => call.includes('app.test/up'));
+    expect(health.length).toBeGreaterThan(0);
+    for (const call of health) {
+      expect(call.split(' <header> ')[0]).not.toContain('bypass-secret');
+      expect(call).toContain('<header> x-vercel-protection-bypass: bypass-secret');
+    }
+    // Forge needs no header
+    const forge = await step('watch', {
+      env: { SHA: sha('c'), MINUTES: '1' },
+      gh: [{ match: 'git/refs$', stdout: {} }],
+    });
+    expect(callsTo(forge, 'curl').every((call) => !call.includes('<header>'))).toBe(true);
+  });
+
+  describe('records', () => {
+    const records = (result, path) => callsTo(result, 'gh').filter((call) => call.includes(path));
+    const started = async (env) => {
+      const all = { ...VERCEL, RUNNER_TEMP: await temp(), SETTLE: '30', ...env };
+      const deploy = await step('deploy', {
+        env: all,
+        curl: [{ match: 'api.vercel.com/v13/deployments', codes: ['200'], bodies: [{ id: 'dpl_1' }] }],
+      });
+      expect(deploy.code).toBe(0);
+      expect(records(deploy, 'datalogix/live/production')).toStrictEqual([]);
+      expect(records(deploy, 'datalogix/rolled-back/')).toStrictEqual([]);
+      return all;
+    };
+    const settle = (env, readyState) =>
+      step('settle', {
+        env,
+        curl: [{ match: 'v13/deployments/dpl_1', codes: ['200'], bodies: [{ readyState }] }],
+      });
+    const ROLLBACK = { MODE: 'rollback', SHA: sha('a'), FROM: sha('c') };
+
+    test('a deployment still building when the wait ends counts as live, since it may finish after the job', async () => {
+      const slow = await settle(await started({ SHA: sha('c') }), 'BUILDING');
+      expect(slow.code).toBe(1);
+      expect(records(slow, 'datalogix/live/production')).toContainEqual(expect.stringContaining(`sha=${sha('c')}`));
+    });
+
+    test('a rollback marks the release it leaves only once its deployment is ready', async () => {
+      const ready = await settle(await started(ROLLBACK), 'READY');
+      expect(ready.code).toBe(0);
+      expect(records(ready, 'datalogix/live/production')).toContainEqual(expect.stringContaining(`sha=${sha('a')}`));
+      expect(records(ready, `rolled-back/production/${sha('c')}`)).toHaveLength(1);
+    });
+
+    test('a rollback whose build fails leaves the release it would leave as it was', async () => {
+      const failed = await settle(await started(ROLLBACK), 'ERROR');
+      expect(failed.code).toBe(1);
+      expect(records(failed, 'datalogix/live/production')).toStrictEqual([]);
+      expect(records(failed, 'datalogix/rolled-back/')).toStrictEqual([]);
+    });
+
+    test('a deploy that is not a rollback marks nothing as rolled back', async () => {
+      const ready = await settle(await started({ SHA: sha('c') }), 'READY');
+      expect(records(ready, 'datalogix/rolled-back/')).toStrictEqual([]);
+    });
+  });
+
+  test('settle follows the deployment until it is ready, and fails when its build fails', async () => {
+    const wait = async (states, codes = ['200']) => {
+      const runner = await temp();
+      await writeFile(join(runner, 'datalogix-vercel-production'), 'dpl_1\n');
+      return step('settle', {
+        env: { ...VERCEL, RUNNER_TEMP: runner, SETTLE: '30' },
+        curl: [{ match: 'v13/deployments/dpl_1', codes, bodies: states.map((readyState) => ({ readyState })) }],
+      });
+    };
+    const ready = await wait(['BUILDING', 'BUILDING', 'READY']);
+    expect(ready.code).toBe(0);
+    expect(callsTo(ready, 'sleep')).toStrictEqual(['10', '10']);
+
+    // A failed read is tried again
+    expect((await wait(['BUILDING', 'READY'], ['500', '200'])).code).toBe(0);
+
+    const failed = await wait(['BUILDING', 'ERROR']);
+    expect(failed.code).toBe(1);
+    expect(failed.stdout).toMatch(/ended as ERROR; the previous deployment is still live/);
+
+    const slow = await wait(['BUILDING']);
+    expect(slow.code).toBe(1);
+    expect(slow.stdout).toMatch(/was not ready after 30 seconds \(BUILDING\)/);
   });
 });
 

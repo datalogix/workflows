@@ -1,21 +1,21 @@
 # datalogix/workflows
 
-Claude-powered CI/CD for Datalogix Laravel projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
+Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt) projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
 
 What each project gets:
 
 - **Claude on issues and pull requests**: it plans and implements issues, answers `@claude` and fixes failed checks (tests, Pint, PHPStan, `composer audit`, the Node audit) on its own pull requests.
 - **Checks on every pull request**: tests, a Claude code review (once per pull request), a security review and a risk gate that asks for your approval when the change is risky.
 - **Safe deploys**: every merge goes to staging, then production, each watched after the deploy and rolled back automatically if it goes down.
-- **Production errors as issues**: problems detected by Nightwatch become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.
+- **Production errors as issues**: problems detected by Nightwatch, Sentry or Inspector become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.
 
-Packages call a single `package` workflow, today the test matrix. Only public Composer packages are supported: the workflows pass no Composer credentials.
+Packages call a single `package` workflow, today the test matrix: Laravel packages (only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
 
 ## Requirements
 
 - [Node.js](https://nodejs.org) 22.12 or newer. The commands run with `npx` straight from this repository at the `v2` tag; `--allow-git=root` lets npm 12 or newer install it from git (it refuses git packages by default) without allowing git for its dependencies.
 - The [GitHub CLI](https://cli.github.com), logged in to github.com with `gh auth login`: every command acts as you, always on github.com (`GH_HOST` is ignored).
-- Only for Nightwatch problems as issues: a Cloudflare account, where `org` deploys the monitoring relay (it logs `wrangler` in for you), and macOS or Linux to deploy it and to store each project's webhook secret.
+- Only for monitoring problems as issues: a Cloudflare account, where `org` deploys the monitoring relay (it logs `wrangler` in for you), and macOS or Linux to deploy it and to store each project's webhook secret.
 
 ## Quick start
 
@@ -72,7 +72,7 @@ The [documentation index](docs/README.md) lists every guide. The main ones:
 | [Daily use](docs/daily-use.md) | Working with Claude, a feature from issue to production, what to do when something breaks |
 | [Verification layers](docs/verification-layers.md) | The eight layers every change goes through, the branch ruleset, solo maintainers, project rules for the security review |
 | [Deploy](docs/deploy.md) | Staging and production deploys, health checks, rollbacks and the release history |
-| [Production errors](docs/production-errors.md) | Nightwatch problems as GitHub issues, the relay and how to add another monitoring provider |
+| [Production errors](docs/production-errors.md) | Nightwatch, Sentry and Inspector problems as GitHub issues, the relay and how to add another monitoring provider |
 | [Reference](docs/reference.md) | The inputs of `project`, `package` and the workflows they call, the events `project` handles, the relay settings |
 | [Troubleshooting](docs/troubleshooting.md) | Common problems and what to check |
 | [Maintaining this repository](docs/maintaining.md) | Releases, the plugin, CI and dependencies; the [relay](relay/README.md) and the [setup command](cli/README.md) have their own |

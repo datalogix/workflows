@@ -17,8 +17,17 @@ import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { pushBranches, runsOnPush, WORKFLOW_PATH } from '../../lib/workflow-file.js';
+import { DEPLOY_PROVIDERS } from '../../providers/deploy/index.js';
 import { domainOf, isDomain, pathOf, suggestedDomain } from './domain.js';
-import { hasSecret, loadRelayConfig, registerSecret, relayAccepts, relaySupported, webhookUrl } from './relay.js';
+import {
+  hasSecret,
+  loadRelayConfig,
+  readSecret,
+  registerSecret,
+  relayAccepts,
+  relaySupported,
+  webhookUrl,
+} from './relay.js';
 import {
   deployedProductionBranch,
   hasReleaseApp,
@@ -128,15 +137,20 @@ const validUrl = (value) => (/^https:\/\/\S+$/.test(value?.trim() ?? '') ? undef
  */
 function secretSteps(id, { label, exists, when, validate: validValue = notEmpty, hint, about, optional = false }) {
   const validate = optional ? (value) => (value?.trim() ? validValue(value) : undefined) : validValue;
-  const hints = [hint, optional && 'empty to set it later'].filter(Boolean).join(' · ');
+  // The label and the hint may depend on the answers
+  const labelOf = (answers) => (typeof label === 'function' ? label(answers) : label);
+  const hintsOf = (answers) =>
+    [typeof hint === 'function' ? hint(answers) : hint, optional && 'empty to set it later']
+      .filter(Boolean)
+      .join(' · ');
   return [
     {
       id: `${id}Keep`,
-      when: (a, ctx) => when(a, ctx) && exists(ctx),
-      ask: async ({ header }) =>
+      when: (a, ctx) => when(a, ctx) && exists(ctx, a),
+      ask: async ({ header, answers }) =>
         orExit(
           await clack.select({
-            message: question(header, `${label} is already set. Keep it?`),
+            message: question(header, `${labelOf(answers)} is already set. Keep it?`),
             options: [
               { value: true, label: 'Keep the current one' },
               { value: false, label: 'Replace it' },
@@ -147,19 +161,54 @@ function secretSteps(id, { label, exists, when, validate: validValue = notEmpty,
     {
       id,
       validate,
-      when: (a, ctx) => when(a, ctx) && (!exists(ctx) || a[`${id}Keep`] === false),
-      ask: async ({ header }) =>
-        orExit(
+      when: (a, ctx) => when(a, ctx) && (!exists(ctx, a) || a[`${id}Keep`] === false),
+      ask: async ({ header, answers }) => {
+        const hints = hintsOf(answers);
+        return orExit(
           await clack.password({
-            message: question(header, `${label}${hints ? dim(`  ${hints}`) : ''}`, about),
+            message: question(header, `${labelOf(answers)}${hints ? dim(`  ${hints}`) : ''}`, about),
             validate,
           }),
-        ),
+        );
+      },
     },
   ];
 }
 
 const ownerOf = (repository) => repository.split('/')[0];
+
+// What a deploy provider needs in each environment (cli/providers/deploy): the secret its deploys read, DEPLOY_HOOK by
+// default, its variables, and whether setup asks for the deploy hooks
+// One the stack does not offer, written by hand in the workflow file, is still the one its deploys use
+const deployProviderOf = (stack, a) => stack.deployProviders?.[a?.deploy] ?? DEPLOY_PROVIDERS[a?.deploy] ?? null;
+const deploySecretOf = (stack, a) => deployProviderOf(stack, a)?.secret ?? 'DEPLOY_HOOK';
+const deployVariablesOf = (stack, a) => deployProviderOf(stack, a)?.variables ?? [];
+const protectionOf = (stack, a) => deployProviderOf(stack, a)?.protection ?? null;
+const asksHooks = (stack, a) => deploys(a) && deployProviderOf(stack, a)?.hookQuestions !== false;
+
+// The monitoring service the answers (or the workflow file, as answers) chose, the stack's first by default; null when
+// the project uses none
+const monitoringOf = (stack, a) =>
+  a?.monitoring === 'none'
+    ? null
+    : (stack.monitoring.find((service) => service.id === a?.monitoring) ?? stack.monitoring[0]);
+// What the questions and messages name: the chosen service, or the stack's first
+const serviceOf = (stack, a) => monitoringOf(stack, a) ?? stack.monitoring[0];
+// Whether the environment has the token of a service, which need not be the service of the workflow file
+const hasToken = (environment, service) =>
+  Boolean(service.secret && (environment.monitoringTokens?.[service.secret] ?? environment.monitoringToken));
+// What the relay stores for the service: a signing secret, or one key per environment (Inspector)
+const secretName = (service) => (service.keyPerEnvironment ? 'application keys' : 'signing secret');
+
+/** The keys stored by environment for a service with one key per environment, {} when none or not such JSON. */
+function storedKeys(secret) {
+  try {
+    const keys = JSON.parse(secret);
+    return keys && typeof keys === 'object' && !Array.isArray(keys) ? keys : {};
+  } catch {
+    return {};
+  }
+}
 
 /** Loads the relay settings of an owner into ctx, remembering whose they are. */
 async function loadRelay(ctx, owner) {
@@ -186,7 +235,8 @@ function withRelay(step) {
 /** The questions, in order. */
 function setupSteps(stack) {
   const staging = (a) => deploys(a) && a.staging;
-  const markers = (a) => stack.monitoring.markers(a);
+  const markers = (a) => Boolean(monitoringOf(stack, a)?.markers(a));
+  const monitors = (a) => monitoringOf(stack, a) !== null;
   const branches = (a) => staging(a) && a.branches;
   const targets = [...stack.deployTargets.map((target) => target.value), 'none'];
 
@@ -196,6 +246,8 @@ function setupSteps(stack) {
     {
       id: 'deploy',
       flag: 'deploy',
+      // A stack without deploy targets is not deployed by the workflows (the deploy input stays none)
+      when: () => stack.deployTargets.length > 0,
       // The stack's targets: --deploy is checked here, as each stack deploys elsewhere
       validate: (value) => (targets.includes(value) ? undefined : `use ${targets.join(', ')}`),
       ask: async ({ header, ctx }) =>
@@ -205,6 +257,10 @@ function setupSteps(stack) {
             initialValue: ctx.state.current?.deploy ?? stack.deployTargets[0].value,
             options: [
               ...stack.deployTargets,
+              // Written by hand in the workflow file: never changed without asking
+              ...(ctx.state.current?.deploy && !targets.includes(ctx.state.current.deploy)
+                ? [{ value: ctx.state.current.deploy, label: ctx.state.current.deploy, hint: 'in the workflow file' }]
+                : []),
               { value: 'none', label: 'Not deployed by the workflows', hint: 'tests and reviews only' },
             ],
           }),
@@ -398,7 +454,7 @@ function setupSteps(stack) {
       label: 'Production deploy hook',
       hint: stack.deployHookHint,
       about: 'Empty: production deploys fail until setup runs again with it',
-      when: (a) => deploys(a) && !a.deployHooks?.production,
+      when: (a) => asksHooks(stack, a) && !a.deployHooks?.production,
       exists: (ctx) => ctx.state.environments.production.deployHook,
       validate: validUrl,
       // The site may not exist yet: its deploys fail until the hook is set
@@ -408,21 +464,49 @@ function setupSteps(stack) {
       label: 'Staging deploy hook',
       hint: stack.deployHookHint,
       about: 'Empty: staging deploys fail until setup runs again with it, and production waits for staging',
-      when: (a) => staging(a) && !a.deployHooks?.staging,
+      when: (a) => asksHooks(stack, a) && staging(a) && !a.deployHooks?.staging,
       exists: (ctx) => ctx.state.environments.staging.deployHook,
       validate: validUrl,
       optional: true,
     }),
     {
+      id: 'monitoring',
+      flag: 'monitoring',
+      validate: (value) =>
+        [...stack.monitoring.map((service) => service.id), 'none'].includes(value)
+          ? undefined
+          : `use ${[...stack.monitoring.map((service) => service.id), 'none'].join(', ')}`,
+      ask: async ({ header, ctx }) =>
+        orExit(
+          await clack.select({
+            message: question(
+              header,
+              'Which monitoring service does the app use?',
+              'Its problems can become GitHub issues, and some mark each deploy',
+            ),
+            // The current service, when the stack still offers it
+            initialValue: monitoringOf(stack, ctx.state.current)?.id ?? 'none',
+            options: [
+              ...stack.monitoring.map((service) => ({ value: service.id, label: service.name, hint: service.hint })),
+              { value: 'none', label: 'None', hint: 'no problems as issues' },
+            ],
+          }),
+        ),
+      // Without a service, nothing can become an issue
+      then: (answers) => {
+        if (answers.monitoring === 'none') answers.incidents = false;
+      },
+    },
+    {
       id: 'monitoringMarkers',
       when: markers,
-      ask: async ({ header, ctx }) =>
+      ask: async ({ header, answers, ctx }) =>
         orExit(
           await clack.confirm({
             message: question(
               header,
-              `Mark each deploy and rollback in ${stack.monitoring.name}?`,
-              `${stack.monitoring.name} shows when each release went live, next to its errors and performance`,
+              `Mark each deploy and rollback in ${serviceOf(stack, answers).name}?`,
+              `${serviceOf(stack, answers).name} shows when each release went live, next to its errors and performance`,
             ),
             // Set up before with markers: keep the earlier choice, which the token tells
             initialValue:
@@ -433,16 +517,16 @@ function setupSteps(stack) {
         ),
     },
     ...secretSteps('productionMonitoringToken', {
-      label: `${stack.monitoring.name} token of the production environment`,
-      hint: stack.monitoring.tokenHint,
+      label: (a) => `${serviceOf(stack, a).name} token of the production environment`,
+      hint: (a) => serviceOf(stack, a).tokenHint,
       when: (a) => markers(a) && a.monitoringMarkers,
-      exists: (ctx) => ctx.state.environments.production.monitoringToken,
+      exists: (ctx, a) => hasToken(ctx.state.environments.production, serviceOf(stack, a)),
     }),
     ...secretSteps('stagingMonitoringToken', {
-      label: `${stack.monitoring.name} token of the staging environment`,
-      hint: stack.monitoring.tokenHint,
+      label: (a) => `${serviceOf(stack, a).name} token of the staging environment`,
+      hint: (a) => serviceOf(stack, a).tokenHint,
       when: (a) => markers(a) && a.monitoringMarkers && staging(a),
-      exists: (ctx) => ctx.state.environments.staging.monitoringToken,
+      exists: (ctx, a) => hasToken(ctx.state.environments.staging, serviceOf(stack, a)),
     }),
     {
       id: 'claudeToken',
@@ -494,12 +578,13 @@ function setupSteps(stack) {
     {
       id: 'incidents',
       flag: 'incidents',
-      ask: async ({ header, ctx }) =>
+      when: monitors,
+      ask: async ({ header, answers, ctx }) =>
         orExit(
           await clack.confirm({
             message: question(
               header,
-              `Turn problems detected by ${stack.monitoring.name} into GitHub issues?`,
+              `Turn problems detected by ${serviceOf(stack, answers).name} into GitHub issues?`,
               `Each problem opens one issue, with the release that was live; Claude analyzes it and suggests a fix. Needs the organization's monitoring relay`,
             ),
             initialValue: ctx.state.current?.incidents ?? true,
@@ -519,7 +604,8 @@ function setupSteps(stack) {
     },
     {
       id: 'incidentPerformance',
-      when: (a) => a.incidents,
+      // Only from a service that reports performance problems
+      when: (a) => a.incidents && serviceOf(stack, a).types.includes('performance'),
       ask: async ({ header, ctx }) =>
         orExit(
           await clack.confirm({
@@ -539,7 +625,17 @@ function setupSteps(stack) {
       ask: async ({ header, answers, ctx }) => {
         const spinner = clack.spinner();
         spinner.start('Looking for the repository in the monitoring relay');
-        ctx.relayRegistered = await hasSecret(ctx.relay, stack.monitoring.id, answers.repository);
+        const service = serviceOf(stack, answers);
+        // A key per environment: the ones stored are read, so a key left empty keeps its current value
+        const environments = answers.incidentStaging && staging(answers) ? ['production', 'staging'] : ['production'];
+        let stored = null;
+        if (service.keyPerEnvironment) {
+          const secret = await readSecret(ctx.relay, service.id, answers.repository);
+          stored = secret === null ? null : storedKeys(secret);
+          ctx.relayRegistered = stored === null ? null : environments.every((environment) => stored[environment]);
+        } else {
+          ctx.relayRegistered = await hasSecret(ctx.relay, service.id, answers.repository);
+        }
         spinner.stop(
           ctx.relayRegistered === null
             ? 'Could not read the monitoring relay (run npx wrangler login)'
@@ -549,19 +645,41 @@ function setupSteps(stack) {
         );
         clack.note(
           [
-            stack.monitoring.webhookHint,
+            service.webhookHint,
             '',
-            cyan(webhookUrl(ctx.relay, stack.monitoring.id, answers.repository)),
+            cyan(webhookUrl(ctx.relay, service.id, answers.repository)),
             '',
-            'Then copy the signing secret it shows.',
+            service.secretHint,
           ].join('\n'),
-          `${stack.monitoring.name} webhook`,
+          `${service.name} webhook`,
         );
-        return orExit(
-          await clack.password({
-            message: question(header, `${stack.monitoring.name} signing secret${dim(relayHint(ctx.relayRegistered))}`),
-          }),
-        );
+        if (!service.keyPerEnvironment) {
+          return orExit(
+            await clack.password({
+              message: question(header, `${service.name} signing secret${dim(relayHint(ctx.relayRegistered))}`),
+            }),
+          );
+        }
+
+        const typed = {};
+        for (const environment of environments) {
+          const registered = stored === null ? null : Boolean(stored[environment]);
+          const key = orExit(
+            await clack.password({
+              message: question(header, `${service.name} key of ${environment}${dim(relayHint(registered))}`),
+            }),
+          ).trim();
+          if (key) typed[environment] = key;
+        }
+        // Stored whole, so with a relay that cannot be read a key not typed would be lost: then all or nothing
+        if (stored === null && Object.keys(typed).length && Object.keys(typed).length < environments.length) {
+          clack.log.warn(
+            'The monitoring relay could not be read, so nothing is stored: storing some keys would erase the others. Run setup again.',
+          );
+          return '';
+        }
+        // With the keys not typed again; nothing typed stores nothing
+        return Object.keys(typed).length ? JSON.stringify({ ...stored, ...typed }) : '';
       },
     },
     ...stack.steps(),
@@ -641,12 +759,16 @@ function setupSteps(stack) {
 }
 
 /** The workflow file the answers write; without two branches, its push branch is the one that deploys. */
-function renderWorkflow(answers, state) {
+function renderWorkflow(stack, answers, state) {
   const productionBranch = twoBranches(answers) ? answers.productionBranch : null;
   const developmentBranch = twoBranches(answers)
     ? answers.developmentBranch
     : (formerProductionBranch(answers, state) ?? state.defaultBranch);
-  return renderProjectWorkflow({ ...answers, productionBranch }, state.workflow ?? '', developmentBranch);
+  return renderProjectWorkflow(
+    { ...answers, stack: stack.id ?? 'laravel', productionBranch },
+    state.workflow ?? '',
+    developmentBranch,
+  );
 }
 
 /** Creates the missing development and production branches and makes the development branch the default one. */
@@ -768,7 +890,7 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
     ? answers.developmentBranch
     : (formerProduction ?? state.defaultBranch);
 
-  tasks.push(workflowFileTask(() => renderWorkflow(answers, state), { root, state }));
+  tasks.push(workflowFileTask(() => renderWorkflow(stack, answers, state), { root, state }));
 
   tasks.push(codeOwnersTask(answers, { root, state }));
 
@@ -884,17 +1006,37 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
           await github.setVariable('HEALTH_URL', healthUrl, environment);
           changes.push(`HEALTH_URL ${healthUrl}`);
         }
-        if (hooks[environment]) {
-          await github.setSecret('DEPLOY_HOOK', hooks[environment].trim(), environment);
-          changes.push('DEPLOY_HOOK');
+        // The provider's own secrets and variables, or the deploy hook
+        const values = deployProviderOf(stack, answers)?.environmentValues?.(answers, environment) ?? {
+          secrets: hooks[environment] ? { DEPLOY_HOOK: hooks[environment].trim() } : {},
+        };
+        for (const [name, value] of Object.entries(values.secrets ?? {})) {
+          if (!value) continue;
+          await github.setSecret(name, value, environment);
+          changes.push(name);
+        }
+        for (const [name, value] of Object.entries(values.variables ?? {})) {
+          if (!value || state.environments[environment].variables?.[name] === value) continue;
+          await github.setVariable(name, value, environment);
+          changes.push(`${name} ${value}`);
         }
         if (tokens[environment]) {
-          await github.setSecret(stack.monitoring.secret, tokens[environment].trim(), environment);
-          changes.push(stack.monitoring.secret);
-        } else if (answers.monitoringMarkers === false && state.environments[environment].monitoringToken) {
+          await github.setSecret(serviceOf(stack, answers).secret, tokens[environment].trim(), environment);
+          changes.push(serviceOf(stack, answers).secret);
+        } else if (
+          answers.monitoringMarkers === false &&
+          hasToken(state.environments[environment], serviceOf(stack, answers))
+        ) {
           // The deploy marks the monitoring service whenever the secret exists and the target supports markers
-          await github.deleteSecret(stack.monitoring.secret, environment);
-          changes.push(`${stack.monitoring.secret} removed`);
+          await github.deleteSecret(serviceOf(stack, answers).secret, environment);
+          changes.push(`${serviceOf(stack, answers).secret} removed`);
+        }
+        // The token of a service the project left marks nothing and should not stay around
+        for (const { id, secret } of stack.monitoring) {
+          if (!secret || id === monitoringOf(stack, answers)?.id) continue;
+          if (!state.environments[environment].monitoringTokens?.[secret]) continue;
+          await github.deleteSecret(secret, environment);
+          changes.push(`${secret} removed`);
         }
         return changes.length ? changes.join(', ') : 'unchanged';
       },
@@ -906,7 +1048,7 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
       id: 'monitoringRelay',
       title: 'Monitoring relay',
       run: async () => {
-        await registerSecret(relay, stack.monitoring.id, answers.repository, answers.webhookSecret.trim());
+        await registerSecret(relay, serviceOf(stack, answers).id, answers.repository, answers.webhookSecret.trim());
         return `registered ${answers.repository}`;
       },
     });
@@ -939,9 +1081,17 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
             return { environment, url, status: await probe(url) };
           }),
         );
+        // Behind a protection the deploys pass with a secret, which this probe cannot send
+        const protection = protectionOf(stack, answers);
+        const passes = ({ environment, status }) =>
+          protection?.statuses.includes(status) &&
+          Boolean(
+            state.environments[environment].protectionSecret ||
+            deployProviderOf(stack, answers).environmentValues(answers, environment).secrets?.[protection.secret],
+          );
         return {
           detail: answered.map(({ environment, status }) => `${environment} ${status ?? 'no answer'}`).join(', '),
-          data: { failing: answered.filter(({ status }) => status !== 200) },
+          data: { failing: answered.filter((answer) => answer.status !== 200 && !passes(answer)) },
         };
       },
     });
@@ -962,14 +1112,14 @@ function relayNextSteps(stack, answers, { relay, relayRegistered, results }) {
     ];
   } else if (!relaySupported()) {
     return [
-      `Point the ${stack.monitoring.name} webhook to ${cyan(webhookUrl(relay, stack.monitoring.id, answers.repository))} and store its signing secret in the relay by hand (relay/README.md in datalogix/workflows): setup cannot do it on Windows.`,
+      `Point the ${serviceOf(stack, answers).name} webhook to ${cyan(webhookUrl(relay, serviceOf(stack, answers).id, answers.repository))} and store its ${secretName(serviceOf(stack, answers))} in the relay by hand (relay/README.md in datalogix/workflows): setup cannot do it on Windows.`,
     ];
   } else if (
     (!answers.webhookSecret?.trim() && relayRegistered !== true) ||
     results.some((result) => result.id === 'monitoringRelay' && !result.ok)
   ) {
     return [
-      `Point the ${stack.monitoring.name} webhook to ${cyan(webhookUrl(relay, stack.monitoring.id, answers.repository))} and run setup again to store its signing secret.`,
+      `Point the ${serviceOf(stack, answers).name} webhook to ${cyan(webhookUrl(relay, serviceOf(stack, answers).id, answers.repository))} and run setup again to store its ${secretName(serviceOf(stack, answers))}.`,
     ];
   }
   return [];
@@ -1073,7 +1223,7 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
   // Deploy hooks left empty: every deploy to that environment fails until they are set
   const missingHooks = ['production', 'staging'].filter(
     (environment) =>
-      deploys(answers) &&
+      asksHooks(stack, answers) &&
       (environment === 'production' || answers.staging) &&
       !answers[`${environment}Hook`]?.trim() &&
       !answers.deployHooks?.[environment] &&
@@ -1085,13 +1235,14 @@ function nextSteps(stack, answers, { relay, relayRegistered, results, state }) {
     );
   }
 
-  steps.push(...stack.deployNextSteps(answers, { twoBranches: twoBranches(answers), results }));
+  steps.push(...stack.deployNextSteps(answers, { twoBranches: twoBranches(answers), results, state }));
 
   if (answers.incidents) steps.push(...relayNextSteps(stack, answers, { relay, relayRegistered, results }));
 
-  if (answers.incidents || answers.monitoringMarkers) {
+  // A service with a key per environment tells them apart by the key, not by name
+  if ((answers.incidents || answers.monitoringMarkers) && !serviceOf(stack, answers).keyPerEnvironment) {
     steps.push(
-      `In ${stack.monitoring.name}, name the environments ${bold('production')}${answers.staging ? ` and ${bold('staging')}` : ''}, like the GitHub environments.`,
+      `In ${serviceOf(stack, answers).name}, name the environments ${bold('production')}${answers.staging ? ` and ${bold('staging')}` : ''}, like the GitHub environments.`,
     );
   }
 
@@ -1153,11 +1304,11 @@ export function dropsProductionBranch(answers, state) {
 }
 
 /** Warnings shown before applying: what the answers replace or drop in the existing workflow file. */
-async function setupWarnings(answers, ctx) {
+async function setupWarnings(stack, answers, ctx) {
   const warnings = await workflowWarnings(
     ctx.state,
     await projectTemplate(ctx.state.workflow ?? '', ctx.state.defaultBranch),
-    await renderWorkflow(answers, ctx.state),
+    await renderWorkflow(stack, answers, ctx.state),
   );
   if (dropsProductionBranch(answers, ctx.state)) {
     warnings.push('production-branch is removed: setup offers it only with a deploy and staging');
@@ -1170,15 +1321,37 @@ async function setupWarnings(answers, ctx) {
  * branch (or `release`, as setup can turn one on), how release pull requests are opened.
  */
 async function readProject(stack, github, read, { current, release }) {
-  // Its secrets and variable are read along with it: for a missing environment they answer 404, read as none
+  // Its secrets and variables are read along with it: for a missing environment they answer 404, read as none
   const environment = async (name) => {
-    const [found, deployHook, healthUrl, monitoringToken] = await Promise.all([
+    const variableNames = [
+      ...deployVariablesOf(stack, current),
+      ...(deployProviderOf(stack, current)?.optionalVariables ?? []),
+    ];
+    const protection = protectionOf(stack, current);
+    // The tokens of every service, since setup may switch to another
+    const tokenSecrets = stack.monitoring.map((service) => service.secret).filter(Boolean);
+    // deployHook: whether the secret the provider's deploys read is set (DEPLOY_HOOK, or the provider's own)
+    const [found, deployHook, healthUrl, values, tokens, protectionSecret] = await Promise.all([
       github.environment(name),
-      github.hasEnvironmentSecret(name, 'DEPLOY_HOOK'),
+      github.hasEnvironmentSecret(name, deploySecretOf(stack, current)),
       github.environmentVariable(name, 'HEALTH_URL'),
-      github.hasEnvironmentSecret(name, stack.monitoring.secret),
+      Promise.all(variableNames.map((variable) => github.environmentVariable(name, variable))),
+      // Only a service with deploy markers has a token in the environments
+      Promise.all(tokenSecrets.map((secret) => github.hasEnvironmentSecret(name, secret))),
+      protection ? github.hasEnvironmentSecret(name, protection.secret) : false,
     ]);
-    return found ? { exists: true, deployHook, healthUrl, monitoringToken } : NO_ENVIRONMENT;
+    if (!found) return NO_ENVIRONMENT;
+    const variables = Object.fromEntries(variableNames.map((variable, i) => [variable, values[i]]));
+    const monitoringTokens = Object.fromEntries(tokenSecrets.map((secret, i) => [secret, tokens[i]]));
+    return {
+      exists: true,
+      deployHook,
+      healthUrl,
+      monitoringToken: Boolean(monitoringTokens[monitoringOf(stack, current)?.secret]),
+      monitoringTokens,
+      ...(variableNames.length ? { variables } : {}),
+      ...(protection ? { protectionSecret } : {}),
+    };
   };
   const releases = release || Boolean(current?.productionBranch);
 
@@ -1293,7 +1466,11 @@ async function healthStatus(url) {
 }
 
 /** Compares a project with what the workflows need (see check). */
-async function evaluate(stack, state, { relay, repository, probe = healthStatus, relayLookup = hasSecret }) {
+async function evaluate(
+  stack,
+  state,
+  { relay, repository, probe = healthStatus, relayLookup = hasSecret, relayRead = readSecret },
+) {
   const report = createReport();
   const { ok, warn, error } = report;
 
@@ -1307,15 +1484,28 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
       .filter((name) => state.environments[name].exists && state.environments[name].healthUrl)
       .map((name) => [name, started(probe(state.environments[name].healthUrl))]),
   );
-  const looksUpRelay =
-    state.current?.incidents !== false && relay.configured && !(repository && !relayAccepts(relay, repository));
+  // Without a monitoring service nothing becomes an issue, whatever the incidents input says
+  const incidentsOn = state.current?.incidents !== false && monitoringOf(stack, state.current) !== null;
+  const looksUpRelay = incidentsOn && relay.configured && !(repository && !relayAccepts(relay, repository));
+  const service = serviceOf(stack, state.current);
+  // A key per environment (Inspector): the environments that need one, and those missing in the relay (null unread)
+  const keyed =
+    environments.includes('staging') && state.current?.incidentStaging !== false
+      ? ['production', 'staging']
+      : ['production'];
+  const missingKeys = async () => {
+    const secret = await relayRead(relay, service.id, repository);
+    return secret === null ? null : keyed.filter((name) => !storedKeys(secret)[name]);
+  };
   const registration =
-    looksUpRelay && relaySupported() ? started(relayLookup(relay, stack.monitoring.id, repository)) : null;
+    looksUpRelay && relaySupported()
+      ? started(service.keyPerEnvironment ? missingKeys() : relayLookup(relay, service.id, repository))
+      : null;
 
   if (workflowItems(report, state, { ref: PROJECT_REF, kind: 'project', fix: SETUP })) {
-    if (state.current?.incidents !== false && !/^(?![ \t]*#).*\brepository_dispatch\b/m.test(state.workflow)) {
+    if (incidentsOn && !/^(?![ \t]*#).*\brepository_dispatch\b/m.test(state.workflow)) {
       warn(
-        `${WORKFLOW_PATH} has no repository_dispatch trigger, so ${stack.monitoring.name} problems never arrive`,
+        `${WORKFLOW_PATH} has no repository_dispatch trigger, so ${serviceOf(stack, state.current).name} problems never arrive`,
         SETUP,
       );
     }
@@ -1355,17 +1545,30 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
         error(`Environment ${name} is missing`, SETUP);
         continue;
       }
-      if (!environment.deployHook) error(`Environment ${name} has no DEPLOY_HOOK secret`, SETUP);
+      if (!environment.deployHook)
+        error(`Environment ${name} has no ${deploySecretOf(stack, state.current)} secret`, SETUP);
+      for (const variable of deployVariablesOf(stack, state.current)) {
+        if (!environment.variables?.[variable]) error(`Environment ${name} has no ${variable} variable`, SETUP);
+      }
       // Optional: only marks deploys in the monitoring service, and setup does not record the choice
-      if (stack.monitoring.markers({ deploy }) && environment.monitoringToken)
-        ok(`${name}: ${stack.monitoring.secret} (deploy markers)`);
+      if (monitoringOf(stack, state.current)?.markers({ deploy }) && environment.monitoringToken)
+        ok(`${name}: ${monitoringOf(stack, state.current).secret} (deploy markers)`);
       if (!environment.healthUrl) {
         error(`Environment ${name} has no HEALTH_URL variable`, SETUP);
         continue;
       }
       const status = await probes[name];
+      const protection = protectionOf(stack, state.current);
       if (status === 200) ok(`${name}: ${environment.healthUrl} answers 200`);
-      else
+      else if (protection?.statuses.includes(status)) {
+        if (environment.protectionSecret)
+          ok(`${name}: ${environment.healthUrl} is protected (${status}); the deploys pass with ${protection.secret}`);
+        else
+          warn(
+            `${name}: ${environment.healthUrl} answers ${status} and the environment has no ${protection.secret} secret, so every deploy would be rolled back`,
+            SETUP,
+          );
+      } else
         warn(
           `${name}: ${environment.healthUrl} answers ${status ?? 'nothing'}, so every deploy would be rolled back`,
           'check the domain, and that basic auth or IP rules do not block it',
@@ -1378,7 +1581,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
 
   // Problems as issues (on by default) or deploy markers: the monitoring service's agent must be in the app
   const markers = Object.values(state.environments).some((environment) => environment.monitoringToken);
-  if (state.current?.incidents !== false || markers) stack.evaluateMonitoring?.(report, state);
+  if (incidentsOn || markers) stack.evaluateMonitoring?.(report, state);
 
   // The production branch is protected only when the release GitHub App runs the checks of its release pull requests
   const requireApproval = state.current ? !state.current.solo : null;
@@ -1412,7 +1615,7 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
 
   codeOwnerItems(report, state, { requireApproval, hint: SETUP, drift });
 
-  if (state.current?.incidents !== false) {
+  if (incidentsOn) {
     if (!relay.configured) {
       warn(`The monitoring relay is not set up${repository ? ` for ${ownerOf(repository)}` : ''}`, ORG);
     } else if (repository && !relayAccepts(relay, repository)) {
@@ -1424,9 +1627,16 @@ async function evaluate(stack, state, { relay, repository, probe = healthStatus,
       warn('Cannot read the monitoring relay on Windows', 'see relay/README.md in datalogix/workflows');
     } else {
       const registered = await registration;
-      if (registered === true) ok('Registered in the monitoring relay');
-      else if (registered === false)
-        warn(`Not registered in the monitoring relay: ${stack.monitoring.name} problems are rejected`, SETUP);
+      // With a key per environment, the list of those missing: some of them is a key to add, all of them not registered
+      const missing = Array.isArray(registered) ? registered : null;
+      if (registered === true || missing?.length === 0) ok('Registered in the monitoring relay');
+      else if (missing && missing.length < keyed.length)
+        warn(
+          `${service.name} key of ${missing.join(' and ')} missing in the monitoring relay: its problems are rejected`,
+          SETUP,
+        );
+      else if (registered === false || missing)
+        warn(`Not registered in the monitoring relay: ${service.name} problems are rejected`, SETUP);
       else warn('Could not read the monitoring relay', 'run npx wrangler login, then check again');
     }
   }
@@ -1456,8 +1666,9 @@ async function protectedBranch(github, current) {
 
 /**
  * The module of a stack's app (project.yml): what every project needs, with the stack's part. `stack` gives
- * deployTargets ([{ value, label }], 'none' is added), deployHookHint, monitoring ({ id, name, secret, tokenHint,
- * webhookHint, markers(answers) }; id is the relay provider, secret the environment secret of its deploy markers),
+ * deployTargets ([{ value, label }], 'none' is added), deployProviders (their descriptions by id, see
+ * cli/providers/deploy/index.js: secret, variables, hookQuestions, environmentValues), deployHookHint, monitoring (the services it offers, the
+ * first by default: see cli/providers/monitoring/index.js),
  * healthPath(ctx), steps(), tasks(answers, ctx), files ({ task id: path } for the commit), deployNextSteps(answers,
  * { twoBranches, results }), nextSteps(answers, { state, results }), evaluateDeploy(report, state), and optionally evaluateMonitoring(report, state), checks
  * (PROJECT_CHECKS by default), deploySteps() (questions about the deploy target, asked before the deploy hooks, which
@@ -1483,7 +1694,7 @@ export function projectKind(stack) {
     setup: {
       steps: () => setupSteps(kind),
       tasks: (answers, ctx) => setupTasks(kind, answers, ctx),
-      warnings: setupWarnings,
+      warnings: (answers, ctx) => setupWarnings(kind, answers, ctx),
       nextSteps: (answers, ctx) => nextSteps(kind, answers, ctx),
     },
     evaluate: (state, options) => evaluate(kind, state, options),

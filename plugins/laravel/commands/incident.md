@@ -16,7 +16,7 @@ The commit live in that environment is `$2` and the release before it is `$3` (`
    - If both commits are known, list what changed with `git log --oneline $3..$2` and inspect the relevant files with `git diff $3..$2 -- <file>`.
    - Use `git log -L` or `git blame` on the failing lines to see when they last changed.
    - Answer **sim**, **não** or **incerto**, citing the commits.
-4. Comment on the issue with `gh issue comment $1 --body-file -`, in the team language (see the laravel:conventions skill), with these sections:
+4. Comment on the issue with `gh issue comment $1 --body-file -`, in the team language (see the core:conventions skill), with these sections:
    - **Diagnóstico**: what fails and why, pointing to files and lines.
    - **Introduzido pelo último deploy?**: sim, não or incerto, with the commits involved. A performance problem can also come from data growth; say so when that is the likely cause.
    - **Impacto**: who is affected and how (a single page, a job, every request, data at risk).
