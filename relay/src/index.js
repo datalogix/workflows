@@ -23,6 +23,14 @@ import { providers } from './providers/index.js';
 import { deliveryKey, secretKey } from './keys.js';
 
 const MAX_MESSAGE_LENGTH = 2000;
+// A provider may put the whole message in the title, and a title that long is refused
+const MAX_TITLE_LENGTH = 200;
+
+/** Counted and cut by code point, so an emoji is not cut in half. */
+function cut(text, limit) {
+  const chars = Array.from(text);
+  return chars.length > limit ? chars.slice(0, limit).join('') + '…' : text;
+}
 const MAX_BODY_BYTES = 1024 * 1024;
 // Wide enough for the provider's retries, which keep the original timestamp; narrow enough to stop old replays
 const MAX_EVENT_AGE_MS = 60 * 60 * 1000;
@@ -124,13 +132,8 @@ export default {
     }
 
     const message = incident.issue.details?.message;
-    if (typeof message === 'string') {
-      // Counted and cut by code point, so an emoji is not cut in half
-      const chars = Array.from(message);
-      if (chars.length > MAX_MESSAGE_LENGTH) {
-        incident.issue.details.message = chars.slice(0, MAX_MESSAGE_LENGTH).join('') + '…';
-      }
-    }
+    if (typeof message === 'string') incident.issue.details.message = cut(message, MAX_MESSAGE_LENGTH);
+    if (typeof incident.issue.title === 'string') incident.issue.title = cut(incident.issue.title, MAX_TITLE_LENGTH);
 
     let response;
     try {

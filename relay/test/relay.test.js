@@ -245,6 +245,18 @@ test('dispatches an Inspector error with the environment of the key that sent it
   expect((await relay.fetch(post('/inspector/datalogix/app', webhook, sign(webhook)), env)).status).toBe(401);
 });
 
+test('truncates a long title, which a provider may fill with the whole message', async () => {
+  const calls = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    calls.push(JSON.parse(init.body));
+    return new Response(null, { status: 204 });
+  });
+  const body = event({ payload: { issue: { id: 7, title: 'x'.repeat(5000) } } });
+
+  expect((await relay.fetch(post('/nightwatch/datalogix/app', body, sign(body)), env)).status).toBe(204);
+  expect(calls[0].client_payload.issue.title).toBe('x'.repeat(200) + '…');
+});
+
 test('truncates long messages without splitting an emoji', async () => {
   const calls = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
