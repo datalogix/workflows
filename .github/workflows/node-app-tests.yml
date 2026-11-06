@@ -17,8 +17,8 @@ on:
         description: Empty runs the test script of package.json when it has one; none skips the unit tests
       min-coverage:
         type: number
-        default: 100
-        description: Minimum coverage of the unit tests, in percent of statements, methods and conditionals, read from the Clover report they write (e.g. Vitest's clover reporter, in coverage/); 0 checks nothing
+        default: 0
+        description: Minimum coverage of the unit tests, in percent of statements, methods and conditionals, read from the Clover report they write (e.g. Vitest's clover reporter, in coverage/); the coverage is shown in the job summary, and 0 (the default) never fails
       lint-command:
         type: string
         default: ""
@@ -121,9 +121,10 @@ jobs:
             $RUN test
           fi
 
-      # Also when there is no test script, which the check reports as no tests ran
+      # Shown in the job summary; fails only below min-coverage. Also when there is no test script, which the check
+      # reports as no tests ran
       - name: Coverage
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.test-command != 'none' && inputs.min-coverage != 0 && steps.tests.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.test-command != 'none' && steps.tests.outcome != 'failure' }}
         uses: datalogix/workflows/.github/actions/coverage@v2
         with:
           min-coverage: ${{ inputs.min-coverage }}

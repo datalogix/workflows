@@ -1,9 +1,9 @@
 name: Datalogix coverage
-description: Fails when the Clover report written by the tests covers less than the minimum percentage of statements, methods and conditionals
+description: Shows the coverage of the Clover report written by the tests in the job summary, and fails when it covers less than the minimum percentage of statements, methods and conditionals
 
 inputs:
   min-coverage:
-    description: Minimum percentage (0 to 100); 0 checks nothing
+    description: Minimum percentage (0 to 100); 0 only shows the coverage, and a missing report is only noted
     required: true
   since:
     description: File touched before the tests ran; a report older than it is ignored (empty accepts any report)

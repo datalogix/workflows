@@ -42,6 +42,6 @@ jobs:
     #   count-author: true
     #   github-deployments: false   # no record in the repository's Deployments
     #   security-fail-on: medium
-    #   min-coverage: 90   # 100 by default; 0 turns the coverage check off
+    #   min-coverage: 80   # the coverage is shown either way; 0 (the default) never fails
     #   extra-instructions: This project uses Livewire; prefer Livewire components over controllers.
     #   language: en   # what is written for the team; pt-BR by default

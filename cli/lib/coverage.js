@@ -1,8 +1,9 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-// The minimum coverage the tests workflows check (min-coverage), read from the Clover report the tests write. Setup does
-// not ask for it: 100 is the default, and a project that needs less writes it by hand
+// The coverage the tests workflows read from the Clover report the tests write: packages fail below min-coverage, 100 by
+// default; apps show it in the job summary and fail only below a min-coverage they set. Setup does not ask for it: a
+// project that wants another minimum writes it by hand
 
 // Files that configure the coverage reports of PHPUnit, Pest, Vitest and Jest
 const CONFIG = /^(phpunit(\.dist)?\.xml(\.dist)?|(vitest|vite|jest)\.config\.[cm]?[jt]s|package\.json)$/;
@@ -25,26 +26,38 @@ export async function writesClover(root) {
   return false;
 }
 
-/** The minimum coverage the workflow file asks for: 100 without min-coverage, null when it is not a number. */
-export function minCoverageOf(current) {
-  const value = current?.minCoverage ?? '100';
+/**
+ * The minimum coverage the workflow file asks for: `fallback` (the workflow's default) without min-coverage, null when it
+ * is not a number.
+ */
+export function minCoverageOf(current, fallback = 100) {
+  const value = current?.minCoverage ?? String(fallback);
   return /^\d+$/.test(value) ? Number(value) : null;
 }
 
 /**
- * Warns when the tests check a minimum coverage but no configuration file asks for the Clover report, so the check
- * fails. Nothing when the folder was not read (state.clover null), or the tests or the check are off.
+ * Warns when the tests read the coverage but no configuration file asks for the Clover report: a minimum then fails, and
+ * an app shows no coverage. Nothing when the folder was not read (state.clover null), or the tests are off, or a
+ * package turns the check off. `app` is true for apps, whose minimum is 0 by default and whose coverage is always shown.
  */
-export function coverageItems(report, state) {
+export function coverageItems(report, state, { app = false } = {}) {
   const current = state.current;
   if (!current || state.clover == null) return;
-  if (current.tests === false || current.testCommand === 'none' || minCoverageOf(current) === 0) return;
+  if (current.tests === false || current.testCommand === 'none') return;
+  const minimum = minCoverageOf(current, app ? 0 : 100);
+  const hint = 'have phpunit.xml, Vitest or Jest write clover.xml (see the test docs of the stack)';
+  if (minimum === 0) {
+    if (!app) return;
+    if (state.clover) report.ok('Clover report for the coverage shown by the tests job');
+    else report.warn('No Clover report configured, so the tests job shows no coverage', hint);
+    return;
+  }
   if (state.clover) {
-    report.ok(`Clover report for the minimum coverage (${minCoverageOf(current) ?? current.minCoverage}%)`);
+    report.ok(`Clover report for the minimum coverage (${minimum ?? current.minCoverage}%)`);
     return;
   }
   report.warn(
-    `No Clover report configured, so the minimum coverage (${minCoverageOf(current) ?? current.minCoverage}%) fails the tests`,
-    'have phpunit.xml, Vitest or Jest write clover.xml (see the test docs of the stack), or set min-coverage: 0',
+    `No Clover report configured, so the minimum coverage (${minimum ?? current.minCoverage}%) fails the tests`,
+    `${hint}, or set min-coverage: 0`,
   );
 }

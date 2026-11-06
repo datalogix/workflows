@@ -1510,7 +1510,7 @@ async function evaluate(
         SETUP,
       );
     }
-    coverageItems(report, state);
+    coverageItems(report, state, { app: true });
   }
 
   // Label names are case-insensitive on GitHub
