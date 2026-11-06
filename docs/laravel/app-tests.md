@@ -68,6 +68,7 @@ For example:
 - Scripts must check, not fix, and exit when done: `eslint .`, not `eslint . --fix`; `vitest run`, not `vitest`.
 - CI turns off Composer's 300-second script timeout. For long suites locally, start the script with `Composer\\Config::disableProcessTimeout`.
 - Pint and PHPStan stay in the workflow (Pint checks only the files changed by the pull request), so CI does not run `composer lint` or similar scripts unless `lint-command` names them.
+- Pint also checks Blade views (`--blade`) when `package.json` declares `prettier-plugin-blade` and Pint is 1.30+: Pint formats them with Prettier from `node_modules`, so the project needs `prettier`, `prettier-plugin-blade` and `prettier-plugin-tailwindcss` in its `devDependencies` (Pint names the versions it needs).
 
 ## Inputs
 
@@ -75,7 +76,7 @@ For example:
 | ----------------- | ------------------ | ----------------------------------------------------------------------------------------- |
 | `php-version`     | detected           | Override the PHP version                                                                  |
 | `node-version`    | detected           | Override the Node version                                                                 |
-| `pint`            | `true`             | Run `pint --test` on the files changed by the pull request (Pint 1.20+)                   |
+| `pint`            | `true`             | Run `pint --test` on the files changed by the pull request (Pint 1.20+), Blade views included when `package.json` declares `prettier-plugin-blade` (Pint 1.30+) |
 | `phpstan`         | `true`             | Run PHPStan when installed                                                                |
 | `lint-command`    | empty              | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check`                 |
 | `audit`           | `true`             | Run `composer audit` and the Node audit on scheduled and manual runs, and on PRs that change their lockfile |

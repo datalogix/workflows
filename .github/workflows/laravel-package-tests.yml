@@ -248,6 +248,11 @@ jobs:
             if requires laravel/pint; then
               echo "pint=true" >> "$GITHUB_OUTPUT"
               enabled=true
+              # Pint formats Blade views with Prettier from node_modules, and stops when it is missing
+              if [ -f package.json ] \
+                && jq -e '(.devDependencies // {}) + (.dependencies // {}) | has("prettier-plugin-blade")' package.json >/dev/null; then
+                echo "blade=true" >> "$GITHUB_OUTPUT"
+              fi
             else
               echo "laravel/pint is not required by composer.json, skipping Pint"
             fi
@@ -298,13 +303,26 @@ jobs:
         shell: bash
         run: composer update --prefer-stable --prefer-dist --no-interaction
 
-      # Only the files changed by the PR, so existing style issues do not fail the build
+      # Only for Pint to format Blade views
+      - name: Setup JavaScript
+        id: js
+        if: steps.lint.outputs.blade
+        uses: datalogix/workflows/.github/actions/setup-js@v2
+
+      # Only the files changed by the PR, so existing style issues do not fail the build. Blade views too when the
+      # package declares prettier-plugin-blade and Pint has --blade (1.30+)
       - name: Laravel Pint
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.lint.outputs.pint }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.lint.outputs.pint && (!steps.lint.outputs.blade || steps.js.outcome == 'success') }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
-        run: vendor/bin/pint --test --diff="origin/$BASE"
+          BLADE: ${{ steps.lint.outputs.blade }}
+        run: |
+          args=(--test --diff="origin/$BASE")
+          if [ "$BLADE" = true ] && grep -q -- '--blade' <<< "$(vendor/bin/pint --help)"; then
+            args+=(--blade)
+          fi
+          vendor/bin/pint "${args[@]}"
 
       # PHPStan's default tmpDir; a package that sets another one just runs without the result cache. One cache per pull
       # request, saved by its first run (later runs start from it), and one per commit elsewhere, which a new pull
