@@ -1,4 +1,4 @@
-import { mkdir, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, utimes, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { runScript } from './fakes.js';
@@ -13,8 +13,11 @@ function clover(files, { root = '' } = {}) {
   return `<?xml version="1.0"?><coverage><project><package name="app">${entries}</package><metrics elements="${elements}" coveredelements="${covered}"/></project></coverage>`;
 }
 
-/** Runs the script in a project folder holding `files` ({ path: content }); `old` files are dated before the tests. */
-async function coverage(minimum, files = {}, { since = true, old = [], env = {} } = {}) {
+/**
+ * Runs the script in a project folder holding `files` ({ path: content }); `old` files are dated before the tests.
+ * `brokenPython` puts a python3 that fails first on PATH.
+ */
+async function coverage(minimum, files = {}, { since = true, old = [], env = {}, brokenPython = false } = {}) {
   // SINCE is the marker written by setup, which runs before the script reads the environment
   const vars = { MIN_COVERAGE: String(minimum), ...env };
   return runScript('coverage/coverage.sh', {
@@ -35,6 +38,10 @@ async function coverage(minimum, files = {}, { since = true, old = [], env = {} 
         }
       }
       if (since) vars.SINCE = marker;
+      if (brokenPython) {
+        await writeFile(join(dir, 'python3'), '#!/usr/bin/env bash\necho boom >&2\nexit 1\n');
+        await chmod(join(dir, 'python3'), 0o755);
+      }
       return project;
     },
   });
@@ -149,6 +156,20 @@ describe('coverage', () => {
 
     expect(result.code).toBe(1);
     expect(result.stdout).toContain('::error::clover.xml is not a Clover report with project metrics');
+  });
+
+  test('fails on a file that is not XML', async () => {
+    const result = await coverage(100, { 'coverage/clover.xml': '<coverage><project>' });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('::error::coverage/clover.xml is not a Clover report with project metrics');
+  });
+
+  test('fails when python3 cannot read the report', async () => {
+    const result = await coverage(100, { 'clover.xml': clover([['a', 1, 1]]) }, { brokenPython: true });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('::error::Could not read clover.xml');
   });
 
   test('fails on a report that measures no code', async () => {

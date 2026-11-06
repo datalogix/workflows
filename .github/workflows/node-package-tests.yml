@@ -85,7 +85,7 @@ jobs:
             echo "::notice::No test script in package.json: no tests ran"
           fi
 
-      # Every runner measures the same code; the first one only, as the check needs xmllint, which Windows runners lack.
+      # Every runner measures the same code, so only the first one checks it.
       # Without tests, no report: the check fails
       - name: Coverage
         if: inputs.min-coverage != 0 && matrix.os == fromJSON(inputs.os)[0]

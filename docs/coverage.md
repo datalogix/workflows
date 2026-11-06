@@ -17,7 +17,7 @@ Where it runs:
 | [`laravel-app-tests`](laravel/app-tests.md) | The PHP test suite (`composer test`, `php artisan test` or `test-command`). The `package.json` `test` script is not checked | `pcov`, installed when `min-coverage` is not 0 |
 | [`laravel-package-tests`](laravel/package-tests.md) | The newest combination of the matrix, the one that uploads to Codecov | `coverage-driver` (`pcov` by default) |
 | [`node-app-tests`](js/app-tests.md) | The `test` script (or `test-command`) | the project's (`@vitest/coverage-v8`, Jest's own) |
-| [`node-package-tests`](js/package-tests.md) | Each Node version, on the first runner of `os` (the check uses `xmllint`, which Windows runners lack) | the project's |
+| [`node-package-tests`](js/package-tests.md) | Each Node version, on the first runner of `os` (every runner measures the same code) | the project's |
 
 `test-command: none` and `tests: false` turn the check off with the suite. `min-coverage: 0` turns off only the check.
 

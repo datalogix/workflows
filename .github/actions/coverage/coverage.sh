@@ -38,15 +38,20 @@ if [ -z "$report" ]; then
   exit 1
 fi
 
-metric() {
-  xmllint --xpath "string(/coverage/project/metrics/@$1)" "$report" 2>/dev/null || true
-}
-elements=$(metric elements)
-covered=$(metric coveredelements)
-if ! [[ "$elements" =~ ^[0-9]+$ && "$covered" =~ ^[0-9]+$ ]]; then
+if ! command -v python3 >/dev/null; then
+  echo "::error::The coverage check needs python3, which this runner lacks"
+  exit 1
+fi
+# The project's elements and covered elements, then a line per file not fully covered
+if ! parsed=$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/clover.py" "$report"); then
+  echo "::error::Could not read $report"
+  exit 1
+fi
+if [ "$parsed" = invalid ]; then
   echo "::error::$report is not a Clover report with project metrics (elements and coveredelements)"
   exit 1
 fi
+read -r elements covered <<< "$(head -n 1 <<< "$parsed")"
 if ((elements == 0)); then
   echo "::error::$report measures no code: check which files the coverage includes"
   exit 1
@@ -66,13 +71,9 @@ echo "::error::Coverage is $summary, below the minimum of $minimum%"
 
 # The files short of full coverage, at most LIMIT of them. PHPUnit writes absolute paths
 LIMIT=50
-missing='//file[metrics/@coveredelements != metrics/@elements]'
-count=$(xmllint --xpath "count($missing)" "$report")
+count=$(($(wc -l <<< "$parsed") - 1))
 echo "Files not fully covered ($count):"
-for ((i = 1; i <= count && i <= LIMIT; i++)); do
-  name=$(xmllint --xpath "string(($missing)[$i]/@name)" "$report")
-  file_covered=$(xmllint --xpath "string(($missing)[$i]/metrics/@coveredelements)" "$report")
-  file_elements=$(xmllint --xpath "string(($missing)[$i]/metrics/@elements)" "$report")
+tail -n +2 <<< "$parsed" | head -n "$LIMIT" | while IFS=$'\t' read -r file_covered file_elements name; do
   echo "  ${name#"${GITHUB_WORKSPACE:-$PWD}/"}: $file_covered of $file_elements"
 done
 if ((count > LIMIT)); then
