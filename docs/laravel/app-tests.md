@@ -24,7 +24,7 @@ Setup reads `composer.json` and asks two questions, starting from what is instal
 
 Each check runs even when an earlier one failed (a Pint failure still runs PHPStan, the suite and the rest), so one run reports every failure; none runs when the project could not be prepared.
 
-The suite must cover at least `min-coverage` percent of the code (100 by default), read from the Clover report `phpunit.xml` writes: see [Minimum coverage](../coverage.md).
+The job summary shows the coverage of the suite, read from the Clover report `phpunit.xml` writes (with `pcov`), and with `min-coverage` set the suite must cover at least that percent of the code: see [Minimum coverage](../coverage.md) for the `phpunit.xml` to use.
 
 With the suite and lint off, the `tests` job still runs (the audits, the `package.json` scripts), so its required check still reports. To turn the whole layer off, and its required check with it, set `tests: false`.
 
@@ -80,7 +80,7 @@ For example:
 | `lint-command`    | empty              | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check`                 |
 | `audit`           | `true`             | Run `composer audit` and the Node audit on scheduled and manual runs, and on PRs that change their lockfile |
 | `test-command`    | detected           | Test command: `composer test` when defined, otherwise `php artisan test`; `none` skips it |
-| `min-coverage`    | `100`              | Minimum coverage of the test suite, with `pcov`; `0` turns the check off. See [Minimum coverage](../coverage.md) |
+| `min-coverage`    | `0`                | Minimum coverage of the test suite, with `pcov`; the coverage is shown either way, and `0` never fails. See [Minimum coverage](../coverage.md) |
 | `js`              | `true`             | Run the `typecheck`, `lint` and `test` scripts of `package.json` when they are defined    |
 | `timeout-minutes` | `30`               | Job timeout                                                                               |
 

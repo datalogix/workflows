@@ -19,18 +19,21 @@ test('finds a Clover report in the configuration of PHPUnit, Vitest, Jest or pac
   expect(await writesClover('/nonexistent/folder')).toBe(false);
 });
 
-test('reads the minimum coverage, 100 by default', () => {
+test('reads the minimum coverage, the workflow default without min-coverage', () => {
   expect(minCoverageOf({})).toBe(100);
   expect(minCoverageOf(null)).toBe(100);
   expect(minCoverageOf({ minCoverage: '80' })).toBe(80);
   expect(minCoverageOf({ minCoverage: '0' })).toBe(0);
   expect(minCoverageOf({ minCoverage: '${{ vars.MIN }}' })).toBe(null);
+  // An app's workflow checks nothing by default
+  expect(minCoverageOf({}, 0)).toBe(0);
+  expect(minCoverageOf({ minCoverage: '80' }, 0)).toBe(80);
 });
 
 test('reports the Clover report only when the tests check a minimum coverage', () => {
-  const items = (state) => {
+  const items = (state, options) => {
     const report = createReport();
-    coverageItems(report, state);
+    coverageItems(report, state, options);
     return report.items.map(({ level, title }) => [level, title]);
   };
 
@@ -47,4 +50,17 @@ test('reports the Clover report only when the tests check a minimum coverage', (
   expect(items({ current: { testCommand: 'none' }, clover: false })).toStrictEqual([]);
   expect(items({ current: {}, clover: null })).toStrictEqual([]);
   expect(items({ current: null, clover: false })).toStrictEqual([]);
+
+  // An app always shows the coverage, and checks a minimum only when the workflow file sets one
+  const app = { app: true };
+  expect(items({ current: {}, clover: true }, app)).toStrictEqual([
+    ['ok', 'Clover report for the coverage shown by the tests job'],
+  ]);
+  expect(items({ current: { minCoverage: '0' }, clover: false }, app)).toStrictEqual([
+    ['warn', 'No Clover report configured, so the tests job shows no coverage'],
+  ]);
+  expect(items({ current: { minCoverage: '80' }, clover: false }, app)).toStrictEqual([
+    ['warn', 'No Clover report configured, so the minimum coverage (80%) fails the tests'],
+  ]);
+  expect(items({ current: { tests: false }, clover: false }, app)).toStrictEqual([]);
 });

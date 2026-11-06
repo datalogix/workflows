@@ -55,6 +55,9 @@ describe('coverage', () => {
     expect(result.stdout).toContain(
       'Coverage is 100.00% (10 of 10 statements, methods and conditionals), minimum 100%',
     );
+    expect(result.summary).toBe(
+      '### Coverage: 100.00%\n\n10 of 10 statements, methods and conditionals; minimum 100%.\n',
+    );
   });
 
   test('passes above a lower minimum', async () => {
@@ -85,6 +88,9 @@ describe('coverage', () => {
       '::error::Coverage is 99.98% (10009 of 10011 statements, methods and conditionals), below the minimum of 100%',
     );
     expect(result.stdout).toContain('Files not fully covered (1):\n  src/B.php: 1 of 3\n');
+    expect(result.summary).toContain('### Coverage: 99.98%');
+    expect(result.summary).toContain('below the minimum of 100%.');
+    expect(result.summary).toContain('| `src/B.php` | 1 | 3 |');
   });
 
   test('lists at most 50 files', async () => {
@@ -95,13 +101,43 @@ describe('coverage', () => {
     expect(result.stdout).toContain('Files not fully covered (52):');
     expect(result.stdout).toContain('  src/F49.php: 0 of 1\n  ... and 2 more');
     expect(result.stdout).not.toContain('F50.php');
+    expect(result.summary).toContain('| `src/F49.php` | 0 | 1 |\n\n... and 2 more');
+    expect(result.summary).not.toContain('F50.php');
   });
 
-  test('checks nothing with 0', async () => {
-    const result = await coverage(0);
+  test('with 0, only shows the coverage and the files not fully covered', async () => {
+    const result = await coverage(0, {
+      'clover.xml': clover([
+        ['src/A.php', 10, 10],
+        ['src/B.php', 1, 3],
+      ]),
+    });
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('min-coverage is 0: coverage is not checked');
+    expect(result.stdout).toContain('Coverage is 84.61% (11 of 13 statements, methods and conditionals), no minimum');
+    expect(result.stdout).not.toContain('Files not fully covered');
+    expect(result.summary).toContain('### Coverage: 84.61%');
+    expect(result.summary).toContain('11 of 13 statements, methods and conditionals; no minimum.');
+    expect(result.summary).toContain('<summary>Files not fully covered (1)</summary>');
+    expect(result.summary).toContain('| `src/B.php` | 1 | 3 |');
+    expect(result.summary).not.toContain('src/A.php');
+  });
+
+  test('with 0, only notes a missing report, no tests or a report without code', async () => {
+    const missing = await coverage(0);
+    expect(missing.code).toBe(0);
+    expect(missing.stdout).toContain(
+      '::notice::The tests wrote no Clover report (looked for clover.xml build/logs/clover.xml build/clover.xml coverage/clover.xml): configure the test runner to write one to see the coverage',
+    );
+
+    const none = await coverage(0, {}, { env: { SINCE: '/nonexistent/tests-started' }, since: false });
+    expect(none.code).toBe(0);
+    expect(none.stdout).toContain('::notice::No tests ran, so there is no coverage to check\n');
+
+    const empty = await coverage(0, { 'clover.xml': clover([]) });
+    expect(empty.code).toBe(0);
+    expect(empty.stdout).toContain('::notice::clover.xml measures no code: check which files the coverage includes');
+    expect(empty.summary).toBe('');
   });
 
   test.each(['', '101', '50.5', 'abc', '-1'])('rejects min-coverage %j', async (minimum) => {

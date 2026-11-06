@@ -11,15 +11,7 @@ For each combination of the matrix it:
 3. Requires the Laravel version under test (`composer require laravel/framework:<version> --no-update`) and runs `composer update --prefer-lowest` or `--prefer-stable`.
 4. Runs the tests: `composer test` when `composer.json` defines it, otherwise `vendor/bin/pest` when Pest is installed, otherwise `vendor/bin/phpunit` (or `test-command`; `none` skips the matrix). See [Test scripts](app-tests.md#test-scripts).
 
-Coverage is collected only on the newest combination (highest PHP and Laravel, `prefer-stable`, first OS), with `pcov` by default, uploaded to Codecov (`coverage`) and checked against `min-coverage` (100% by default, see [Minimum coverage](../coverage.md)): the driver slows the tests down, and the other combinations would measure the same code. If `exclude` removes that combination, the run warns and coverage is neither reported nor checked. The other jobs run PHPUnit or Pest with `--no-coverage`, so a coverage report configured in `phpunit.xml` does not fail them with `failOnWarning`. With `composer test`, the flag is passed only when the script is a single PHPUnit or Pest command (e.g. `"test": "vendor/bin/pest"`). The package's `phpunit.xml` must produce a Clover report, for example:
-
-```xml
-<coverage>
-    <report>
-        <clover outputFile="clover.xml"/>
-    </report>
-</coverage>
-```
+Coverage is collected only on the newest combination (highest PHP and Laravel, `prefer-stable`, first OS), with `pcov` by default, uploaded to Codecov (`coverage`) and checked against `min-coverage` (100% by default, see [Minimum coverage](../coverage.md)): the driver slows the tests down, and the other combinations would measure the same code. If `exclude` removes that combination, the run warns and coverage is neither reported nor checked. The other jobs run PHPUnit or Pest with `--no-coverage`, so a coverage report configured in `phpunit.xml` does not fail them with `failOnWarning`. With `composer test`, the flag is passed only when the script is a single PHPUnit or Pest command (e.g. `"test": "vendor/bin/pest"`). The package's `phpunit.xml.dist` must produce a Clover report: see the model in [Minimum coverage](../coverage.md#laravel-packages).
 
 A separate `lint` job runs once, outside the matrix, on the highest PHP version of the matrix with `prefer-stable`:
 

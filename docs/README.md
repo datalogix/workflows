@@ -18,7 +18,7 @@ Each stack has the same four pages (plus a manual setup for apps): adding an app
 | [Organization setup](organization-setup.md) | Done once: the Claude GitHub App, the Claude token, shared issue forms, the monitoring relay, the task manager and release GitHub Apps |
 | [Daily use](daily-use.md) | Working with Claude, a feature from issue to production, what to do when something breaks |
 | [Verification layers](verification-layers.md) | The eight layers every change goes through, the branch ruleset, solo maintainers, project rules for the security review |
-| [Minimum coverage](coverage.md) | The coverage the tests of every stack require (100% by default), how it is checked and how to write the Clover report |
+| [Minimum coverage](coverage.md) | The coverage the tests require (100% by default in packages, shown without a minimum in apps), how it is checked and how to write the Clover report |
 | [Deploy](deploy.md) | Staging and production deploys, health checks, rollbacks and the release history |
 | [Production errors](production-errors.md) | Nightwatch, Sentry and Inspector problems as GitHub issues, the relay and how to add another monitoring provider |
 | [Task manager](task-manager.md) | How the task manager turns client tasks into GitHub issues, picks up issues labeled `task` and follows them |

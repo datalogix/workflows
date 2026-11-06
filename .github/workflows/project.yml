@@ -115,8 +115,8 @@ on:
         description: Empty runs composer test when composer.json defines it, otherwise php artisan test; none skips the test suite
       min-coverage:
         type: number
-        default: 100
-        description: Minimum coverage of the test suite (PHPUnit or Pest, or the unit tests of js apps), in percent of statements, methods and conditionals, read from the Clover report it writes; 0 checks nothing
+        default: 0
+        description: Minimum coverage of the test suite (PHPUnit or Pest, or the unit tests of js apps), in percent of statements, methods and conditionals, read from the Clover report it writes; the coverage is shown in the job summary, and 0 (the default) never fails
       js:
         type: boolean
         default: true
