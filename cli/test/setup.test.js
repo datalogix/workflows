@@ -877,6 +877,15 @@ describe('setup tasks', () => {
     expect(titles).not.toContainEqual(expect.stringMatching(/^Environment/));
   });
 
+  test('writes no CODEOWNERS for one maintainer who gave no code owners', async (t) => {
+    const root = await tempRoot(t, 'setup-');
+    const answers = { ...noDeployAnswers, codeOwners: undefined };
+    const titles = setupTasks(answers, { github: fakeGitHub(), root, state: APP_STATE, relay }).map(
+      (task) => task.title,
+    );
+    expect(titles).not.toContain('Code owners .github/CODEOWNERS');
+  });
+
   test('explains how to add the database check when the provider is missing', async (t) => {
     const root = await tempRoot(t, 'setup-');
     const answers = { ...noDeployAnswers, databaseCheck: true };

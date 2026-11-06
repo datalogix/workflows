@@ -532,9 +532,11 @@ test('reports a package ruleset that requires the checks of its tests turned off
   ]);
 });
 
-test('warns about a package without code owners', async () => {
-  const items = await run(packageState({ ruleset: rulesetOf([PACKAGE_CHECK]), codeOwners: null }));
-  expect(titles(items, 'warn')).toStrictEqual(['.github/CODEOWNERS has no owner for /.github/']);
+test('warns about a package without code owners only when its ruleset requires their approval', async () => {
+  const solo = await run(packageState({ ruleset: rulesetOf([PACKAGE_CHECK]), codeOwners: null }));
+  expect(titles(solo, 'warn')).toStrictEqual([]);
+  const team = await run(packageState({ ruleset: rulesetOf([PACKAGE_CHECK], { codeOwners: true }), codeOwners: null }));
+  expect(titles(team, 'warn')).toContain('.github/CODEOWNERS has no owner for /.github/');
 });
 
 test('reports a ruleset that is not enforced, leaves out the default branch or does not require pull requests', async () => {

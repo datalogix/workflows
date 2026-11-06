@@ -62,6 +62,19 @@ test('writes the package workflow file and the code owners, and stores the Codec
   expect(await setup.warnings(answers, { state: again })).toStrictEqual([]);
 });
 
+test('asks for the code owners only of a team, and writes no CODEOWNERS without them', async (t) => {
+  const step = setup.steps().find((candidate) => candidate.id === 'codeOwners');
+  expect(step.when({ solo: true }, { flags: {} })).toBe(false);
+  expect(step.when({ solo: false }, { flags: {} })).toBe(true);
+  // The flag still writes the file of one maintainer
+  expect(step.when({ solo: true }, { flags: { 'code-owners': '@ana' } })).toBe(true);
+
+  const root = await tempRoot(t, 'package-');
+  const answers = { repository: 'datalogix/package', solo: true };
+  const results = await runResults(setup.tasks(answers, { github: fakeGitHub(), root, state: PACKAGE_STATE }));
+  expect(results.map((result) => result.title)).toStrictEqual(['Workflow file .github/workflows/datalogix.yml']);
+});
+
 test('asks for the Codecov token only when the package uploads coverage and cannot read one', () => {
   const step = setup.steps().find((candidate) => candidate.id === 'codecovToken');
   expect(step.when({}, { state: { codecovToken: true } })).toBe(false);

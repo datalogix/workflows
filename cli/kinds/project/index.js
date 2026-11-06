@@ -892,7 +892,7 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
 
   tasks.push(workflowFileTask(() => renderWorkflow(stack, answers, state), { root, state }));
 
-  tasks.push(codeOwnersTask(answers, { root, state }));
+  if (answers.codeOwners) tasks.push(codeOwnersTask(answers, { root, state }));
 
   if (twoBranches(answers)) tasks.push(branchesTask(github, state, { developmentBranch, productionBranch }));
 
