@@ -1048,7 +1048,7 @@ describe('setup tasks', () => {
     const trailing = {
       ...written,
       workflow: workflow
-        .replace('deploy: forge', 'deploy: forge # Forge sites')
+        .replace('      deploy: forge', '      deploy: forge # Forge sites')
         .replace(/\n$/, '\n      php-version: "8.3" # server\n'),
     };
     expect(await setupWarnings(answers, { state: trailing })).toStrictEqual([
@@ -1237,7 +1237,7 @@ describe('setup tasks', () => {
     expect(github.calls).toContainEqual(['default', 'main']);
     const workflow = await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8');
     expect(workflow).toContain('branches: [main]');
-    expect(workflow).not.toContain('production-branch');
+    expect(parseInputs(workflow)).not.toHaveProperty('production-branch');
     expect(nextSteps(answers, { relay, results, state })).not.toContainEqual(
       expect.stringContaining('the default branch again'),
     );
@@ -1298,7 +1298,7 @@ describe('setup tasks', () => {
     const task = taskById(setupTasks(answers, { root, state, relay }), 'workflowFile');
     await task.run();
     const workflow = await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8');
-    expect(workflow).not.toContain('production-branch');
+    expect(parseInputs(workflow)).not.toHaveProperty('production-branch');
     expect(await setupWarnings(answers, { state })).toStrictEqual([
       'production-branch is removed: setup offers it only with a deploy and staging',
     ]);

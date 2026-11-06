@@ -288,17 +288,20 @@ export function unversioned(ref) {
 }
 
 /**
- * The example workflow up to its inputs: everything setup writes besides the `with:` block. Pushes to the
- * repository's default branch (and to the production branch, when it has one) run the tests and the deploys, so the
- * example's `main` becomes those branches.
+ * The example workflow up to its inputs, with its commented list of optional inputs: everything setup writes besides
+ * the `with:` block. Pushes to the repository's default branch (and to the production branch, when it has one) run
+ * the tests and the deploys, so the example's `main` becomes those branches.
  */
 export async function templateBase(branch = 'main', productionBranch = null, example = 'project.yml') {
   const template = await readFile(join(packageRoot, 'examples', example), 'utf8');
-  const cut = template.indexOf(OPTIONAL_MARKER);
   const branches = productionBranch ? `${branch}, ${productionBranch}` : branch;
-  return (cut === -1 ? template : template.slice(0, cut))
-    .trimEnd()
-    .replace('branches: [main]', `branches: [${branches}]`);
+  return template.trimEnd().replace('branches: [main]', `branches: [${branches}]`);
+}
+
+/** A template base without its commented list of optional inputs, as setup wrote it before that list. */
+function withoutOptionalInputs(base) {
+  const cut = base.indexOf(OPTIONAL_MARKER);
+  return cut === -1 ? base : base.slice(0, cut).trimEnd();
 }
 
 /**
@@ -314,17 +317,17 @@ export function withInputs(base, inputs, after = '') {
 
 /**
  * Whether an existing workflow file has lines outside its `with:` block that setup would replace with `base`. What
- * follows the pipeline job is kept (afterInputs).
+ * follows the pipeline job is kept (afterInputs), and a file without the commented list of optional inputs (written
+ * before setup added it) has no changes for lacking it.
  */
 export function hasChangesOutsideInputs(content, base) {
   const lines = lf(content).split('\n');
   const block = inputsBlock(lines);
-  return (
-    lines
-      .slice(0, block ? block.start : pipelineEnd(lines))
-      .join('\n')
-      .trimEnd() !== base
-  );
+  const head = lines
+    .slice(0, block ? block.start : pipelineEnd(lines))
+    .join('\n')
+    .trimEnd();
+  return head !== base && head !== withoutOptionalInputs(base);
 }
 
 /**

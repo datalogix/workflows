@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test } from 'vitest';
 import { packageAnswers, packageTemplate, renderPackageWorkflow } from '../kinds/package/workflow.js';
 import { PROJECT_REF, projectAnswers, projectTemplate, renderProjectWorkflow } from '../kinds/project/workflow.js';
@@ -31,7 +32,9 @@ test('renders the example with the chosen inputs', async () => {
   });
   expect(content).toContain(PROJECT_REF);
   expect(content).toContain('repository_dispatch:');
-  expect(content).not.toContain('# All inputs are optional');
+  // The commented list of optional inputs comes before the with block
+  expect(content).toMatch(/ {4}# All inputs are optional:\n(?: {4}#.*\n)+ {4}with:\n/);
+  expect(hasInputComments(content)).toBe(false);
   expect(parseInputs(content)).toStrictEqual({
     deploy: 'forge',
     'count-author': 'true',
@@ -42,9 +45,35 @@ test('renders the example with the chosen inputs', async () => {
 test('omits the with block when every input keeps its default', async () => {
   const content = await renderProjectWorkflow({ deploy: 'none', solo: false, incidents: true });
   expect(content).not.toMatch(/^\s+with:/m);
-  expect(content).toMatch(/secrets: inherit\n$/);
+  expect(content).toMatch(/secrets: inherit\n {4}# All inputs are optional:\n/);
+  expect(content).toBe(
+    `${(await readFile(new URL('../../examples/project.yml', import.meta.url), 'utf8')).trimEnd()}\n`,
+  );
   expect(await changesOutside(content)).toBe(false);
   expect(await changesOutside(content.replace('secrets: inherit', 'secrets: {}'))).toBe(true);
+});
+
+test('writes the package example as it is, with its commented list of optional inputs', async () => {
+  const example = await readFile(new URL('../../examples/package.yml', import.meta.url), 'utf8');
+  expect(await renderPackageWorkflow('', 'main')).toBe(`${example.trimEnd()}\n`);
+  expect(await renderPackageWorkflow(example, 'main')).toBe(example);
+  expect(hasChangesOutsideInputs(example, await packageTemplate('main'))).toBe(false);
+  expect(hasInputComments(example)).toBe(false);
+});
+
+test('takes a file written without the commented list of optional inputs as unchanged, and adds the list', async () => {
+  const strip = (content) => content.replace(/ {4}# All inputs are optional:\n(?: {4}#.*\n)+/, '');
+  const project = await renderProjectWorkflow({ deploy: 'forge' });
+  expect(strip(project)).not.toContain('# All inputs are optional');
+  expect(await changesOutside(strip(project))).toBe(false);
+  expect(await renderProjectWorkflow({ deploy: 'forge' }, strip(project))).toBe(project);
+
+  const pkg = await renderPackageWorkflow();
+  expect(hasChangesOutsideInputs(strip(pkg), await packageTemplate('main'))).toBe(false);
+  expect(await renderPackageWorkflow(strip(pkg))).toBe(pkg);
+  // Another change to the list is a change outside the inputs
+  const edited = pkg.replace('#   pint: false', '#   pint: true');
+  expect(hasChangesOutsideInputs(edited, await packageTemplate('main'))).toBe(true);
 });
 
 test('keeps inputs it does not manage and reads answers back', async () => {
@@ -374,8 +403,8 @@ test('reads a with line that ends with a comment', async () => {
 test('renders the package workflow without inputs', async () => {
   const content = await renderPackageWorkflow('', 'main');
   expect(content).toContain('branches: [main]');
-  expect(content).not.toContain('with:');
-  expect(content.endsWith('secrets: inherit\n')).toBe(true);
+  expect(content).not.toMatch(/^ {4}with:/m);
+  expect(content).toMatch(/secrets: inherit\n {4}# All inputs are optional:\n/);
 });
 
 test('keeps the inputs of the existing package workflow file', async () => {
