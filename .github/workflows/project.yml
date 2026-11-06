@@ -113,6 +113,10 @@ on:
         type: string
         default: ""
         description: Empty runs composer test when composer.json defines it, otherwise php artisan test; none skips the test suite
+      min-coverage:
+        type: number
+        default: 100
+        description: Minimum coverage of the test suite (PHPUnit or Pest, or the unit tests of js apps), in percent of statements, methods and conditionals, read from the Clover report it writes; 0 checks nothing
       js:
         type: boolean
         default: true
@@ -218,6 +222,7 @@ jobs:
       phpstan: ${{ inputs.phpstan }}
       lint-command: ${{ inputs.lint-command }}
       test-command: ${{ inputs.test-command }}
+      min-coverage: ${{ inputs.min-coverage }}
       js: ${{ inputs.js }}
 
   js-tests:
@@ -231,6 +236,7 @@ jobs:
       node-version: ${{ inputs.node-version }}
       lint-command: ${{ inputs.lint-command }}
       test-command: ${{ inputs.test-command }}
+      min-coverage: ${{ inputs.min-coverage }}
       e2e: ${{ inputs.e2e }}
 
   # Once per pull request (opened, reopened or ready for review), not on every push: ask @claude for another review.

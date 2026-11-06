@@ -79,6 +79,7 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     phpstan: undefined,
     lintCommand: null,
     testCommand: null,
+    minCoverage: null,
   });
   expect(
     projectAnswers({ tests: 'false', 'security-review': 'true', 'risk-gate': 'false # no approvals' }),
@@ -337,6 +338,7 @@ test('reads only what a package workflow file can say', () => {
     phpstan: undefined,
     lintCommand: null,
     testCommand: 'none',
+    minCoverage: null,
   });
 });
 

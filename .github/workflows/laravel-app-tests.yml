@@ -31,6 +31,10 @@ on:
         type: string
         default: ""
         description: Empty runs composer test when composer.json defines it, otherwise php artisan test; none skips the test suite
+      min-coverage:
+        type: number
+        default: 100
+        description: Minimum coverage of the PHP test suite, in percent of statements, methods and conditionals, read from the Clover report it writes (with pcov); 0 checks nothing
       js:
         type: boolean
         default: true
@@ -70,6 +74,7 @@ jobs:
         with:
           php-version: ${{ inputs.php-version }}
           node-version: ${{ inputs.node-version }}
+          coverage: ${{ inputs.min-coverage != 0 && inputs.test-command != 'none' && 'pcov' || 'none' }}
 
       # Only the files changed by the PR, so existing style issues do not fail the build
       - name: Laravel Pint
@@ -116,6 +121,7 @@ jobs:
         run: eval "$LINT_COMMAND"
 
       - name: Tests
+        id: tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.test-command != 'none' }}
         shell: bash
         env:
@@ -131,7 +137,16 @@ jobs:
             fi
           fi
 
+          # The coverage check ignores a report older than this
+          touch "$RUNNER_TEMP/tests-started"
           eval "$TEST_COMMAND"
+
+      - name: Coverage
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' && inputs.min-coverage != 0 }}
+        uses: datalogix/workflows/.github/actions/coverage@v2
+        with:
+          min-coverage: ${{ inputs.min-coverage }}
+          since: ${{ runner.temp }}/tests-started
 
       - name: Detect package.json scripts
         id: js

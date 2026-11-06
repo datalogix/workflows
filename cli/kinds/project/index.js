@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { coverageItems } from '../../lib/coverage.js';
 import {
   CLAUDE_INSTALL,
   codeOwnerItems,
@@ -1509,6 +1510,7 @@ async function evaluate(
         SETUP,
       );
     }
+    coverageItems(report, state);
   }
 
   // Label names are case-insensitive on GitHub

@@ -1,3 +1,4 @@
+import { coverageItems } from '../../lib/coverage.js';
 import { codeOwnerItems, createReport, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
 import { driftPhrases, requiresCodeOwners, rulesetDrift } from '../../lib/ruleset.js';
 import { checksOn } from '../../lib/state.js';
@@ -116,10 +117,10 @@ function nextSteps(checks, answers, { results, state }) {
   return steps;
 }
 
-/** A package needs only its workflow file, the ruleset, the Codecov token and the code owners. */
+/** A package needs only its workflow file, the Clover report, the ruleset, the Codecov token and the code owners. */
 async function evaluate(stack, checks, state) {
   const report = createReport();
-  workflowItems(report, state, { ref: PACKAGE_REF, kind: 'package', fix: SETUP });
+  if (workflowItems(report, state, { ref: PACKAGE_REF, kind: 'package', fix: SETUP })) coverageItems(report, state);
   const drift = rulesetItems(report, state, {
     expected: checksOn(checks, state.current),
     known: Object.values(checks),

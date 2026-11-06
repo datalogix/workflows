@@ -27,11 +27,15 @@ beforeEach(() => vi.clearAllMocks());
 const LARAVEL_PACKAGE = JSON.stringify({ require: { 'illuminate/support': '^12.0' } });
 
 /** A package folder set up as setup leaves it, and the GitHub it is checked against. */
+// A phpunit.xml that writes the Clover report the coverage check reads
+const CLOVER_PHPUNIT = '<phpunit><coverage><report><clover outputFile="clover.xml"/></report></coverage></phpunit>';
+
 async function packageFolder(t) {
   return folder(
     t,
     {
       'composer.json': LARAVEL_PACKAGE,
+      'phpunit.xml': CLOVER_PHPUNIT,
       [WORKFLOW_PATH]: await renderPackageWorkflow('', 'main'),
       '.github/CODEOWNERS': '/.github/ @ana\n',
     },
@@ -71,6 +75,7 @@ test('exits with 0 on warnings only and with 1 on errors', async (t) => {
     'The default branch has no "datalogix" ruleset, so its checks may be only advice  → npx --allow-git=root github:datalogix/workflows#v2 protect',
   ]);
   expect(clack.log.success).toHaveBeenCalledWith('Code owners of .github/: @ana');
+  expect(clack.log.success).toHaveBeenCalledWith('Clover report for the minimum coverage (100%)');
 
   // No workflow file: an error
   const bare = await folder(
@@ -80,6 +85,28 @@ test('exits with 0 on warnings only and with 1 on errors', async (t) => {
   );
   expect(await run(bare, packageGitHub())).toBe(1);
   expect(clack.log.error).toHaveBeenCalledWith(expect.stringContaining('.github/workflows/datalogix.yml is missing'));
+});
+
+test('warns when no configuration file writes the Clover report, unless the check is off', async (t) => {
+  const warning = expect.stringContaining(
+    'No Clover report configured, so the minimum coverage (100%) fails the tests',
+  );
+  const files = (workflow) => ({
+    'composer.json': LARAVEL_PACKAGE,
+    'phpunit.xml': '<phpunit/>',
+    [WORKFLOW_PATH]: workflow,
+    '.github/CODEOWNERS': '/.github/ @ana\n',
+  });
+  const workflow = await renderPackageWorkflow('', 'main');
+  expect(await run(await folder(t, files(workflow), 'check-'), packageGitHub())).toBe(0);
+  expect(clack.log.warn).toHaveBeenCalledWith(warning);
+
+  for (const input of ['min-coverage: 0', 'tests: false', 'test-command: none']) {
+    clack.log.warn.mockClear();
+    const off = workflow.concat(`    with:\n      ${input}\n`);
+    await run(await folder(t, files(off), 'check-'), packageGitHub());
+    expect(clack.log.warn).not.toHaveBeenCalledWith(warning);
+  }
 });
 
 test('warns when the folder is another repository, ignoring the case of the names', async (t) => {

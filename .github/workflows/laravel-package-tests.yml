@@ -33,7 +33,11 @@ on:
       coverage:
         type: boolean
         default: true
-        description: Collect and upload coverage on the newest combination of the matrix (highest PHP and Laravel, prefer-stable, first OS)
+        description: Upload coverage to Codecov from the newest combination of the matrix (highest PHP and Laravel, prefer-stable, first OS)
+      min-coverage:
+        type: number
+        default: 100
+        description: Minimum coverage on the newest combination of the matrix, in percent of statements, methods and conditionals, read from the Clover report the tests write; 0 checks nothing
       coverage-driver:
         type: string
         default: pcov
@@ -90,10 +94,10 @@ jobs:
         uses: actions/checkout@v7
 
       # The coverage driver slows the tests down and Codecov merges every upload into the same report,
-      # so coverage is collected only once, on the newest combination of the matrix
+      # so coverage is collected (uploaded and checked) only once, on the newest combination of the matrix
       - name: Check coverage
         id: coverage
-        if: inputs.coverage
+        if: inputs.coverage || inputs.min-coverage != 0
         shell: bash
         env:
           OS: ${{ inputs.os }}
@@ -115,7 +119,7 @@ jobs:
           # An exclude entry matching the newest combination would leave no job collecting coverage
           combination=$(jq -n --arg os "$os" --arg php "$php" --arg laravel "$laravel" --arg stability "$stability" '$ARGS.named')
           if jq -e --argjson c "$combination" 'any(.[]; to_entries | all((.value | tostring) == $c[.key]))' <<< "$EXCLUDE" >/dev/null; then
-            echo "::warning::exclude removes PHP $php, Laravel $laravel, $stability, $os, the combination that collects coverage: no coverage is reported"
+            echo "::warning::exclude removes PHP $php, Laravel $laravel, $stability, $os, the combination that collects coverage: coverage is neither reported nor checked"
           fi
 
           if [ "$MATRIX_OS" = "$os" ] && [ "$MATRIX_PHP" = "$php" ] && [ "$MATRIX_LARAVEL" = "$laravel" ] && [ "$MATRIX_STABILITY" = "$stability" ]; then
@@ -153,6 +157,7 @@ jobs:
           composer update "--$STABILITY" --prefer-dist --no-interaction
 
       - name: Execute tests
+        id: tests
         shell: bash
         env:
           TEST_COMMAND: ${{ inputs.test-command }}
@@ -185,13 +190,22 @@ jobs:
             fi
           fi
 
+          # The coverage check ignores a report older than this
+          touch "$RUNNER_TEMP/tests-started"
           eval "$TEST_COMMAND"
 
       - name: Coverage
-        if: steps.coverage.outputs.enabled
+        if: steps.coverage.outputs.enabled && inputs.coverage
         uses: codecov/codecov-action@v7
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Minimum coverage
+        if: steps.coverage.outputs.enabled && inputs.min-coverage != 0
+        uses: datalogix/workflows/.github/actions/coverage@v2
+        with:
+          min-coverage: ${{ inputs.min-coverage }}
+          since: ${{ runner.temp }}/tests-started
 
   # Lint does not depend on the matrix, so it runs once, next to the tests
   lint:
