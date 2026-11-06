@@ -32,7 +32,7 @@ It detects a JavaScript app (a `package.json` without `composer.json`, with `nex
 | Whether you work alone on the project, and the approvals of each risk level | always (the approvals: a team project with the risk gate on) |
 | Who must approve changes to `.github/` | always |
 
-Then it writes `.github/workflows/datalogix.yml` with `stack: js` (and `deploy: vercel`, `monitoring: sentry`), the `/.github/` line of `.github/CODEOWNERS`, creates the labels, stores the Claude token when the repository needs its own, and registers Sentry's signing secret in the relay. With Vercel it also:
+Then it writes `.github/workflows/datalogix.yml` with `stack: js` (and `deploy: vercel`, `monitoring: sentry`), the `/.github/` line of `.github/CODEOWNERS` (in team projects), creates the labels, stores the Claude token when the repository needs its own, and registers Sentry's signing secret in the relay. With Vercel it also:
 
 - creates the `production` environment (and `staging`) with `VERCEL_TOKEN`, `VERCEL_AUTOMATION_BYPASS_SECRET`, `VERCEL_PROJECT`, `VERCEL_TEAM_ID` and `HEALTH_URL`;
 - creates the project's `staging` custom environment when it has none (its domain is set in Vercel: the next steps say so);

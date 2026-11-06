@@ -59,8 +59,8 @@ function setupSteps(stack) {
 function setupTasks(answers, { github, root, state }) {
   const tasks = [
     workflowFileTask(() => renderPackageWorkflow(state.workflow ?? '', state.defaultBranch, answers), { root, state }),
-    codeOwnersTask(answers, { root, state }),
   ];
+  if (answers.codeOwners) tasks.push(codeOwnersTask(answers, { root, state }));
   if (answers.codecovToken?.trim()) {
     tasks.push({
       title: 'Codecov token',
@@ -130,8 +130,8 @@ async function evaluate(stack, checks, state) {
     else report.warn('No CODECOV_TOKEN: the coverage report is not uploaded', `${SETUP}, or coverage: false`);
   }
   // The workflow file does not say whether one person maintains the package (protect asks): a missing approval rule
-  // is not reported, only one that keeps older approvals
-  codeOwnerItems(report, state, { requireApproval: null, hint: SETUP, drift });
+  // is not reported, only one that keeps older approvals, and a missing CODEOWNERS only when the ruleset requires it
+  codeOwnerItems(report, state, { requireApproval: false, hint: SETUP, drift });
   return report.items;
 }
 

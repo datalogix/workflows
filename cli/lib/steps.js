@@ -72,11 +72,15 @@ export function soloStep({
   };
 }
 
-/** Who must approve changes to .github/, written to CODEOWNERS (codeOwnersTask). */
+/**
+ * Who must approve changes to .github/, written to CODEOWNERS (codeOwnersTask). Asked of a team only: one maintainer's
+ * ruleset needs no code owner approval, though --code-owners still writes the file.
+ */
 export function codeOwnersStep() {
   return {
     id: 'codeOwners',
     flag: 'code-owners',
+    when: (a, ctx) => a.solo === false || ctx.flags?.['code-owners'] !== undefined,
     validate: validOwners,
     ask: async ({ header, ctx }) =>
       orExit(

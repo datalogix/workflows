@@ -12,10 +12,10 @@ After the [organization setup](../organization-setup.md), from the library folde
 npx --allow-git=root github:datalogix/workflows#v2 setup
 ```
 
-It detects a JavaScript library (a `package.json`, no `composer.json`, and neither `next` nor `nuxt` among its dependencies nor a `next.config.*` or `nuxt.config.*` file) and asks you to confirm whether it is a library or an app, starting from the library (`--yes` takes it as detected). A folder with `composer.json` is a PHP project, even with frontend scripts. It asks whether you work alone on the library and who must approve changes to `.github/`, and:
+It detects a JavaScript library (a `package.json`, no `composer.json`, and neither `next` nor `nuxt` among its dependencies nor a `next.config.*` or `nuxt.config.*` file) and asks you to confirm whether it is a library or an app, starting from the library (`--yes` takes it as detected). A folder with `composer.json` is a PHP project, even with frontend scripts. It asks whether you work alone on the library and, with a team, who must approve changes to `.github/`, and:
 
 - writes `.github/workflows/datalogix.yml` from [`examples/package.yml`](../../examples/package.yml) with `stack: js`, the default branch in the `push` trigger and the other `with:` inputs of the existing file kept;
-- writes the `/.github/` line of `.github/CODEOWNERS`.
+- with a team (or with `--code-owners`), writes the `/.github/` line of `.github/CODEOWNERS`.
 
 It ends with the commit to make and the `protect` command to run after the first pull request.
 
