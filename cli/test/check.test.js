@@ -436,7 +436,7 @@ test('matches the push branches like GitHub filters', async () => {
 
 test('warns about a production branch without staging, where the default branch deploys nothing', async () => {
   const noStaging = await production({}, (content) =>
-    content.replace('production-branch: main', 'staging: false\n      production-branch: main'),
+    content.replace('      production-branch: main', '      staging: false\n      production-branch: main'),
   );
   expect(titles(noStaging, 'warn')).toStrictEqual([
     'main deploys production, but staging is off: develop, the default branch, deploys nothing',
