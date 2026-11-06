@@ -18,8 +18,8 @@ on:
         default: true
         description: Run the test suite across the matrix and the lint checks (laravel-package-tests, or node-package-tests for js)
 
-      # Passed to laravel-package-tests (and os, test-command, lint-command and timeout-minutes to node-package-tests),
-      # with the same defaults
+      # Passed to laravel-package-tests (and os, test-command, min-coverage, lint-command and timeout-minutes to
+      # node-package-tests), with the same defaults
       node:
         type: string
         default: '["22", "24", "26"]'
@@ -54,7 +54,11 @@ on:
       coverage:
         type: boolean
         default: true
-        description: Collect and upload coverage on the newest combination of the matrix (highest PHP and Laravel, prefer-stable, first OS)
+        description: Upload coverage to Codecov from the newest combination of the matrix (highest PHP and Laravel, prefer-stable, first OS)
+      min-coverage:
+        type: number
+        default: 100
+        description: Minimum coverage of the tests, in percent of statements, methods and conditionals, read from the Clover report they write (on the newest combination of the matrix, or for js on the first runner of os); 0 checks nothing
       coverage-driver:
         type: string
         default: pcov
@@ -111,6 +115,7 @@ jobs:
       extensions: ${{ inputs.extensions }}
       test-command: ${{ inputs.test-command }}
       coverage: ${{ inputs.coverage }}
+      min-coverage: ${{ inputs.min-coverage }}
       coverage-driver: ${{ inputs.coverage-driver }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
       pint: ${{ inputs.pint }}
@@ -128,5 +133,6 @@ jobs:
       os: ${{ inputs.os }}
       node: ${{ inputs.node }}
       test-command: ${{ inputs.test-command }}
+      min-coverage: ${{ inputs.min-coverage }}
       lint-command: ${{ inputs.lint-command }}
       timeout-minutes: ${{ inputs.timeout-minutes }}

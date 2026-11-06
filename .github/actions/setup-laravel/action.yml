@@ -8,6 +8,9 @@ inputs:
   node-version:
     description: Node version (empty reads .nvmrc or .node-version, otherwise the current LTS)
     default: ""
+  coverage:
+    description: Coverage driver for PHP (none, pcov or xdebug); a driver slows the tests down
+    default: none
 
 outputs:
   mcp-config:
@@ -42,7 +45,7 @@ runs:
       with:
         php-version: ${{ inputs.php-version }}
         extensions: ${{ steps.extensions.outputs.list }}
-        coverage: none
+        coverage: ${{ inputs.coverage }}
 
     - name: Get Composer cache directory
       id: composer-cache

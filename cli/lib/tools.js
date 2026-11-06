@@ -1,7 +1,8 @@
 import { flagOf, scalar } from './workflow-file.js';
 
 // The lint and test inputs every entry point takes (project.yml, package.yml): pint, phpstan, lint-command and
-// test-command. The stack's questions (lint, lintCommand, testRun, testCommand) choose them
+// test-command. The stack's questions (lint, lintCommand, testRun, testCommand) choose them; min-coverage is read, not
+// asked (cli/lib/coverage.js)
 
 export const TOOL_INPUTS = ['pint', 'phpstan', 'lint-command', 'test-command'];
 
@@ -27,6 +28,7 @@ export function toolAnswers(inputs) {
     phpstan: flagOf(inputs.phpstan),
     lintCommand: scalar(inputs['lint-command']) || null,
     testCommand: scalar(inputs['test-command']) || null,
+    minCoverage: scalar(inputs['min-coverage']) || null,
   };
 }
 

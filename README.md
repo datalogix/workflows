@@ -37,6 +37,8 @@ A project set up before `org` ran misses only the relay: run `setup` again after
 
 > **GitHub Free:** private repositories have no rulesets, so `protect` changes nothing (the checks still run on every pull request, but do not block the merge), and they cannot read organization secrets, so `setup` asks for the Claude token in each project.
 
+The tests require 100% coverage by default (`min-coverage`, read from the Clover report the tests write): see [Minimum coverage](docs/coverage.md) to configure the report, or lower or turn off the minimum.
+
 v1 stays at the `v1` tag and is no longer supported. To move a repository to v2, run `setup` and delete the workflow files that call `@v1`.
 
 ## How it works

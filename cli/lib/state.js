@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CODEOWNERS_PATH, parseOwners } from './codeowners.js';
+import { writesClover } from './coverage.js';
 import { RULESET_NAME } from './ruleset.js';
 import { parseInputs, stackOf, WORKFLOW_PATH } from './workflow-file.js';
 
@@ -30,6 +31,8 @@ export const EMPTY_STATE = {
   login: null,
   stack: null,
   kind: null,
+  // Whether a configuration file asks for the Clover report the coverage check reads; null until the folder is read
+  clover: null,
 };
 
 /** Turns a failed GitHub read (no access, network) into an error instead of something that looks missing. */
@@ -40,8 +43,8 @@ export function readOrFail(github, what, promise) {
 }
 
 /**
- * What check and protect read from the folder: the workflow file, its answers (current) and what the stack's module
- * reads with inspect(root). Without `detected` (or its workflow), the workflow file is read here.
+ * What check and protect read from the folder: the workflow file, its answers (current), whether it configures a
+ * Clover report and what the stack's module reads with inspect(root). Without `detected` (or its workflow), the workflow file is read here.
  */
 export async function readLocal(detected, root) {
   // detectStack already read it
@@ -55,7 +58,12 @@ export async function readLocal(detected, root) {
   }
   const answers = detected?.module.answers ?? ((inputs) => ({ stack: stackOf(inputs) }));
   const inspected = detected?.module.inspect ? await detected.module.inspect(root) : {};
-  return { workflow, current: workflow ? answers(parseInputs(workflow)) : null, ...inspected };
+  return {
+    workflow,
+    current: workflow ? answers(parseInputs(workflow)) : null,
+    clover: await writesClover(root),
+    ...inspected,
+  };
 }
 
 /**

@@ -14,6 +14,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `pint` / `phpstan`                                                | `true`                         | Run Pint (on the files changed by the pull request) and PHPStan when they are installed; see [Lint and test suite](laravel/app-tests.md#lint-and-test-suite) |
 | `lint-command`                                                    | empty                          | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check` |
 | `test-command`                                                    | detected                       | Test command, `none` skips the test suite; see [Test scripts](laravel/app-tests.md#test-scripts) |
+| `min-coverage`                                                    | `100`                          | Minimum coverage of the test suite (PHP with `laravel`, the `test` script with `js`), in percent of statements, methods and conditionals; `0` turns the check off. See [Minimum coverage](coverage.md) |
 | `js`                                                              | `true`                         | Run the `typecheck`, `lint` and `test` scripts of `package.json`         |
 | `e2e`                                                             | `true`                         | `stack: js`: run the `test:e2e` script after the build (see [JavaScript app tests](js/app-tests.md)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
@@ -54,7 +55,7 @@ Secrets: `CLAUDE_CODE_OAUTH_TOKEN` (required); `RELEASE_APP_CLIENT_ID` and `RELE
 
 ## `package`
 
-The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Laravel packages](laravel/package.md) and [JavaScript libraries](js/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, or with `stack: js` [`node-package-tests`](js/package-tests.md#inputs) (with `node`, `os`, `test-command`, `lint-command` and `timeout-minutes`), plus:
+The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Laravel packages](laravel/package.md) and [JavaScript libraries](js/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, or with `stack: js` [`node-package-tests`](js/package-tests.md#inputs) (with `node`, `os`, `test-command`, `min-coverage`, `lint-command` and `timeout-minutes`), plus:
 
 | Input   | Default | Description                                                                                |
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
