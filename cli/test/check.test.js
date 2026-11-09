@@ -768,6 +768,14 @@ test("checks a JavaScript app: Sentry's SDK and the relay, nothing of Laravel or
   const titles = items.map((item) => item.title);
   expect(titles).toContainEqual('package.json does not require @sentry/nextjs, so nothing reaches Sentry');
   expect(titles.join('\n')).not.toMatch(/nightwatch|DEPLOY_HOOK|HEALTH_URL|bootstrap\/app\.php/i);
+
+  const react = await run(
+    { ...state, framework: 'react' },
+    { repository: 'datalogix/app', relayLookup: async () => true },
+  );
+  expect(react.map((item) => item.title)).toContainEqual(
+    'package.json does not require @sentry/react, so nothing reaches Sentry',
+  );
 });
 
 test('checks the Vercel token and project of a JavaScript app that deploys, not a deploy hook', async () => {

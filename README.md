@@ -1,6 +1,6 @@
 # datalogix/workflows
 
-Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt) projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
+Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt, Vue and React with Vite, libraries) projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
 
 What each project gets:
 
@@ -33,7 +33,7 @@ All commands run as `npx --allow-git=root github:datalogix/workflows#v2 <command
 | `check` | Any time | Nothing: it lists what is missing or different |
 | `protect` | After the first pull request shows its checks | The branch ruleset that requires those checks |
 
-A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md), [Adding a Laravel package](docs/laravel/package.md), [Adding a Next or Nuxt app](docs/js/app.md) or [Adding a JavaScript library](docs/js/package.md).
+A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md), [Adding a Laravel package](docs/laravel/package.md), [Adding a JavaScript app](docs/js/app.md) or [Adding a JavaScript library](docs/js/package.md).
 
 > **GitHub Free:** private repositories have no rulesets, so `protect` changes nothing (the checks still run on every pull request, but do not block the merge), and they cannot read organization secrets, so `setup` asks for the Claude token in each project.
 
@@ -71,7 +71,7 @@ The [documentation index](docs/README.md) lists every guide. The main ones:
 | [Laravel app tests](docs/laravel/app-tests.md) | What the tests job runs, the project's test scripts, its inputs |
 | [Adding a Laravel package](docs/laravel/package.md) | For each package: the setup command, protecting the branch |
 | [Laravel package tests](docs/laravel/package-tests.md) | The test matrix, coverage, Pint and its inputs |
-| [Adding a Next or Nuxt app](docs/js/app.md) | For each app: the setup command, what is left to do by hand, Vercel deploys, Sentry, `check`; [by hand](docs/js/app-manual-setup.md) without it |
+| [Adding a JavaScript app](docs/js/app.md) | For each app: the setup command, what is left to do by hand, Vercel deploys, Sentry, `check`; [by hand](docs/js/app-manual-setup.md) without it |
 | [JavaScript app tests](docs/js/app-tests.md) | What the tests job runs and its inputs |
 | [Adding a JavaScript library](docs/js/package.md) | For each library: the setup command, protecting the branch |
 | [JavaScript library tests](docs/js/package-tests.md) | What the tests job runs and its inputs |

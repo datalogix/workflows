@@ -1,4 +1,4 @@
-# Setting up a Next or Nuxt app by hand
+# Setting up a JavaScript app by hand
 
 What [setup](app.md) does, for when you cannot run it. Replace `OWNER/REPO`.
 
@@ -49,11 +49,11 @@ In `vercel.json`, turn off Vercel's own deploys of the branches the workflows de
 }
 ```
 
-Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt).
+Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt). A Vue or React single-page app built with Vite has no server: add `public/health.json` with `{"status":"ok"}` and point `HEALTH_URL` to `/health.json`. With a router, also send every path to `index.html` in `vercel.json`: `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`.
 
 ## Sentry
 
-1. Install Sentry's SDK: `npx @sentry/wizard@latest -i nextjs` (or `-i nuxt`), with the Sentry environments named `production` and `staging`.
+1. Install Sentry's SDK: `npx @sentry/wizard@latest -i nextjs` (or `-i nuxt`; `npm install @sentry/vue` or `@sentry/react` in a single-page app), with the Sentry environments named `production` and `staging`.
 2. Create the internal integration and its alert rules as [Production errors](../production-errors.md#sentry) says, with the webhook URL `https://<worker>/sentry/OWNER/REPO`.
 3. Store its Client Secret in the relay: see [the relay's README](../../relay/README.md).
 

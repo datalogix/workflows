@@ -2054,4 +2054,24 @@ test("tells to install Sentry's SDK of the framework, and checks for it", async 
   );
   expect(steps).toContainEqual(expect.stringContaining('npx @sentry/wizard@latest -i nuxt'));
   expect(steps).not.toContainEqual(expect.stringContaining('NIGHTWATCH_TOKEN'));
+
+  // A single-page app: Sentry has no wizard for it, so the package to install
+  const vue = jsApp.setup.nextSteps(
+    { repository: 'datalogix/app', monitoring: 'sentry', incidents: true },
+    { relay, results: [], state: { ...APP_STATE, framework: 'vue', sentry: false } },
+  );
+  expect(vue).toContainEqual(expect.stringContaining('npm install @sentry/vue'));
+});
+
+test('suggests /health.json as the health path of a single-page app, /api/health for Next and Nuxt', async () => {
+  const jsApp = (await import('../stacks/js/app.js')).default;
+  const step = jsApp.setup.steps().find((candidate) => candidate.id === 'healthPath');
+  const initial = async (framework) => {
+    await step.ask({ header: '', answers: {}, ctx: { state: { ...APP_STATE, framework } } });
+    return prompts.asked.at(-1).initialValue;
+  };
+  expect(await initial('vue')).toBe('/health.json');
+  expect(await initial('react')).toBe('/health.json');
+  expect(await initial('next')).toBe('/api/health');
+  expect(await initial('nuxt')).toBe('/api/health');
 });

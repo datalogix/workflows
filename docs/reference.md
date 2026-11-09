@@ -8,7 +8,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 
 | Input                                                             | Default                        | Description                                                              |
 | ----------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------ |
-| `stack`                                                           | `laravel`                      | Stack of the project, `laravel` or [`js`](js/app.md) (Next, Nuxt; another one fails the run), which picks its tests, the environment prepared for Claude, the Claude plugins (`core@datalogix` with `laravel@datalogix` or `js@datalogix`) and the default high-risk paths. Deploys: `forge` and `cloud` with `laravel`, `vercel` with `js` |
+| `stack`                                                           | `laravel`                      | Stack of the project, `laravel` or [`js`](js/app.md) (Next, Nuxt, Vue and React built with Vite, JavaScript libraries; another one fails the run), which picks its tests, the environment prepared for Claude, the Claude plugins (`core@datalogix` with `laravel@datalogix` or `js@datalogix`) and the default high-risk paths. Deploys: `forge` and `cloud` with `laravel`, `vercel` with `js` |
 | `tests` / `review` / `security-review` / `risk-gate` / `fix-ci`   | `true`                         | Turn each layer on or off; `tests`, `security-review` and `risk-gate` have required checks, so run `protect` again after changing them |
 | `php-version` / `node-version`                                    | detected                       | Override the environment versions                                        |
 | `pint` / `phpstan`                                                | `true`                         | Run Pint (on the files changed by the pull request, Blade views included with `prettier-plugin-blade` in `package.json`) and PHPStan when they are installed; see [Lint and test suite](laravel/app-tests.md#lint-and-test-suite) |
@@ -71,7 +71,7 @@ The tests of a Laravel app: see [Laravel app tests](laravel/app-tests.md#inputs)
 
 ## `node-app-tests`
 
-The tests of a Next or Nuxt app (`stack: js`): see [JavaScript app tests](js/app-tests.md#inputs).
+The tests of a JavaScript app (`stack: js`): see [JavaScript app tests](js/app-tests.md#inputs).
 
 ## `laravel-package-tests`
 

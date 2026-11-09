@@ -1,6 +1,6 @@
 name: node-app-tests
 
-# Tests of a JavaScript or TypeScript app (Next, Nuxt), called by project.yml with stack: js. The package.json scripts are
+# Tests of a JavaScript or TypeScript app (Next, Nuxt, Vue or React built with Vite), called by project.yml with stack: js. The package.json scripts are
 # the checks, on the Node version of .nvmrc or .node-version: typecheck, lint, test, build, then test:e2e against that
 # build, and the audit. A single job, so the required check stays <calling job> / tests / tests.
 
