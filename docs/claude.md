@@ -12,7 +12,7 @@ Claude follows the rules of two plugins, loaded by every Claude workflow: `core`
 - Never approves pull requests, and stops after 3 rounds of requested changes.
 - Pull request descriptions contain _Resumo_, _Motivação_, _Plano de Testes_ and _Observações_ (translated in another team language).
 
-The rules live in [`plugins/core/skills/conventions/SKILL.md`](../plugins/core/skills/conventions/SKILL.md) (language, scope, validation limits, review rounds, pull requests) and [`plugins/laravel/skills/conventions/SKILL.md`](../plugins/laravel/skills/conventions/SKILL.md) (feature flags, migrations, tests, the tools of the pre-PR verification). Changing them changes Claude's behavior in every project. Project-specific context belongs in the project's own `CLAUDE.md`.
+The rules live in [`plugins/core/skills/conventions/SKILL.md`](../plugins/core/skills/conventions/SKILL.md) (language, scope, validation limits, review rounds, pull request description) and [`plugins/laravel/skills/conventions/SKILL.md`](../plugins/laravel/skills/conventions/SKILL.md) (feature flags, migrations, tests, the tools of the pre-PR verification). Changing them changes Claude's behavior in every project. Project-specific context belongs in the project's own `CLAUDE.md`.
 
 To use the same conventions in your local Claude Code:
 
@@ -21,6 +21,8 @@ To use the same conventions in your local Claude Code:
 /plugin install core@datalogix
 /plugin install laravel@datalogix
 ```
+
+Locally, Claude follows the same rules but does not push or open pull requests on its own: pushing the branch, opening the pull request and commenting on the issue live in [`plugins/core/skills/ci/SKILL.md`](../plugins/core/skills/ci/SKILL.md), which only the `claude` workflow loads. The stack's `fix-ci` command does commit and push, because it is meant for the `claude-fix-ci` workflow; run it locally only if that is what you want.
 
 ## Environment
 

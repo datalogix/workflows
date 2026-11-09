@@ -1,5 +1,5 @@
 ---
-description: Read the log of a failed CI run and fix the cause on the PR branch
+description: Read the log of a failed CI run and fix the cause on the PR branch (commits and pushes; meant for the claude-fix-ci workflow)
 argument-hint: <run id> <PR number>
 ---
 
