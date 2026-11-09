@@ -1,6 +1,6 @@
 ---
 name: conventions
-description: Datalogix conventions for JavaScript and TypeScript projects such as Next and Nuxt apps (feature flags, database migrations, tests, the tools of the validation and the pre-PR verification), on top of core:conventions (language, commits, scope, review rounds and pull requests). Use before changing code, creating commits, opening PRs or replying on issues and PRs.
+description: Datalogix conventions for JavaScript and TypeScript projects such as Next and Nuxt apps, Vue and React apps built with Vite, and libraries (feature flags, database migrations, tests, the tools of the validation and the pre-PR verification), on top of core:conventions (language, commits, scope, review rounds and pull requests). Use before changing code, creating commits, opening PRs or replying on issues and PRs.
 ---
 
 # Datalogix conventions for JavaScript and TypeScript

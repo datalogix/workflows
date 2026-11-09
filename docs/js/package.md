@@ -2,7 +2,7 @@
 
 JavaScript and TypeScript libraries call `package`, the same entry point as Laravel packages, with `stack: js`. Today it runs `node-package-tests`: the `test` script of `package.json` on every Node version of the matrix, and the `typecheck`, `lint` and `build` scripts and the dependency audit once. New layers are added to `package`, so libraries get them without changing their workflow file.
 
-Next and Nuxt apps call `project` instead: see [Adding a Next or Nuxt app](app.md).
+Next and Nuxt apps, and Vue and React single-page apps built with Vite, call `project` instead: see [Adding a JavaScript app](app.md).
 
 ## Setup
 
@@ -12,7 +12,7 @@ After the [organization setup](../organization-setup.md), from the library folde
 npx --allow-git=root github:datalogix/workflows#v2 setup
 ```
 
-It detects a JavaScript library (a `package.json`, no `composer.json`, and neither `next` nor `nuxt` among its dependencies nor a `next.config.*` or `nuxt.config.*` file) and asks you to confirm whether it is a library or an app, starting from the library (`--yes` takes it as detected). A folder with `composer.json` is a PHP project, even with frontend scripts. It asks whether you work alone on the library and, with a team, who must approve changes to `.github/`, and:
+It detects a JavaScript library (a `package.json`, no `composer.json`, and not an app: neither `next` nor `nuxt` among its dependencies nor a `next.config.*` or `nuxt.config.*` file, and not a Vite single-page app, which has `vite` and `vue` or `react`, an `index.html` at the root and no `exports`, `main` or `module`) and asks you to confirm whether it is a library or an app, starting from the library (`--yes` takes it as detected). A folder with `composer.json` is a PHP project, even with frontend scripts. It asks whether you work alone on the library and, with a team, who must approve changes to `.github/`, and:
 
 - writes `.github/workflows/datalogix.yml` from [`examples/package.yml`](../../examples/package.yml) with `stack: js`, the default branch in the `push` trigger and the other `with:` inputs of the existing file kept;
 - with a team (or with `--code-owners`), writes the `/.github/` line of `.github/CODEOWNERS`.

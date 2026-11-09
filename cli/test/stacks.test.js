@@ -121,6 +121,28 @@ test('tells a JavaScript library from a Next or Nuxt app, and a PHP project from
   expect(await detect(t, { 'package.json': '{ not json' })).toStrictEqual(APP);
 });
 
+test('tells a Vue or React app built with Vite from a component library', async (t) => {
+  const vite = (extra = {}, deps = { vue: '^3' }) =>
+    JSON.stringify({ private: true, dependencies: deps, devDependencies: { vite: '^8' }, ...extra });
+  const JS_APP = ['js', 'project', 'JavaScript app'];
+  const JS_PACKAGE = ['js', 'package', 'JavaScript package'];
+  expect(await detect(t, { 'package.json': vite(), 'index.html': '' })).toStrictEqual(JS_APP);
+  expect(await detect(t, { 'package.json': vite({}, { react: '^19' }), 'index.html': '' })).toStrictEqual(JS_APP);
+  // A component library publishes what it builds
+  expect(
+    await detect(t, { 'package.json': vite({ exports: { '.': './dist/index.js' } }), 'index.html': '' }),
+  ).toStrictEqual(JS_PACKAGE);
+  expect(await detect(t, { 'package.json': vite({ main: 'dist/index.js' }), 'index.html': '' })).toStrictEqual(
+    JS_PACKAGE,
+  );
+  // Without index.html, Vite, or Vue or React, it is not a single-page app
+  expect(await detect(t, { 'package.json': vite() })).toStrictEqual(JS_PACKAGE);
+  expect(
+    await detect(t, { 'package.json': JSON.stringify({ dependencies: { vue: '^3' } }), 'index.html': '' }),
+  ).toStrictEqual(JS_PACKAGE);
+  expect(await detect(t, { 'package.json': vite({}, { lit: '^3' }), 'index.html': '' })).toStrictEqual(JS_PACKAGE);
+});
+
 test('takes the stack and kind from the flags, app being the project kind', () => {
   const detected = { stack: 'laravel', kind: 'package' };
   expect(fromFlags({ kind: 'app' }, detected).kind).toBe('project');

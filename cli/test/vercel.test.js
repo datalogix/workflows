@@ -180,6 +180,64 @@ test('creates the health route of the framework and router', async (t) => {
   expect(nuxtContent).toContain('defineEventHandler');
 });
 
+test('gives a single-page app built with Vite a static health file and its own health path', async (t) => {
+  const spa = { dependencies: { vue: '^3', 'vue-router': '^5' }, devDependencies: { vite: '^8' } };
+  const root = await folder(t, { 'package.json': JSON.stringify(spa), 'tsconfig.json': '{}' }, 'vercel-');
+  const state = { ...APP_STATE, ...(await jsApp.inspect(root)) };
+  expect(state).toMatchObject({
+    framework: 'vue',
+    healthFile: 'public/health.json',
+    healthRoute: false,
+    spaRouter: true,
+  });
+
+  const step = jsApp.setup.steps().find((candidate) => candidate.id === 'healthRoute');
+  expect(step.when({ deploy: 'vercel', healthPath: '/health.json' }, { state })).toBe(true);
+  expect(step.when({ deploy: 'vercel', healthPath: '/api/health' }, { state })).toBe(false);
+
+  const task = jsApp.setup
+    .tasks({ ...answers, healthPath: '/health.json', healthRoute: true }, { github: fakeGitHub(), root, state, relay })
+    .find((candidate) => candidate.title === 'Health route /health.json');
+  expect(await task.run()).toBe('created public/health.json');
+  expect(JSON.parse(await readFile(join(root, 'public/health.json'), 'utf8'))).toStrictEqual({ status: 'ok' });
+
+  // React with Vite is a single-page app too
+  const react = await folder(
+    t,
+    { 'package.json': JSON.stringify({ dependencies: { react: '^19' }, devDependencies: { vite: '^8' } }) },
+    'vercel-',
+  );
+  expect(await jsApp.inspect(react)).toMatchObject({ framework: 'react', spaRouter: false });
+});
+
+test("rewrites a single-page app's paths to index.html in vercel.json, unless it routes them already", async (t) => {
+  const run = async (vercelJson, spaRouter = true) => {
+    const root = await folder(t, vercelJson === null ? {} : { 'vercel.json': vercelJson }, 'vercel-');
+    const state = { ...APP_STATE, framework: 'vue', spaRouter, vercelJson, healthFile: null };
+    const task = jsApp.setup
+      .tasks(answers, { github: fakeGitHub(), root, state, relay })
+      .find((candidate) => candidate.id === 'file:vercel.json');
+    const result = await task.run();
+    const written = await readFile(join(root, 'vercel.json'), 'utf8').catch(() => null);
+    return [result, written && JSON.parse(written)];
+  };
+
+  const [created, config] = await run(null);
+  expect(created).toBe('created: no automatic deploys of main; every path rewritten to index.html');
+  expect(config.rewrites).toStrictEqual([{ source: '/(.*)', destination: '/index.html' }]);
+
+  // Automatic deploys already off: only the rewrite
+  const [rewritten] = await run('{"git": {"deploymentEnabled": false}}');
+  expect(rewritten).toBe('updated: every path rewritten to index.html');
+
+  // Its own rewrites or routes are kept, and an app without a router gets none
+  const own = { git: { deploymentEnabled: false }, rewrites: [{ source: '/app/(.*)', destination: '/app.html' }] };
+  expect(await run(JSON.stringify(own))).toStrictEqual(['unchanged', own]);
+  const routes = { git: { deploymentEnabled: false }, routes: [{ handle: 'filesystem' }] };
+  expect((await run(JSON.stringify(routes)))[0]).toBe('unchanged');
+  expect((await run('{"git": {"deploymentEnabled": false}}', false))[0]).toBe('unchanged');
+});
+
 test('does not offer the health route when the app has one, in either language', async (t) => {
   const root = await folder(
     t,

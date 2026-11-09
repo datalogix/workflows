@@ -1,6 +1,6 @@
 name: project
 
-# Every workflow a Laravel or JavaScript (Next, Nuxt) app needs, behind a single file in the project (examples/project.yml).
+# Every workflow a Laravel or JavaScript (Next, Nuxt, Vue or React built with Vite) app needs, behind a single file in the project (examples/project.yml).
 # Each job decides from the event whether it applies; the reusable workflows filter further (drafts, forks, authors).
 #
 # Required checks (branch ruleset): <calling job> / tests / tests, <calling job> / security / security,

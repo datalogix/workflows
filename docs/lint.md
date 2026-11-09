@@ -6,8 +6,8 @@ The tests workflows run the project's own lint tools, so CI, your machine and Cl
 | --- | --- | --- |
 | Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request (Blade views too, see [Blade views](#blade-views)), PHPStan, `lint-command`; with `js`, the typecheck and lint scripts of `package.json` |
 | Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files (Blade views too), PHPStan, `lint-command`, once outside the matrix |
-| Next, Nuxt | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
-| JavaScript or TypeScript library (Vue and React apps built with Vite too, for now) | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, the build, then `lint-command` |
+| Next, Nuxt, Vue and React built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
+| JavaScript or TypeScript library | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, the build, then `lint-command` |
 
 ## Rules for every project
 
@@ -116,8 +116,6 @@ A package without Blade views needs nothing else: without a `package.json` that 
 ```
 
 `create-vite` writes `"lint": "oxlint"` (or `"eslint ."`), which already checks only, and type-checks in `build` (`tsc -b && vite build`).
-
-Setup takes Vue and React apps built with Vite for libraries, as they have neither `next` nor `nuxt`: they run [`node-package-tests`](js/package-tests.md), whose `min-coverage` is 100 by default. Set `min-coverage` to the coverage you want, or `0`.
 
 ## JavaScript and TypeScript libraries
 
