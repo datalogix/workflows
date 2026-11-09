@@ -43,6 +43,8 @@ clover.xml
          bootstrap="vendor/autoload.php"
          cacheDirectory=".phpunit.cache"
          colors="true"
+         failOnRisky="true"
+         failOnWarning="true"
 >
     <testsuites>
         <testsuite name="Laravel Package Test Suite">
@@ -63,11 +65,11 @@ clover.xml
 </phpunit>
 ```
 
-The `text` report prints the coverage of each file after the tests.
+The `text` report prints the coverage of each file after the tests. `failOnRisky` and `failOnWarning` fail the suite on a test without assertions and on a PHPUnit warning (invalid configuration, deprecated feature), which otherwise pass silently.
 
 ### Laravel apps
 
-The `phpunit.xml` of the Laravel skeleton already has `<source>` with `app`. Add `cacheDirectory` to `<phpunit>` and the reports before `<source>`:
+The `phpunit.xml` of the Laravel skeleton already has `<source>` with `app`. Add `cacheDirectory`, `failOnRisky` and `failOnWarning` to `<phpunit>` (as in packages) and the reports before `<source>`:
 
 ```xml
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -75,6 +77,8 @@ The `phpunit.xml` of the Laravel skeleton already has `<source>` with `app`. Add
          bootstrap="vendor/autoload.php"
          cacheDirectory=".phpunit.cache"
          colors="true"
+         failOnRisky="true"
+         failOnWarning="true"
 >
     <!-- testsuites of the skeleton -->
     <coverage>
@@ -94,7 +98,7 @@ The `phpunit.xml` of the Laravel skeleton already has `<source>` with `app`. Add
 
 `showOnlySummary` keeps the log of a large app short: the job summary lists the files not fully covered.
 
-`source` decides what counts: list the folders of your code (`app` in an app, `src` in a package). Locally, without `pcov` or Xdebug, PHPUnit only warns that it cannot collect coverage; a `phpunit.xml` with `failOnWarning="true"` then fails: run `vendor/bin/pest --no-coverage`, or install `pcov`.
+`source` decides what counts: list the folders of your code (`app` in an app, `src` in a package). Locally, without `pcov` or Xdebug, PHPUnit only warns that it cannot collect coverage, and `failOnWarning` turns that into a failure: run `vendor/bin/pest --no-coverage`, or install `pcov`.
 
 ### JavaScript
 
