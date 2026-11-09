@@ -65,7 +65,7 @@ clover.xml
 </phpunit>
 ```
 
-The `text` report prints the coverage of each file after the tests. `failOnRisky` and `failOnWarning` fail the suite on a test without assertions and on a PHPUnit warning (invalid configuration, deprecated feature), which otherwise pass silently.
+The `text` report prints the coverage of each file after the tests when PHPUnit runs them; Pest doesn't print it, so run `vendor/bin/pest --coverage` to see it. `failOnRisky` and `failOnWarning` fail the suite on a test without assertions and on a PHPUnit warning (invalid configuration, deprecated feature), which otherwise pass silently.
 
 ### Laravel apps
 
