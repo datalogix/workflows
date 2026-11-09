@@ -24,14 +24,17 @@ async function readLocale(root) {
   return /^APP_LOCALE\s*=\s*["']?([^"'\s#]+)/m.exec(env)?.[1] ?? null;
 }
 
-// The package.json scripts laravel-app-tests runs (input js); npm init's test script only fails
-const NODE_SCRIPTS = ['typecheck', 'lint', 'test'];
+// The package.json scripts laravel-app-tests runs (input js), each the first of its names that is defined: types:check
+// and check (Vite+'s vp check) are the Laravel starter kits' names, type-check create-vue's; npm init's test script
+// only fails
+const NODE_SCRIPTS = [['typecheck', 'types:check', 'type-check'], ['lint', 'check'], ['test']];
 
 /** The scripts of package.json the tests would run. */
 async function nodeScripts(root) {
   try {
     const { scripts = {} } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-    return NODE_SCRIPTS.filter((name) => scripts[name] && !String(scripts[name]).includes('no test specified'));
+    const defined = (name) => scripts[name] && !String(scripts[name]).includes('no test specified');
+    return NODE_SCRIPTS.map((names) => names.find(defined)).filter(Boolean);
   } catch {
     return [];
   }

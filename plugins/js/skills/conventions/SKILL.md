@@ -33,7 +33,7 @@ Every deploy can be rolled back by redeploying the previous commit, which does n
 
 ## Validation
 
-- Use the project's scripts to learn how it runs its tools: read `scripts` in `package.json` (`typecheck`, `lint`, `test`, `test:e2e`, `build`) and use the same package manager and options, filtered to your change (e.g. `npm run test -- <file>`, `pnpm vitest run <file>`, `npx eslint <files>`).
+- Use the project's scripts to learn how it runs its tools: read `scripts` in `package.json` (`typecheck`, `lint`, `test`, `test:e2e`, `build`; CI also takes `types:check` or `type-check` for the typecheck and `check` for lint) and use the same package manager and options, filtered to your change (e.g. `npm run test -- <file>`, `pnpm vitest run <file>`, `npx eslint <files>`).
 - The package manager is the one of the lockfile: `pnpm-lock.yaml` (pnpm), `yarn.lock` (Yarn) or `package-lock.json` (npm). Never add another lockfile.
 - Run the end-to-end tests (`test:e2e`) only for the specs related to your change, when the project has them.
 
@@ -41,8 +41,8 @@ Every deploy can be rolled back by redeploying the previous commit, which does n
 
 The checks to run on what you changed (see `core:conventions`; never loosen `tsconfig.json`, add `@ts-ignore`, `eslint-disable` or `.skip` to pass):
 
-1. The `typecheck` script of `package.json` (or `npx tsc --noEmit` in a TypeScript project without one).
-2. The `lint` script, or the linter on the changed files.
+1. The typecheck script of `package.json` (`typecheck`, `types:check` or `type-check`; `npx tsc --noEmit` in a TypeScript project without one).
+2. The `lint` script (or `check`), or the linter on the changed files. CI fails when these scripts change files, so never make them fix (`--fix`, `--write`); run the project's fixing script (`lint:fix`, `format`) locally instead.
 3. The tests related to the change, through the `test` script, and the related `test:e2e` specs when the project has them.
 4. The `build` script, when you changed routes, server code, configuration or dependencies: Next and Nuxt report rendering and route errors only there.
 5. The audit of the lockfile you changed (`npm audit --audit-level=high`, `pnpm audit --audit-level high`, `yarn audit --level high` or `yarn npm audit --recursive --severity high`).

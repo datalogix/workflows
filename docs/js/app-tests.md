@@ -4,7 +4,7 @@ The `tests` job of [`project`](../reference.md#project) calls `node-app-tests` w
 
 A single job, on the Node version of `.nvmrc` or `.node-version` (the current LTS otherwise), runs the app's own `package.json` scripts, so CI, your machine and Claude run them the same way. The package manager comes from the lockfile (pnpm through Corepack, Yarn or npm). Each step runs even when an earlier one failed, so one run reports every failure:
 
-1. `typecheck`, then `lint`, then `lint-command`.
+1. `typecheck` (or `types:check`, `type-check`), then `lint` (or `check`), then `lint-command`. The typecheck and lint scripts must only check: the job fails when they change a tracked file. Recommended scripts for Next and Nuxt: [Lint](../lint.md).
 2. `test` (`test-command` runs another command; `none` skips it). The test script `npm init` writes is ignored. The job summary shows its coverage, read from the Clover report it writes, and with `min-coverage` set it must cover at least that percent of the code: see [Minimum coverage](../coverage.md). Without a `test` script or a report, the run only notes it, unless `min-coverage` is set.
 3. `build`: Next and Nuxt report rendering and route errors only when they build.
 4. `test:e2e`, after the build and only when it did not fail, with `CI=true`. When `package.json` requires Playwright, its browsers are installed first (`playwright install --with-deps`, which adds a few minutes); other runners (Cypress) install their own binary with the dependencies. The script starts the app itself, for example with Playwright's `webServer`. `e2e: false` turns it off.

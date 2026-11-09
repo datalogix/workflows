@@ -77,7 +77,7 @@ on:
       lint-command:
         type: string
         default: ""
-        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check), or for js after the typecheck and lint scripts (e.g. npx publint); empty runs none
+        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check), or for js after the build (e.g. npx publint); empty runs none
     secrets:
       CODECOV_TOKEN:
         required: false
