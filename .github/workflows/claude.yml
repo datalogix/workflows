@@ -213,7 +213,7 @@ jobs:
             ${{ steps.setup.outputs.mcp-config != '' && format('--mcp-config {0}', steps.setup.outputs.mcp-config) || '' }}
             --allowed-tools "${{ inputs.allowed-tools }}"
             --disallowed-tools "${{ inputs.disallowed-tools }}"
-            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Explore the code yourself, synchronously, and only end your turn when the task is complete. Before starting, load the core:conventions and ${{ inputs.stack }}:conventions skills and follow all of their rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Explore the code yourself, synchronously, and only end your turn when the task is complete. Before starting, load the core:conventions, core:ci and ${{ inputs.stack }}:conventions skills and follow all of their rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
 
   plan:
     if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == inputs.plan-label

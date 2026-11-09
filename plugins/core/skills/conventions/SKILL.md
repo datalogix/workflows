@@ -1,6 +1,6 @@
 ---
 name: conventions
-description: Datalogix conventions for every project (language, commits, scope, validation limits, review rounds and pull requests), with the stack's own conventions skill (e.g. laravel:conventions) for its tools and practices. Use before changing code, creating commits, opening PRs or replying on issues and PRs.
+description: Datalogix conventions for every project (language, commits, scope, validation limits, review rounds and the pull request description), with the stack's own conventions skill (e.g. laravel:conventions) for its tools and practices. Use before changing code, creating commits, opening PRs or replying on issues and PRs.
 ---
 
 # Datalogix conventions
@@ -43,14 +43,9 @@ Before opening a PR or pushing to one, run the checks the stack's skill lists on
 
 ## Pull requests
 
-When implementing an issue:
+A PR description is in the team language and contains these sections:
 
-1. Commit following the language rules above.
-2. Push the branch.
-3. Open the PR with `gh pr create`. If that is not possible, provide a link to open it manually.
-4. The PR description must be in the team language and contain these sections:
-   - **Resumo**
-   - **Motivação** (reference the issue with `Closes #<number>`)
-   - **Plano de Testes** (the commands you actually ran in the pre-PR verification and their results)
-   - **Observações** (pre-existing or unresolved failures, if any)
-5. Comment on the issue with the PR URL.
+- **Resumo**
+- **Motivação** (reference the issue with `Closes #<number>` when there is one)
+- **Plano de Testes** (the commands you actually ran in the pre-PR verification and their results)
+- **Observações** (pre-existing or unresolved failures, if any)
