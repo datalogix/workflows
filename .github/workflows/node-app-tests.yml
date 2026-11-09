@@ -69,13 +69,24 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         shell: bash
         run: |
-          for script in typecheck lint build test:e2e; do
-            if jq -e --arg script "$script" '.scripts[$script] // "" | select(. != "")' package.json >/dev/null; then
-              echo "${script/:/-}=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "No $script script in package.json, skipping"
-            fi
-          done
+          # The first of the names that package.json defines
+          first() {
+            for script in "$@"; do
+              if jq -e --arg script "$script" '.scripts[$script] // "" | select(. != "")' package.json >/dev/null; then
+                echo "$script"
+                return
+              fi
+            done
+            echo "No $1 script in package.json, skipping" >&2
+          }
+
+          # types:check is the name in the Laravel starter kits, type-check create-vue's; check is Vite+'s (vp check)
+          {
+            echo "typecheck=$(first typecheck types:check type-check)"
+            echo "lint=$(first lint check)"
+            echo "build=$(first build)"
+            echo "test-e2e=$(first test:e2e)"
+          } >> "$GITHUB_OUTPUT"
           # npm init writes a test script that only fails
           if jq -e '.scripts.test // "" | select(. != "" and (contains("no test specified") | not))' package.json >/dev/null; then
             echo "test=true" >> "$GITHUB_OUTPUT"
@@ -84,19 +95,48 @@ jobs:
             echo "playwright=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # The typecheck and lint scripts must check, not fix: the step after them fails when they changed a tracked file
+      - name: Snapshot the working tree
+        id: snapshot
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (steps.scripts.outputs.typecheck || steps.scripts.outputs.lint) }}
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@localhost
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@localhost
+        # A commit of the tracked files as installing left them (HEAD when it changed none), without touching them
+        run: |
+          snapshot=$(git stash create)
+          echo "ref=${snapshot:-$(git rev-parse HEAD)}" >> "$GITHUB_OUTPUT"
+
       - name: Typecheck
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.scripts.outputs.typecheck }}
         shell: bash
         env:
           RUN: ${{ steps.setup.outputs.run }}
-        run: $RUN typecheck
+          SCRIPT: ${{ steps.scripts.outputs.typecheck }}
+        run: $RUN "$SCRIPT"
 
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.scripts.outputs.lint }}
         shell: bash
         env:
           RUN: ${{ steps.setup.outputs.run }}
-        run: $RUN lint
+          SCRIPT: ${{ steps.scripts.outputs.lint }}
+        run: $RUN "$SCRIPT"
+
+      - name: Check that lint changed no files
+        if: ${{ !cancelled() && steps.snapshot.outputs.ref }}
+        shell: bash
+        env:
+          SNAPSHOT: ${{ steps.snapshot.outputs.ref }}
+        run: |
+          if ! git diff --quiet "$SNAPSHOT"; then
+            echo "::error::The typecheck or lint script changed tracked files: it must check, not fix (e.g. eslint . instead of eslint . --fix, prettier --check instead of prettier --write)"
+            git diff --stat "$SNAPSHOT"
+            exit 1
+          fi
 
       - name: Lint command
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.lint-command != '' }}

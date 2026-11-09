@@ -735,6 +735,16 @@ describe('setup steps', () => {
     await ask({ js: false });
     expect(prompts.asked.map((options) => options.initialValue)).toStrictEqual([true, false]);
   });
+
+  test("offers the Laravel starter kits' script names, one per check", async (t) => {
+    const scripts = { check: 'vp check', 'check:fix': 'vp check --fix', 'types:check': 'vue-tsc --noEmit' };
+    const root = await folder(t, { 'package.json': JSON.stringify({ scripts }) }, 'setup-');
+    expect((await app.inspect(root)).nodeScripts).toStrictEqual(['types:check', 'check']);
+
+    const both = { typecheck: 'tsc', 'type-check': 'vue-tsc', lint: 'eslint .', check: 'vp check' };
+    const other = await folder(t, { 'package.json': JSON.stringify({ scripts: both }) }, 'setup-');
+    expect((await app.inspect(other)).nodeScripts).toStrictEqual(['typecheck', 'lint']);
+  });
 });
 
 describe('setup tasks', () => {

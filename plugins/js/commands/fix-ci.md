@@ -8,7 +8,7 @@ CI run $1 failed on PR #$2. Fix the cause on the current branch.
 1. Read the log of the failed tests. The run may still be in progress, so read the failed jobs one by one:
    - List them with `gh api repos/{owner}/{repo}/actions/runs/$1/jobs --paginate --jq '.jobs[] | select(.conclusion == "failure") | "\(.id) \(.name)"'`.
    - Read each test job's log with `gh api repos/{owner}/{repo}/actions/jobs/<job id>/logs | tail -n 300`.
-   - Only fix failures of the tests job: the `typecheck`, `lint`, `test`, `test:e2e` and `build` scripts of `package.json` and the audit. Failures of the security review or the risk gate are not yours to fix: ignore them.
+   - Only fix failures of the tests job: the typecheck (`typecheck`, `types:check` or `type-check`), lint (`lint` or `check`), `test`, `test:e2e` and `build` scripts of `package.json`, the check that lint changed no files, and the audit. Failures of the security review or the risk gate are not yours to fix: ignore them.
    - If no log can be read, reproduce the failure locally by running those same checks on what the PR changed.
 2. Read the PR with `gh pr view $2` and its diff with `gh pr diff $2` to understand what changed.
 3. Find the cause of the failure and classify it:

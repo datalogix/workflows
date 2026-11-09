@@ -38,7 +38,7 @@ on:
       js:
         type: boolean
         default: true
-        description: Run the typecheck, lint and test scripts of package.json when they are defined
+        description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json when they are defined
       timeout-minutes:
         type: number
         default: 30
@@ -77,13 +77,22 @@ jobs:
           # PHPUnit collects coverage only when phpunit.xml or the test command asks for a report
           coverage: ${{ inputs.test-command != 'none' && 'pcov' || 'none' }}
 
-      # Only the files changed by the PR, so existing style issues do not fail the build
+      # Only the files changed by the PR, so existing style issues do not fail the build. Blade views too when the
+      # project declares prettier-plugin-blade (Pint formats them with Prettier from node_modules, and stops when it is
+      # missing) and Pint has --blade (1.30+)
       - name: Laravel Pint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.pint && github.event_name == 'pull_request' && hashFiles('vendor/bin/pint') != '' }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
-        run: vendor/bin/pint --test --diff="origin/$BASE"
+        run: |
+          args=(--test --diff="origin/$BASE")
+          if [ -f package.json ] \
+            && jq -e '(.devDependencies // {}) + (.dependencies // {}) | has("prettier-plugin-blade")' package.json >/dev/null \
+            && grep -q -- '--blade' <<< "$(vendor/bin/pint --help)"; then
+            args+=(--blade)
+          fi
+          vendor/bin/pint "${args[@]}"
 
       # PHPStan's default tmpDir; a project that sets another one just runs without the result cache. One cache per pull
       # request, saved by its first run (later runs start from it), and one per commit elsewhere, which a new pull
@@ -163,28 +172,68 @@ jobs:
             echo "run=npm run" >> "$GITHUB_OUTPUT"
           fi
 
-          for script in typecheck lint test; do
-            # npm init writes a test script that only fails
-            if jq -e --arg script "$script" '.scripts[$script] // "" | select(. != "" and (contains("no test specified") | not))' package.json >/dev/null; then
-              echo "$script=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "No $script script in package.json, skipping"
-            fi
-          done
+          # The first of the names that package.json defines (npm init writes a test script that only fails)
+          first() {
+            for script in "$@"; do
+              if jq -e --arg script "$script" '.scripts[$script] // "" | select(. != "" and (contains("no test specified") | not))' package.json >/dev/null; then
+                echo "$script"
+                return
+              fi
+            done
+            echo "No $1 script in package.json, skipping" >&2
+          }
+
+          # types:check is the name in the Laravel starter kits, type-check create-vue's; check is Vite+'s (vp check),
+          # the starter kits' lint
+          {
+            echo "typecheck=$(first typecheck types:check type-check)"
+            echo "lint=$(first lint check)"
+            echo "test=$(first test)"
+          } >> "$GITHUB_OUTPUT"
+
+      # The typecheck and lint scripts must check, not fix: the step after them fails when they changed a tracked file
+      - name: Snapshot the working tree
+        id: snapshot
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (steps.js.outputs.typecheck || steps.js.outputs.lint) }}
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@localhost
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@localhost
+        # A commit of the tracked files as the earlier steps left them (HEAD when they changed none), without touching
+        # them
+        run: |
+          snapshot=$(git stash create)
+          echo "ref=${snapshot:-$(git rev-parse HEAD)}" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.typecheck }}
         shell: bash
         env:
           RUN: ${{ steps.js.outputs.run }}
-        run: $RUN typecheck
+          SCRIPT: ${{ steps.js.outputs.typecheck }}
+        run: $RUN "$SCRIPT"
 
       - name: JS lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.lint }}
         shell: bash
         env:
           RUN: ${{ steps.js.outputs.run }}
-        run: $RUN lint
+          SCRIPT: ${{ steps.js.outputs.lint }}
+        run: $RUN "$SCRIPT"
+
+      - name: Check that lint changed no files
+        if: ${{ !cancelled() && steps.snapshot.outputs.ref }}
+        shell: bash
+        env:
+          SNAPSHOT: ${{ steps.snapshot.outputs.ref }}
+        run: |
+          if ! git diff --quiet "$SNAPSHOT"; then
+            echo "::error::The typecheck or lint script changed tracked files: it must check, not fix (e.g. eslint . instead of eslint . --fix, prettier --check instead of prettier --write)"
+            git diff --stat "$SNAPSHOT"
+            exit 1
+          fi
 
       - name: JS tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.test }}

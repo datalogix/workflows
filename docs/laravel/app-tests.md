@@ -35,8 +35,8 @@ The tests job runs the project's own scripts when they are defined, so CI, your 
 | Script | File | CI runs | Without it |
 | --- | --- | --- | --- |
 | `test` | `composer.json` | `composer test` | `php artisan test` (packages: `vendor/bin/pest`, otherwise `vendor/bin/phpunit`) |
-| `typecheck` | `package.json` | `npm run typecheck` | skipped |
-| `lint` | `package.json` | `npm run lint` | skipped |
+| `typecheck` (or `types:check`, `type-check`) | `package.json` | `npm run typecheck` | skipped |
+| `lint` (or `check`, as in the starter kits) | `package.json` | `npm run lint` | skipped |
 | `test` | `package.json` | `npm run test` | skipped |
 
 For example:
@@ -65,9 +65,10 @@ For example:
 
 - `package.json` scripts run with pnpm or yarn instead of npm when their lockfile is present. The placeholder `test` script written by `npm init` is ignored. `js: false` turns the three off.
 - An explicit `test-command` replaces `composer test`; `none` skips the test suite.
-- Scripts must check, not fix, and exit when done: `eslint .`, not `eslint . --fix`; `vitest run`, not `vitest`.
+- Scripts must check, not fix, and exit when done: `eslint .`, not `eslint . --fix`; `vitest run`, not `vitest`. The job fails when the typecheck or lint script changes a tracked file. Recommended setup: [Lint](../lint.md).
 - CI turns off Composer's 300-second script timeout. For long suites locally, start the script with `Composer\\Config::disableProcessTimeout`.
 - Pint and PHPStan stay in the workflow (Pint checks only the files changed by the pull request), so CI does not run `composer lint` or similar scripts unless `lint-command` names them.
+- Pint also checks Blade views (`--blade`) when `package.json` declares `prettier-plugin-blade` and Pint is 1.30+: Pint formats them with Prettier from `node_modules`, so the project needs `prettier`, `prettier-plugin-blade` and `prettier-plugin-tailwindcss` in its `devDependencies` (Pint names the versions it needs).
 
 ## Inputs
 
@@ -75,13 +76,13 @@ For example:
 | ----------------- | ------------------ | ----------------------------------------------------------------------------------------- |
 | `php-version`     | detected           | Override the PHP version                                                                  |
 | `node-version`    | detected           | Override the Node version                                                                 |
-| `pint`            | `true`             | Run `pint --test` on the files changed by the pull request (Pint 1.20+)                   |
+| `pint`            | `true`             | Run `pint --test` on the files changed by the pull request (Pint 1.20+), Blade views included when `package.json` declares `prettier-plugin-blade` (Pint 1.30+) |
 | `phpstan`         | `true`             | Run PHPStan when installed                                                                |
 | `lint-command`    | empty              | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check`                 |
 | `audit`           | `true`             | Run `composer audit` and the Node audit on scheduled and manual runs, and on PRs that change their lockfile |
 | `test-command`    | detected           | Test command: `composer test` when defined, otherwise `php artisan test`; `none` skips it |
 | `min-coverage`    | `0`                | Minimum coverage of the test suite, with `pcov`; the coverage is shown either way, and `0` never fails. See [Minimum coverage](../coverage.md) |
-| `js`              | `true`             | Run the `typecheck`, `lint` and `test` scripts of `package.json` when they are defined    |
+| `js`              | `true`             | Run the `typecheck` (or `types:check`, `type-check`), `lint` (or `check`) and `test` scripts of `package.json` when they are defined |
 | `timeout-minutes` | `30`               | Job timeout                                                                               |
 
 `project` passes every input but `audit` and `timeout-minutes`; call `laravel-app-tests` on its own for those.
