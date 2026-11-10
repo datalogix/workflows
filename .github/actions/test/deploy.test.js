@@ -73,11 +73,13 @@ describe('check', () => {
   test('check rejects an unknown provider or mode and a missing health URL', async () => {
     const provider = await step('check', { env: { PROVIDER: 'heroku' } });
     expect(provider.code).toBe(1);
-    expect(provider.stdout).toMatch(/provider must be one of cloud, forge, vercel, got 'heroku'/);
+    expect(provider.stdout).toMatch(/provider must be one of cloud, forge, netlify, vercel, got 'heroku'/);
     // The name becomes a path, so it never leaves providers/
     const path = await step('check', { env: { PROVIDER: '../monitoring/nightwatch' } });
     expect(path.code).toBe(1);
-    expect(path.stdout).toMatch(/provider must be one of cloud, forge, vercel, got '\.\.\/monitoring\/nightwatch'/);
+    expect(path.stdout).toMatch(
+      /provider must be one of cloud, forge, netlify, vercel, got '\.\.\/monitoring\/nightwatch'/,
+    );
 
     const mode = await step('check', { env: { MODE: 'redeploy' } });
     expect(mode.code).toBe(1);
@@ -816,6 +818,128 @@ describe('vercel', () => {
     const slow = await wait(['BUILDING']);
     expect(slow.code).toBe(1);
     expect(slow.stdout).toMatch(/was not ready after 30 seconds \(BUILDING\)/);
+  });
+});
+
+describe('netlify', () => {
+  const NETLIFY = { PROVIDER: 'netlify', DEPLOY_HOOK: '', NETLIFY_TOKEN: 'netlify-token', NETLIFY_SITE_ID: 'site_1' };
+  const temp = () => mkdtemp(join(tmpdir(), 'runner-'));
+  const live = (result) => callsTo(result, 'gh').filter((call) => call.includes('datalogix/live/production'));
+  // Waits for dep_1 with the given states of the deploy and HTTP codes of its publish (lock)
+  const wait = async ({ states, lock = ['200'], site = [] }) => {
+    const runner = await temp();
+    await writeFile(join(runner, 'datalogix-netlify-production'), 'dep_1\n');
+    return step('settle', {
+      env: { ...NETLIFY, RUNNER_TEMP: runner, SETTLE: '30' },
+      curl: [
+        { match: 'deploys/dep_1/lock$', codes: lock, bodies: [{ message: 'Forbidden' }] },
+        { match: 'deploys/dep_1$', codes: ['200'], bodies: states.map((state) => ({ state })) },
+        { match: 'sites/site_1$', codes: ['200'], bodies: site },
+      ],
+    });
+  };
+
+  test('check needs the token and the site, not a deploy hook', async () => {
+    expect((await step('check', { env: NETLIFY })).code).toBe(0);
+    const token = await step('check', { env: { ...NETLIFY, NETLIFY_TOKEN: '' } });
+    expect(token.code).toBe(1);
+    expect(token.stdout).toMatch(/Add the NETLIFY_TOKEN secret to the production environment/);
+    const site = await step('check', { env: { ...NETLIFY, NETLIFY_SITE_ID: '' } });
+    expect(site.code).toBe(1);
+    expect(site.stdout).toMatch(/Add the NETLIFY_SITE_ID variable/);
+  });
+
+  test('deploy builds the exact commit of the branch, with the token in a header file', async () => {
+    const runner = await temp();
+    const result = await step('deploy', {
+      env: { ...NETLIFY, SHA: sha('c'), RUNNER_TEMP: runner, BRANCH: 'release/1' },
+      curl: [{ match: 'sites/site_1/builds', codes: ['200'], bodies: [{ id: 'build_1', deploy_id: 'dep_1' }] }],
+    });
+    expect(result.code).toBe(0);
+    const [call] = callsTo(result, 'curl');
+    expect(call).toMatch(
+      /-X POST .*https:\/\/api\.netlify\.com\/api\/v1\/sites\/site_1\/builds\?branch=release%2F1&commit_sha=c{40} /,
+    );
+    expect(call).not.toMatch(/-H Authorization/);
+    expect(call).toMatch(/<header> Authorization: Bearer netlify-token/);
+    expect(await readFile(join(runner, 'datalogix-netlify-production'), 'utf8')).toBe('dep_1\n');
+    // Live only once the deploy is published
+    expect(live(result)).toStrictEqual([]);
+  });
+
+  test('deploy fails when Netlify refuses the build', async () => {
+    const result = await step('deploy', {
+      env: { ...NETLIFY, SHA: sha('c'), RUNNER_TEMP: await temp() },
+      curl: [{ match: 'api.netlify.com', codes: ['422'], bodies: [{ message: 'Builds are stopped' }] }],
+    });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toMatch(/::error::Netlify answered HTTP 422: Builds are stopped/);
+  });
+
+  test('settle publishes the deploy by locking it once it is ready', async () => {
+    const ready = await wait({ states: ['building', 'building', 'ready'] });
+    expect(ready.code).toBe(0);
+    expect(callsTo(ready, 'sleep')).toStrictEqual(['10', '10']);
+    expect(callsTo(ready, 'curl').filter((call) => call.includes('/lock'))).toStrictEqual([
+      expect.stringContaining('-X POST'),
+    ]);
+    expect(ready.stdout).toMatch(/Netlify deploy dep_1 is published/);
+  });
+
+  test('settle waits for a queued publish until the site serves the deploy', async () => {
+    const queued = await wait({
+      states: ['ready'],
+      lock: ['202'],
+      site: [{ published_deploy: { id: 'dep_0' } }, { published_deploy: { id: 'dep_1' } }],
+    });
+    expect(queued.code).toBe(0);
+    expect(callsTo(queued, 'sleep')).toStrictEqual(['10', '10']);
+
+    const slow = await wait({ states: ['ready'], lock: ['202'], site: [{ published_deploy: { id: 'dep_0' } }] });
+    expect(slow.code).toBe(1);
+    expect(slow.stdout).toMatch(/was not published after 30 seconds \(publishing\)/);
+  });
+
+  test('settle fails without publishing when the build fails, is skipped or its publish is refused', async () => {
+    const failed = await wait({ states: ['building', 'error'] });
+    expect(failed.code).toBe(1);
+    expect(failed.stdout).toMatch(/ended as error; the previous deploy is still live/);
+    expect(callsTo(failed, 'curl').some((call) => call.includes('/lock'))).toBe(false);
+    expect(live(failed)).toStrictEqual([]);
+
+    // A deploy Netlify skipped (its ignore command) has nothing new to publish
+    const runner = await temp();
+    await writeFile(join(runner, 'datalogix-netlify-production'), 'dep_1\n');
+    const ignored = await step('settle', {
+      env: { ...NETLIFY, RUNNER_TEMP: runner, SETTLE: '30' },
+      curl: [{ match: 'deploys/dep_1$', codes: ['200'], bodies: [{ state: 'ready', skipped: true }] }],
+    });
+    expect(ignored.code).toBe(1);
+    expect(ignored.stdout).toMatch(/ended as skipped/);
+
+    const refused = await wait({ states: ['ready'], lock: ['403'] });
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toMatch(/built the deploy dep_1 but answered HTTP 403 to its publish: Forbidden/);
+    expect(live(refused)).toStrictEqual([]);
+  });
+
+  test('records the deploy as live once it is published, and a slow one since it may finish after the job', async () => {
+    const runner = await temp();
+    const env = { ...NETLIFY, SHA: sha('c'), RUNNER_TEMP: runner, SETTLE: '30' };
+    const started = await step('deploy', {
+      env,
+      curl: [{ match: 'sites/site_1/builds', codes: ['200'], bodies: [{ deploy_id: 'dep_1' }] }],
+    });
+    expect(started.code).toBe(0);
+    const published = await step('settle', {
+      env,
+      curl: [
+        { match: 'deploys/dep_1/lock$', codes: ['200'] },
+        { match: 'deploys/dep_1$', codes: ['200'], bodies: [{ state: 'ready' }] },
+      ],
+    });
+    expect(published.code).toBe(0);
+    expect(live(published)).toContainEqual(expect.stringContaining(`sha=${sha('c')}`));
   });
 });
 

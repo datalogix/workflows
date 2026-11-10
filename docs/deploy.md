@@ -61,6 +61,16 @@ Every deploy that stays healthy is recorded as a ref under `refs/datalogix/deplo
 
 Turn off Vercel's own deploys of the branches the workflow deploys (`git.deploymentEnabled` in `vercel.json`, or **Settings > Git** in the project), or every push deploys before the tests run. The wait follows the build until it is ready (at most `settle-seconds`, 900 by default), instead of a fixed time. A build that fails leaves the previous deployment live: the job fails without a rollback or an issue, and the release is recorded as live only once its deployment is ready. Setup asks for all of it for a [JavaScript app](js/app.md), creates the staging custom environment when the project has none, writes `vercel.json` and the health route; by hand, see [manual setup](js/app-manual-setup.md).
 
+## Netlify
+
+`deploy: netlify` deploys through Netlify's API, as on Vercel: it builds the exact commit (`commit_sha`), so rollbacks work as on Forge. Each environment deploys its own Netlify site, linked to the repository, and each GitHub environment needs:
+
+- the `NETLIFY_TOKEN` secret (a personal access token with access to the site);
+- the `NETLIFY_SITE_ID` variable (the id of that environment's site);
+- the `HEALTH_URL` variable, on the domain of that environment.
+
+The sites keep auto publishing locked (**Deploys > Lock to stop auto publishing**), so Netlify's own builds of each push never go live: the workflow publishes its build once it is ready, by locking it (Netlify publishes a deploy it locks), and the first deploy locks a site that was not. Set each site's production branch to the branch its environment deploys, or its builds use the branch-deploy context and its variables. The wait follows the build until it is published (at most `settle-seconds`, 900 by default); a build that fails, or one Netlify skips, is never published: the previous deploy stays live and the job fails without a rollback or an issue. A site behind Netlify's password protection answers the health checks with 401, and there is no bypass for it: every deploy would be rolled back. Setup asks for all of it for a [JavaScript app](js/app.md), locks the sites and writes the redirect of a single-page app to `netlify.toml`; by hand, see [manual setup](js/app-manual-setup.md#netlify).
+
 ## Adding a deploy provider
 
 Each provider is a script and a setup file; the deploy itself (the release history, the health checks, the rollback, the issues) is shared:

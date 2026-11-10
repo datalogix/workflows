@@ -807,6 +807,44 @@ test('checks the Vercel token and project of a JavaScript app that deploys, not 
   expect(titles(items, 'warn')).toContainEqual(expect.stringContaining('No health route at app/api/health/route.ts'));
 });
 
+test('checks the Netlify token and site of each environment, and a Nitro preset for another target', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'netlify',
+    staging: true,
+    monitoring: 'none',
+    incidents: false,
+  });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'nuxt',
+    nitroPreset: 'node-server',
+    healthFile: 'server/api/health.get.ts',
+    healthRoute: true,
+    environments: {
+      production: environment({ deployHook: false, variables: { NETLIFY_SITE_ID: 'site_1' } }),
+      staging: environment({ variables: { NETLIFY_SITE_ID: null } }),
+    },
+  };
+  expect(state.current.deploy).toBe('netlify');
+  const items = await run(state, { repository: 'datalogix/app', probe: async () => 200 });
+  const errors = titles(items, 'error');
+  expect(errors).toContainEqual('Environment production has no NETLIFY_TOKEN secret');
+  expect(errors).toContainEqual('Environment staging has no NETLIFY_SITE_ID variable');
+  expect(errors.join('\n')).not.toMatch(/DEPLOY_HOOK|VERCEL_/);
+  expect(titles(items, 'warn')).toContainEqual(
+    'nuxt.config sets the Nitro preset node-server, which does not build for Netlify',
+  );
+  const netlifyPreset = await run(
+    { ...state, nitroPreset: 'netlify' },
+    { repository: 'datalogix/app', probe: async () => 200 },
+  );
+  expect(titles(netlifyPreset, 'warn').join('\n')).not.toContain('Nitro preset');
+});
+
 test('takes a protected health URL as passing only with the bypass secret of the environment', async () => {
   const workflow = await renderProjectWorkflow({
     stack: 'js',

@@ -17,11 +17,13 @@ It detects a JavaScript app (a `package.json` without `composer.json`, with `nex
 | Question | Asked when |
 | --- | --- |
 | GitHub repository | always |
-| Where the app is deployed: Vercel or not by the workflows (`deploy`) | always |
+| Where the app is deployed: Vercel, Netlify or not by the workflows (`deploy`) | always |
 | Production domain, whether there is a staging environment (the `staging` custom environment of the project, on Pro and Enterprise teams), staging domain, development and production branches, how production deploys, Deployments records, health check path (`/api/health` by default, `/health.json` for a single-page app) | the app is deployed, as for a [Laravel app](../laravel/app.md#step-1-run-setup) |
 | Vercel access token (hidden input; stored as the `VERCEL_TOKEN` secret of each environment, which the deploys need; empty keeps the stored one or, without one, leaves the secrets to set by hand) | the app is deployed |
 | The Vercel project, from those linked to the repository in your account and teams; **None of these** leaves it to set by hand | a token was given and it found a project |
-| The project's Protection Bypass for Automation secret (**Settings > Deployment Protection**; empty keeps it or leaves it for later) | the app is deployed |
+| The project's Protection Bypass for Automation secret (**Settings > Deployment Protection**; empty keeps it or leaves it for later) | the app is deployed to Vercel |
+| Netlify personal access token (hidden input; stored as the `NETLIFY_TOKEN` secret of each environment; empty keeps the stored one or, without one, leaves the secrets to set by hand) | the app is deployed to Netlify |
+| The Netlify site of production, then of staging (each environment deploys its own site), from those linked to the repository; **None of these** leaves it to set by hand | a token was given and it found a site |
 | The app's monitoring service: Sentry or none (`monitoring`) | always |
 | Claude token (hidden input) | the repository cannot read one |
 | Whether Sentry problems become issues (of the `production` and `staging` environments: `incident-environments` changes them), and Sentry's signing secret (the Client Secret of an [internal integration](../production-errors.md#sentry)) | the app has a monitoring service; the secret, when the relay is configured |
@@ -32,14 +34,21 @@ It detects a JavaScript app (a `package.json` without `composer.json`, with `nex
 | Whether you work alone on the project, and the approvals of each risk level | always (the approvals: a team project with the risk gate on) |
 | Who must approve changes to `.github/` | always |
 
-Then it writes `.github/workflows/datalogix.yml` with `stack: js` (and `deploy: vercel`, `monitoring: sentry`), the `/.github/` line of `.github/CODEOWNERS` (in team projects), creates the labels, stores the Claude token when the repository needs its own, and registers Sentry's signing secret in the relay. With Vercel it also:
+Then it writes `.github/workflows/datalogix.yml` with `stack: js` (and `deploy: vercel` or `netlify`, `monitoring: sentry`), the `/.github/` line of `.github/CODEOWNERS` (in team projects), creates the labels, stores the Claude token when the repository needs its own, and registers Sentry's signing secret in the relay. With Vercel it also:
 
 - creates the `production` environment (and `staging`) with `VERCEL_TOKEN`, `VERCEL_AUTOMATION_BYPASS_SECRET`, `VERCEL_PROJECT`, `VERCEL_TEAM_ID` and `HEALTH_URL`;
 - creates the project's `staging` custom environment when it has none (its domain is set in Vercel: the next steps say so);
 - writes `vercel.json` without Vercel's own deploys of the branches the workflows deploy (`git.deploymentEnabled`), so a push is deployed only after the tests, while pull requests keep their preview deployments. A single-page app with a router (`vue-router`, `react-router`, `@tanstack/react-router`) also gets the rewrite of every path to `index.html`, so a link to one of its routes does not answer 404, unless `vercel.json` has its own `rewrites` or `routes`; files that exist, as `health.json`, are served first. Commit it with the workflow file;
 - creates the health route, when you said so.
 
-It ends with what is left: the commit, what Vercel still needs (the secrets left empty, the staging domain), Sentry's SDK when `package.json` does not have it (`npx @sentry/wizard@latest -i nextjs`, or `-i nuxt`; `npm install @sentry/vue` or `@sentry/react` in a single-page app), the Sentry webhook, and `protect`.
+With Netlify it:
+
+- creates the `production` environment (and `staging`) with `NETLIFY_TOKEN`, the `NETLIFY_SITE_ID` of that environment's site and `HEALTH_URL`;
+- locks auto publishing on each site (with a token), so a push goes live only after the tests: the workflows publish their own build;
+- writes, for a single-page app with a router, the redirect of every path to `index.html` in `netlify.toml`, unless it or `public/_redirects` has its own `[[redirects]]`. Commit it with the workflow file;
+- creates the health route, when you said so.
+
+It ends with what is left: the commit, what Vercel or Netlify still needs (the secrets left empty, the staging domain on Vercel, auto publishing to lock and a site whose production branch is not the one it deploys on Netlify), Sentry's SDK when `package.json` does not have it (`npx @sentry/wizard@latest -i nextjs`, or `-i nuxt`; `npm install @sentry/vue` or `@sentry/react` in a single-page app), the Sentry webhook, and `protect`.
 
 ## Step 2: protect the default branch
 
@@ -51,6 +60,6 @@ npx --allow-git=root github:datalogix/workflows#v2 protect
 
 The required checks are the same as a Laravel app's: `pipeline / tests / tests`, `pipeline / security / security` and `pipeline / gate / gate`, for the layers that are on.
 
-`check` reports what is missing: the workflow file, labels, Claude token, the environments with `VERCEL_TOKEN`, `VERCEL_PROJECT` and `HEALTH_URL` (and whether it answers `200`; a `401` is not a problem with `VERCEL_AUTOMATION_BYPASS_SECRET` in the environment, which the deploys send and `check` cannot), the health route, the ruleset, the code owners, Sentry's SDK in `package.json` and the relay registration.
+`check` reports what is missing: the workflow file, labels, Claude token, the environments with `VERCEL_TOKEN`, `VERCEL_PROJECT` and `HEALTH_URL`, or `NETLIFY_TOKEN`, `NETLIFY_SITE_ID` and `HEALTH_URL` (and whether it answers `200`; a `401` is not a problem with `VERCEL_AUTOMATION_BYPASS_SECRET` in the environment, which the deploys send and `check` cannot), the health route, a Nitro preset in `nuxt.config` that does not build for the deploy target, the ruleset, the code owners, Sentry's SDK in `package.json` and the relay registration.
 
 What the tests run: [JavaScript app tests](app-tests.md). Without setup: [by hand](app-manual-setup.md).
