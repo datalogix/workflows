@@ -71,7 +71,7 @@ The [documentation index](docs/README.md) lists every guide. The main ones:
 | [Laravel app tests](docs/laravel/app-tests.md) | What the tests job runs, the project's test scripts, its inputs |
 | [Adding a Laravel package](docs/laravel/package.md) | For each package: the setup command, protecting the branch |
 | [Laravel package tests](docs/laravel/package-tests.md) | The test matrix, coverage, Pint and its inputs |
-| [Adding a JavaScript app](docs/js/app.md) | For each app: the setup command, what is left to do by hand, Vercel deploys, Sentry, `check`; [by hand](docs/js/app-manual-setup.md) without it |
+| [Adding a JavaScript app](docs/js/app.md) | For each app: the setup command, what is left to do by hand, Vercel or Netlify deploys, Sentry, `check`; [by hand](docs/js/app-manual-setup.md) without it |
 | [JavaScript app tests](docs/js/app-tests.md) | What the tests job runs and its inputs |
 | [Adding a JavaScript library](docs/js/package.md) | For each library: the setup command, protecting the branch |
 | [JavaScript library tests](docs/js/package-tests.md) | What the tests job runs and its inputs |

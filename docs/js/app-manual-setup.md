@@ -18,7 +18,7 @@ jobs:
       # Without Sentry: incidents: false
 ```
 
-With Vercel deploys, add `deploy: vercel`, then set up the environments and `vercel.json` below.
+With Vercel deploys, add `deploy: vercel`, then set up the environments and `vercel.json` below; with Netlify, `deploy: netlify` and [Netlify](#netlify).
 
 ## Labels, Claude token and code owners
 
@@ -50,6 +50,28 @@ In `vercel.json`, turn off Vercel's own deploys of the branches the workflows de
 ```
 
 Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt). A Vue or React single-page app built with Vite has no server: add `public/health.json` with `{"status":"ok"}` and point `HEALTH_URL` to `/health.json`. With a router, also send every path to `index.html` in `vercel.json`: `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`.
+
+## Netlify
+
+Each environment deploys its own Netlify site, linked to the repository, with its production branch set to the branch that environment deploys. Each GitHub environment needs the variables and secrets of [Netlify](../deploy.md#netlify):
+
+```bash
+gh secret set NETLIFY_TOKEN --repo OWNER/REPO --env staging
+gh secret set NETLIFY_TOKEN --repo OWNER/REPO --env production
+gh variable set NETLIFY_SITE_ID --repo OWNER/REPO --env staging --body "<staging site id>"
+gh variable set NETLIFY_SITE_ID --repo OWNER/REPO --env production --body "<production site id>"
+gh variable set HEALTH_URL --repo OWNER/REPO --env staging --body "https://dev.example.com/api/health"
+gh variable set HEALTH_URL --repo OWNER/REPO --env production --body "https://example.com/api/health"
+```
+
+In each site, open **Deploys** and choose **Lock to stop auto publishing**, or every push goes live before its tests (the first deploy of the workflows locks it too). The health route is the same as on Vercel; for a single-page app with a router, send every path to `index.html` in `netlify.toml`:
+
+```toml
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+```
 
 ## Sentry
 

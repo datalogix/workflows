@@ -3,15 +3,17 @@ import { dirname, join } from 'node:path';
 import { deploys, projectKind } from '../../kinds/project/index.js';
 import { deployProviders } from '../../providers/deploy/index.js';
 import { vercelApi, vercelProjects, vercelStagingTask } from '../../providers/deploy/vercel.js';
+import { netlifyApi, netlifyLockTask, netlifySites } from '../../providers/deploy/netlify.js';
 import { monitoringServices } from '../../providers/monitoring/index.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 
 // What a JavaScript app (Next, Nuxt, or a Vue or React single-page app built with Vite) adds to project.yml
 // (cli/kinds/project/index.js): Vercel deploys (its token, project and protection bypass, vercel.json and the health
-// route), Sentry, and whether the tests run its end-to-end tests
+// route), Netlify deploys (its token, a site per environment, netlify.toml and the health route), Sentry, and whether
+// the tests run its end-to-end tests
 
 // The deploy targets of a JavaScript app (cli/providers/deploy)
-const PROVIDERS = deployProviders(['vercel']);
+const PROVIDERS = deployProviders(['vercel', 'netlify']);
 
 // Sentry's SDK of each framework, and its wizard when Sentry has one
 const SENTRY = {
@@ -23,7 +25,7 @@ const SENTRY = {
 
 // Vue and React apps built with Vite: single-page apps, with no server to answer a health route
 const SPA = ['vue', 'react'];
-// The routers whose routes only the app knows, so Vercel must serve index.html for them
+// The routers whose routes only the app knows, so the host must serve index.html for them
 const SPA_ROUTERS = ['vue-router', 'react-router', 'react-router-dom', '@tanstack/react-router'];
 
 const HEALTH_PATH = '/api/health';
@@ -105,8 +107,17 @@ function frameworkOf(names) {
   return SPA.find((name) => names.includes(name)) ?? null;
 }
 
+/** The Nitro preset nuxt.config sets, if any: the deploy target its build is for. */
+async function nitroPresetOf(root) {
+  for (const file of ['nuxt.config.ts', 'nuxt.config.js', 'nuxt.config.mjs']) {
+    const config = await readFile(join(root, file), 'utf8').catch(() => null);
+    if (config !== null) return /\bpreset\s*:\s*['"]([\w-]+)['"]/.exec(config)?.[1] ?? null;
+  }
+  return null;
+}
+
 /**
- * The framework, its health route, vercel.json, the end-to-end tests script, Sentry's SDK and, for a single-page app,
+ * The framework, its health route, vercel.json, netlify.toml, the Nitro preset, the end-to-end tests script, Sentry's SDK and, for a single-page app,
  * whether it has a router, from the folder.
  */
 async function inspectApp(root) {
@@ -126,6 +137,9 @@ async function inspectApp(root) {
     healthFile: existing ?? (await healthRouteFile(root, framework)),
     healthRoute: Boolean(existing),
     vercelJson: await readFile(join(root, 'vercel.json'), 'utf8').catch(() => null),
+    netlifyToml: await readFile(join(root, 'netlify.toml'), 'utf8').catch(() => null),
+    netlifyRedirects: await exists(join(root, 'public/_redirects')),
+    nitroPreset: framework === 'nuxt' ? await nitroPresetOf(root) : null,
     e2eScript: Boolean(manifest.scripts?.['test:e2e']),
     sentry: names.some((name) => Object.values(SENTRY).some((sdk) => sdk.name === name)),
     spaRouter: SPA.includes(framework) && names.some((name) => SPA_ROUTERS.includes(name)),
@@ -133,6 +147,7 @@ async function inspectApp(root) {
 }
 
 const withToken = (a) => deploys(a) && a.deploy === 'vercel' && Boolean(a.deployToken?.trim());
+const netlifyWithToken = (a) => deploys(a) && a.deploy === 'netlify' && Boolean(a.deployToken?.trim());
 
 /** The Vercel token, then the projects it finds for the repository. */
 const vercelTokenStep = {
@@ -208,6 +223,66 @@ const vercelBypassStep = {
     ),
 };
 
+/** The Netlify token, then the sites it finds for the repository. */
+const netlifyTokenStep = {
+  id: 'deployToken',
+  when: (a) => deploys(a) && a.deploy === 'netlify',
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.password({
+        message: question(
+          header,
+          `Netlify personal access token${dim(`  ${PROVIDERS.netlify.tokenHint}`)}`,
+          ctx.state.environments?.production?.deployHook
+            ? 'Empty: keeps the stored one, without looking for the sites'
+            : 'Empty: setup lists what to set by hand at the end, and the deploys fail until then',
+        ),
+      }),
+    ),
+  then: async (answers, ctx) => {
+    ctx.netlifySites = [];
+    if (!netlifyWithToken(answers)) return;
+    const spinner = clack.spinner();
+    spinner.start(`Looking for the Netlify sites of ${answers.repository}`);
+    try {
+      ctx.netlifySites = await netlifySites(netlifyApi(answers.deployToken.trim()), answers.repository);
+    } catch (error) {
+      spinner.error(error.message);
+      return;
+    }
+    if (ctx.netlifySites.length)
+      spinner.stop(`Found ${ctx.netlifySites.length} Netlify site(s) of ${answers.repository}`);
+    else
+      spinner.error(`No Netlify site is linked to ${answers.repository}: import it in Netlify, then run setup again`);
+  },
+};
+
+/** The Netlify site of an environment: each environment deploys its own site. */
+const netlifySiteStep = (environment) => ({
+  id: environment === 'staging' ? 'netlifyStagingSite' : 'netlifySite',
+  when: (a, ctx) =>
+    netlifyWithToken(a) && Boolean(ctx.netlifySites?.length) && (environment !== 'staging' || Boolean(a.staging)),
+  ask: async ({ header, answers, ctx }) => {
+    // Staging is another site: the one production took is offered last
+    const sites = ctx.netlifySites.filter((site) => environment !== 'staging' || site.id !== answers.netlifySite?.id);
+    const index = orExit(
+      await clack.select({
+        message: question(header, `Netlify site of ${environment}`, 'Each environment deploys its own site'),
+        initialValue: sites.length ? 0 : -1,
+        options: [
+          ...sites.map((site, i) => ({
+            value: i,
+            label: site.name,
+            hint: [site.url, site.branch && `branch ${site.branch}`].filter(Boolean).join(' · ') || undefined,
+          })),
+          { value: -1, label: 'None of these', hint: 'setup lists what to set by hand at the end' },
+        ],
+      }),
+    );
+    return index === -1 ? null : sites[index];
+  },
+});
+
 /** Whether to create the health route, when the app deploys to the framework's health path and has none. */
 const healthRouteStep = {
   id: 'healthRoute',
@@ -254,6 +329,31 @@ const deployedBranches = (answers, state) =>
 
 // Every path to the single-page app's index.html; Vercel serves a file that exists (health.json, assets) before it
 const SPA_REWRITE = { source: '/(.*)', destination: '/index.html' };
+
+// Every path to the single-page app's index.html; Netlify, too, serves a file that exists before it
+const NETLIFY_SPA_REDIRECT = `[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+`;
+
+/**
+ * netlify.toml with the redirect of every path to the single-page app's index.html, unless netlify.toml or
+ * public/_redirects redirects the paths already. Netlify's own builds stay off through the sites' locked publishing.
+ */
+function netlifyTomlTask({ root, state }) {
+  return {
+    id: 'file:netlify.toml',
+    title: 'netlify.toml',
+    run: async () => {
+      if (state.netlifyRedirects || /^\s*\[\[redirects\]\]/m.test(state.netlifyToml ?? '')) return 'unchanged';
+      const current = state.netlifyToml ?? '';
+      const separator = current && !current.endsWith('\n\n') ? (current.endsWith('\n') ? '\n' : '\n\n') : '';
+      await writeFile(join(root, 'netlify.toml'), `${current}${separator}${NETLIFY_SPA_REDIRECT}`);
+      return `${state.netlifyToml === null ? 'created' : 'updated'}: every path redirected to index.html`;
+    },
+  };
+}
 
 /**
  * vercel.json without Vercel's own deploys of the branches the workflows deploy, so a push is deployed only after the
@@ -311,9 +411,33 @@ function healthRouteTask(root, file, framework) {
   };
 }
 
-/** What Vercel still needs: the secrets left empty, and the staging environment's domain. */
+/** The branch the workflows deploy to the environment. */
+const branchOf = (answers, state, environment) =>
+  answers.branches && answers.productionBranch
+    ? environment === 'staging'
+      ? answers.developmentBranch
+      : answers.productionBranch
+    : state.defaultBranch;
+
+/** What Netlify still needs: the secrets left empty, and a site whose production branch is not the one it deploys. */
+function netlifyNextSteps(answers, state) {
+  const steps = PROVIDERS.netlify.manualSteps({ answers, state });
+  for (const environment of answers.staging ? ['production', 'staging'] : ['production']) {
+    const site = environment === 'staging' ? answers.netlifyStagingSite : answers.netlifySite;
+    const branch = branchOf(answers, state, environment);
+    if (site?.branch && branch && site.branch !== branch) {
+      steps.push(
+        `In Netlify, set the production branch of ${bold(site.name)} to ${bold(branch)} (${bold('Site configuration > Build & deploy > Branches and deploy contexts')}): ${environment} deploys ${branch}, which otherwise builds as a branch deploy, with that context's variables.`,
+      );
+    }
+  }
+  return steps;
+}
+
+/** What the deploy target still needs: Vercel's secrets left empty and staging domain, or Netlify's. */
 function deployNextSteps(answers, { results = [], state }) {
   if (!PROVIDERS[answers.deploy]) return [];
+  if (answers.deploy === 'netlify') return netlifyNextSteps(answers, state);
   const steps = PROVIDERS.vercel.manualSteps({ answers, state });
   const staging = results.find((result) => result.id === 'vercelStaging');
   if (answers.staging && (!staging?.ok || staging.data?.domain === false)) {
@@ -333,8 +457,20 @@ function sentryNextSteps(answers, { state }) {
   return [`Install Sentry's SDK in the app, or nothing reaches Sentry: ${cyan(command)}`];
 }
 
-/** Whether the health route exists, for an app that deploys to the framework's health path. */
+// The Nitro presets each deploy target builds with
+const NITRO_PRESETS = { vercel: /^vercel/, netlify: /^netlify/ };
+
+/**
+ * Whether the health route exists, for an app that deploys to the framework's health path, and whether a Nuxt app's
+ * Nitro preset builds for the deploy target.
+ */
 function evaluateDeploy({ ok, warn }, state) {
+  const target = state.current?.deploy;
+  if (state.nitroPreset && NITRO_PRESETS[target] && !NITRO_PRESETS[target].test(state.nitroPreset))
+    warn(
+      `nuxt.config sets the Nitro preset ${state.nitroPreset}, which does not build for ${PROVIDERS[target].name}`,
+      `remove it (Nitro detects ${PROVIDERS[target].name}) or set a ${target} preset`,
+    );
   if (!state.healthFile) return;
   if (state.healthRoute) ok(`Health route ${healthPathOf(state.framework)} (${state.healthFile})`);
   else
@@ -367,19 +503,38 @@ export default projectKind({
     healthFile: null,
     healthRoute: false,
     vercelJson: null,
+    netlifyToml: null,
+    netlifyRedirects: false,
+    nitroPreset: null,
     e2eScript: false,
     sentry: false,
     spaRouter: false,
   },
   inspect: inspectApp,
   healthPath: (ctx) => healthPathOf(ctx.state.framework),
-  deploySteps: () => [vercelTokenStep, vercelProjectStep, vercelBypassStep],
+  deploySteps: () => [
+    vercelTokenStep,
+    vercelProjectStep,
+    vercelBypassStep,
+    netlifyTokenStep,
+    netlifySiteStep('production'),
+    netlifySiteStep('staging'),
+  ],
   steps: () => [healthRouteStep, e2eStep],
   tasks: (answers, { root, state }) => [
     ...(withToken(answers) && answers.vercelProject && answers.staging
       ? [vercelStagingTask(vercelApi(answers.deployToken.trim()), answers.vercelProject)]
       : []),
-    ...(deploys(answers) ? [vercelJsonTask(answers, { root, state })] : []),
+    ...(deploys(answers) && answers.deploy === 'vercel' ? [vercelJsonTask(answers, { root, state })] : []),
+    ...(netlifyWithToken(answers)
+      ? [
+          [answers.netlifySite, 'production'],
+          [answers.staging ? answers.netlifyStagingSite : null, 'staging'],
+        ]
+          .filter(([site]) => site)
+          .map(([site, environment]) => netlifyLockTask(netlifyApi(answers.deployToken.trim()), site, environment))
+      : []),
+    ...(deploys(answers) && answers.deploy === 'netlify' && state.spaRouter ? [netlifyTomlTask({ root, state })] : []),
     ...(answers.healthRoute && state.healthFile ? [healthRouteTask(root, state.healthFile, state.framework)] : []),
   ],
   files: {},

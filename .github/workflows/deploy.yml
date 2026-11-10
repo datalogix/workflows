@@ -10,7 +10,7 @@ on:
       provider:
         type: string
         required: true
-        description: Deploy provider, a script in .github/actions/deploy/providers (forge, cloud or vercel)
+        description: Deploy provider, a script in .github/actions/deploy/providers (forge, cloud, vercel or netlify)
       branch:
         type: string
         default: ""
@@ -30,7 +30,7 @@ on:
       settle-seconds:
         type: number
         default: 0
-        description: Seconds to wait after triggering the deploy before watching (0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first); on Vercel, the most the wait follows the build until it is ready (0 uses 900)
+        description: Seconds to wait after triggering the deploy before watching (0 uses 120 on Forge and 300 on Laravel Cloud, which builds an image first); on Vercel and Netlify, the most the wait follows the build until it is live (0 uses 900)
       watch-minutes:
         type: number
         default: 3
@@ -99,6 +99,9 @@ jobs:
       VERCEL_TARGET: ${{ vars.VERCEL_TARGET }}
       # Sent with the health checks of a protected deployment
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      # Netlify: the API token and the site of the environment
+      NETLIFY_TOKEN: ${{ secrets.NETLIFY_TOKEN }}
+      NETLIFY_SITE_ID: ${{ vars.NETLIFY_SITE_ID }}
       BRANCH: ${{ inputs.branch || github.event.repository.default_branch }}
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
