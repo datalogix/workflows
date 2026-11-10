@@ -149,6 +149,48 @@ test('reads the Nitro preset of a Nuxt app', async (t) => {
   expect(await jsApp.inspect(root)).toMatchObject({ framework: 'nuxt', nitroPreset: 'node-server' });
 });
 
+test('gives a Nuxt app built as static files the static health file', async (t) => {
+  const inspected = async (files, scripts = {}) => {
+    const manifest = {
+      scripts: { build: 'nuxt build', generate: 'nuxt generate', ...scripts },
+      dependencies: { nuxt: '^4' },
+    };
+    const root = await folder(
+      t,
+      { 'package.json': JSON.stringify(manifest), 'tsconfig.json': '{}', ...files },
+      'netlify-',
+    );
+    return jsApp.inspect(root);
+  };
+  const generated = { staticBuild: true, healthFile: 'public/health.json', healthRoute: false };
+  // The build command of netlify.toml, through the script it runs or directly
+  expect(
+    await inspected({ 'netlify.toml': '[build]\ncommand = "npm run generate"\npublish = "dist"\n' }),
+  ).toMatchObject(generated);
+  expect(await inspected({ 'netlify.toml': "[build]\n  command = 'npx nuxi generate'\n" })).toMatchObject(generated);
+  expect(await inspected({ 'vercel.json': '{"buildCommand": "pnpm generate"}' })).toMatchObject(generated);
+  expect(await inspected({}, { build: 'nuxt build --prerender' })).toMatchObject(generated);
+  expect(
+    await inspected({ 'nuxt.config.ts': "export default defineNuxtConfig({ nitro: { preset: 'static' } });\n" }),
+  ).toMatchObject(generated);
+  expect(
+    await inspected({ 'netlify.toml': '[build]\ncommand = "npm run generate"\n', 'public/health.json': '{}' }),
+  ).toMatchObject({
+    staticBuild: true,
+    healthRoute: true,
+  });
+  // Built with a server
+  expect(await inspected({ 'netlify.toml': '[build]\ncommand = "npm run build"\n' })).toMatchObject({
+    staticBuild: false,
+    healthFile: 'server/api/health.get.ts',
+  });
+
+  const state = { ...APP_STATE, ...(await inspected({ 'netlify.toml': '[build]\ncommand = "npm run generate"\n' })) };
+  const step = jsApp.setup.steps().find((candidate) => candidate.id === 'healthRoute');
+  expect(step.when({ deploy: 'netlify', healthPath: '/health.json' }, { state })).toBe(true);
+  expect(step.when({ deploy: 'netlify', healthPath: '/api/health' }, { state })).toBe(false);
+});
+
 test('lists what Netlify still needs by hand, and a site that builds another branch', () => {
   const left = jsApp.setup.nextSteps(
     { ...answers, deployToken: '', netlifySite: null, netlifyStagingSite: null },

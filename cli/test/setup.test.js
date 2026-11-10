@@ -2063,7 +2063,7 @@ test("tells to install Sentry's SDK of the framework, and checks for it", async 
   expect(vue).toContainEqual(expect.stringContaining('npm install @sentry/vue'));
 });
 
-test('suggests /health.json as the health path of a single-page app, /api/health for Next and Nuxt', async () => {
+test('suggests /health.json as the health path of a single-page app or a static Nuxt app, /api/health for Next and Nuxt', async () => {
   const jsApp = (await import('../stacks/js/app.js')).default;
   const step = jsApp.setup.steps().find((candidate) => candidate.id === 'healthPath');
   const initial = async (framework) => {
@@ -2074,4 +2074,7 @@ test('suggests /health.json as the health path of a single-page app, /api/health
   expect(await initial('react')).toBe('/health.json');
   expect(await initial('next')).toBe('/api/health');
   expect(await initial('nuxt')).toBe('/api/health');
+  // A Nuxt app built with nuxt generate has no server either
+  await step.ask({ header: '', answers: {}, ctx: { state: { ...APP_STATE, framework: 'nuxt', staticBuild: true } } });
+  expect(prompts.asked.at(-1).initialValue).toBe('/health.json');
 });

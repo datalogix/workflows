@@ -18,7 +18,7 @@ It detects a JavaScript app (a `package.json` without `composer.json`, with `nex
 | --- | --- |
 | GitHub repository | always |
 | Where the app is deployed: Vercel, Netlify or not by the workflows (`deploy`) | always |
-| Production domain, whether there is a staging environment (the `staging` custom environment of the project, on Pro and Enterprise teams), staging domain, development and production branches, how production deploys, Deployments records, health check path (`/api/health` by default, `/health.json` for a single-page app) | the app is deployed, as for a [Laravel app](../laravel/app.md#step-1-run-setup) |
+| Production domain, whether there is a staging environment (the `staging` custom environment of the project, on Pro and Enterprise teams), staging domain, development and production branches, how production deploys, Deployments records, health check path (`/api/health` by default, `/health.json` for a single-page app or a static Nuxt app) | the app is deployed, as for a [Laravel app](../laravel/app.md#step-1-run-setup) |
 | Vercel access token (hidden input; stored as the `VERCEL_TOKEN` secret of each environment, which the deploys need; empty keeps the stored one or, without one, leaves the secrets to set by hand) | the app is deployed |
 | The Vercel project, from those linked to the repository in your account and teams; **None of these** leaves it to set by hand | a token was given and it found a project |
 | The project's Protection Bypass for Automation secret (**Settings > Deployment Protection**; empty keeps it or leaves it for later) | the app is deployed to Vercel |
@@ -27,7 +27,7 @@ It detects a JavaScript app (a `package.json` without `composer.json`, with `nex
 | The app's monitoring service: Sentry or none (`monitoring`) | always |
 | Claude token (hidden input) | the repository cannot read one |
 | Whether Sentry problems become issues (of the `production` and `staging` environments: `incident-environments` changes them), and Sentry's signing secret (the Client Secret of an [internal integration](../production-errors.md#sentry)) | the app has a monitoring service; the secret, when the relay is configured |
-| Whether to create the health route `/api/health` (`app/api/health/route.ts` or `pages/api/health.ts` on Next, `server/api/health.get.ts` on Nuxt, in JavaScript without a `tsconfig.json`), or for a single-page app the static file `public/health.json`, which Vite copies to the build and Vercel serves at `/health.json` | the app deploys to that path and has no route there |
+| Whether to create the health route `/api/health` (`app/api/health/route.ts` or `pages/api/health.ts` on Next, `server/api/health.get.ts` on Nuxt, in JavaScript without a `tsconfig.json`), or for a single-page app or a Nuxt app built as static files (`nuxt generate` or `nuxt build --prerender` as the build command of `netlify.toml` or `vercel.json` or as the `build` script, or the `static` Nitro preset) the static file `public/health.json`, which the build copies and the host serves at `/health.json` | the app deploys to that path and has no route there |
 | Whether the tests run the end-to-end tests (`test:e2e`) | `package.json` has that script |
 | Claude and the risk gate on pull requests: code review, security review, risk gate and fix CI | always |
 | Language of what is written for the team | always |
