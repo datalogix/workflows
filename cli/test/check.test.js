@@ -843,6 +843,12 @@ test('checks the Netlify token and site of each environment, and a Nitro preset 
     { repository: 'datalogix/app', probe: async () => 200 },
   );
   expect(titles(netlifyPreset, 'warn').join('\n')).not.toContain('Nitro preset');
+  // Static files: any host serves them
+  const staticPreset = await run(
+    { ...state, nitroPreset: 'static', staticBuild: true, healthFile: 'public/health.json' },
+    { repository: 'datalogix/app', probe: async () => 200 },
+  );
+  expect(titles(staticPreset, 'warn').join('\n')).not.toContain('Nitro preset');
 });
 
 test('takes a protected health URL as passing only with the bypass secret of the environment', async () => {

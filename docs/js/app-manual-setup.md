@@ -49,7 +49,7 @@ In `vercel.json`, turn off Vercel's own deploys of the branches the workflows de
 }
 ```
 
-Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt). A Vue or React single-page app built with Vite has no server: add `public/health.json` with `{"status":"ok"}` and point `HEALTH_URL` to `/health.json`. With a router, also send every path to `index.html` in `vercel.json`: `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`.
+Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt). A Vue or React single-page app built with Vite, or a Nuxt app built with `nuxt generate`, has no server: add `public/health.json` with `{"status":"ok"}` and point `HEALTH_URL` to `/health.json`. With a router, also send every path to `index.html` in `vercel.json`: `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`.
 
 ## Netlify
 

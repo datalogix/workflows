@@ -32,8 +32,10 @@ const HEALTH_PATH = '/api/health';
 // A single-page app's health check is a static file, which Vite copies from public/ to the build
 const SPA_HEALTH_PATH = '/health.json';
 const SPA_HEALTH_FILE = 'public/health.json';
-/** The health check path of the framework. */
-const healthPathOf = (framework) => (SPA.includes(framework) ? SPA_HEALTH_PATH : HEALTH_PATH);
+/** Whether the app is only static files, with no server: a single-page app, or a Nuxt app built with nuxt generate. */
+const isStatic = ({ framework, staticBuild }) => SPA.includes(framework) || Boolean(staticBuild);
+/** The health check path of the app: a static file when it has no server. */
+const healthPathOf = (state) => (isStatic(state) ? SPA_HEALTH_PATH : HEALTH_PATH);
 
 const exists = (path) =>
   stat(path).then(
@@ -42,8 +44,8 @@ const exists = (path) =>
   );
 
 /** Where the health route goes for the framework and router of the app, in TypeScript when it has a tsconfig.json. */
-async function healthRouteFile(root, framework) {
-  if (SPA.includes(framework)) return SPA_HEALTH_FILE;
+async function healthRouteFile(root, { framework, staticBuild }) {
+  if (isStatic({ framework, staticBuild })) return SPA_HEALTH_FILE;
   const ext = (await exists(join(root, 'tsconfig.json'))) ? 'ts' : 'js';
   if (framework === 'nuxt') return `server/api/health.get.${ext}`;
   if (framework !== 'next') return null;
@@ -53,8 +55,8 @@ async function healthRouteFile(root, framework) {
 }
 
 /** The files that answer the health route of the framework, whichever router or layout the app uses. */
-function healthRouteFiles(framework) {
-  if (SPA.includes(framework)) return [SPA_HEALTH_FILE];
+function healthRouteFiles({ framework, staticBuild }) {
+  if (isStatic({ framework, staticBuild })) return [SPA_HEALTH_FILE];
   const stems =
     framework === 'nuxt'
       ? ['server/api', 'server/routes/api'].flatMap((base) =>
@@ -116,6 +118,35 @@ async function nitroPresetOf(root) {
   return null;
 }
 
+// The Nuxt commands that build only static files, with no server: nuxt generate, or nuxt build --prerender
+const NUXT_STATIC = /\bnux[ti]\s+(generate\b|build\b.*\s--prerender\b)/;
+// A command that runs a script of package.json, as npm run generate or yarn generate
+const RUN_SCRIPT = /^\s*(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?([\w:-]+)\s*$/;
+
+/** Whether a build command, or the package.json script it runs, builds a Nuxt app as static files. */
+function buildsStatic(command, scripts) {
+  if (typeof command !== 'string') return false;
+  const script = RUN_SCRIPT.exec(command)?.[1];
+  return NUXT_STATIC.test(typeof scripts[script] === 'string' ? scripts[script] : command);
+}
+
+/**
+ * Whether a Nuxt app is built as static files: the build command of netlify.toml or vercel.json, or else the build
+ * script, runs nuxt generate, or nuxt.config sets the static Nitro preset.
+ */
+function staticNuxt({ manifest, netlifyToml, vercelJson, nitroPreset }) {
+  if (nitroPreset === 'static') return true;
+  const scripts = manifest.scripts ?? {};
+  const commands = [...(netlifyToml ?? '').matchAll(/^\s*command\s*=\s*["']([^"']*)["']/gm)].map((match) => match[1]);
+  try {
+    commands.push(JSON.parse(vercelJson ?? '{}').buildCommand);
+  } catch {
+    // vercel.json that is not valid JSON: setup reports it when it writes the file
+  }
+  commands.push(scripts.build);
+  return commands.some((command) => buildsStatic(command, scripts));
+}
+
 /**
  * The framework, its health route, vercel.json, netlify.toml, the Nitro preset, the end-to-end tests script, Sentry's SDK and, for a single-page app,
  * whether it has a router, from the folder.
@@ -129,17 +160,24 @@ async function inspectApp(root) {
   }
   const names = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
   const framework = frameworkOf(names);
-  // A route the app already has anywhere is not created again: next to one of another router, it breaks the build
-  const present = await Promise.all(healthRouteFiles(framework).map((file) => exists(join(root, file))));
-  const existing = healthRouteFiles(framework).find((_file, index) => present[index]);
-  return {
+  const vercelJson = await readFile(join(root, 'vercel.json'), 'utf8').catch(() => null);
+  const netlifyToml = await readFile(join(root, 'netlify.toml'), 'utf8').catch(() => null);
+  const nitroPreset = framework === 'nuxt' ? await nitroPresetOf(root) : null;
+  const app = {
     framework,
-    healthFile: existing ?? (await healthRouteFile(root, framework)),
+    staticBuild: framework === 'nuxt' && staticNuxt({ manifest, netlifyToml, vercelJson, nitroPreset }),
+  };
+  // A route the app already has anywhere is not created again: next to one of another router, it breaks the build
+  const present = await Promise.all(healthRouteFiles(app).map((file) => exists(join(root, file))));
+  const existing = healthRouteFiles(app).find((_file, index) => present[index]);
+  return {
+    ...app,
+    healthFile: existing ?? (await healthRouteFile(root, app)),
     healthRoute: Boolean(existing),
-    vercelJson: await readFile(join(root, 'vercel.json'), 'utf8').catch(() => null),
-    netlifyToml: await readFile(join(root, 'netlify.toml'), 'utf8').catch(() => null),
+    vercelJson,
+    netlifyToml,
     netlifyRedirects: await exists(join(root, 'public/_redirects')),
-    nitroPreset: framework === 'nuxt' ? await nitroPresetOf(root) : null,
+    nitroPreset,
     e2eScript: Boolean(manifest.scripts?.['test:e2e']),
     sentry: names.some((name) => Object.values(SENTRY).some((sdk) => sdk.name === name)),
     spaRouter: SPA.includes(framework) && names.some((name) => SPA_ROUTERS.includes(name)),
@@ -287,16 +325,13 @@ const netlifySiteStep = (environment) => ({
 const healthRouteStep = {
   id: 'healthRoute',
   when: (a, ctx) =>
-    deploys(a) &&
-    a.healthPath === healthPathOf(ctx.state.framework) &&
-    !ctx.state.healthRoute &&
-    Boolean(ctx.state.healthFile),
+    deploys(a) && a.healthPath === healthPathOf(ctx.state) && !ctx.state.healthRoute && Boolean(ctx.state.healthFile),
   ask: async ({ header, ctx }) =>
     orExit(
       await clack.confirm({
         message: question(
           header,
-          `Create the health route ${healthPathOf(ctx.state.framework)}?`,
+          `Create the health route ${healthPathOf(ctx.state)}?`,
           `Writes ${ctx.state.healthFile}, answering 200 while the app serves requests; the deploys check it`,
         ),
         initialValue: true,
@@ -398,10 +433,10 @@ function vercelJsonTask(answers, { root, state }) {
 }
 
 /** The health route of the framework, answering 200. */
-function healthRouteTask(root, file, framework) {
+function healthRouteTask(root, file, state) {
   return {
     id: `file:${file}`,
-    title: `Health route ${healthPathOf(framework)}`,
+    title: `Health route ${healthPathOf(state)}`,
     run: async () => {
       const path = join(root, file);
       await mkdir(dirname(path), { recursive: true });
@@ -457,8 +492,8 @@ function sentryNextSteps(answers, { state }) {
   return [`Install Sentry's SDK in the app, or nothing reaches Sentry: ${cyan(command)}`];
 }
 
-// The Nitro presets each deploy target builds with
-const NITRO_PRESETS = { vercel: /^vercel/, netlify: /^netlify/ };
+// The Nitro presets each deploy target builds with; static files are served by both
+const NITRO_PRESETS = { vercel: /^(vercel|static$)/, netlify: /^(netlify|static$)/ };
 
 /**
  * Whether the health route exists, for an app that deploys to the framework's health path, and whether a Nuxt app's
@@ -472,7 +507,7 @@ function evaluateDeploy({ ok, warn }, state) {
       `remove it (Nitro detects ${PROVIDERS[target].name}) or set a ${target} preset`,
     );
   if (!state.healthFile) return;
-  if (state.healthRoute) ok(`Health route ${healthPathOf(state.framework)} (${state.healthFile})`);
+  if (state.healthRoute) ok(`Health route ${healthPathOf(state)} (${state.healthFile})`);
   else
     warn(
       `No health route at ${state.healthFile}: every deploy fails its health checks unless HEALTH_URL points to another`,
@@ -500,6 +535,7 @@ export default projectKind({
   monitoring: monitoringServices(['sentry']),
   empty: {
     framework: null,
+    staticBuild: false,
     healthFile: null,
     healthRoute: false,
     vercelJson: null,
@@ -511,7 +547,7 @@ export default projectKind({
     spaRouter: false,
   },
   inspect: inspectApp,
-  healthPath: (ctx) => healthPathOf(ctx.state.framework),
+  healthPath: (ctx) => healthPathOf(ctx.state),
   deploySteps: () => [
     vercelTokenStep,
     vercelProjectStep,
@@ -535,7 +571,7 @@ export default projectKind({
           .map(([site, environment]) => netlifyLockTask(netlifyApi(answers.deployToken.trim()), site, environment))
       : []),
     ...(deploys(answers) && answers.deploy === 'netlify' && state.spaRouter ? [netlifyTomlTask({ root, state })] : []),
-    ...(answers.healthRoute && state.healthFile ? [healthRouteTask(root, state.healthFile, state.framework)] : []),
+    ...(answers.healthRoute && state.healthFile ? [healthRouteTask(root, state.healthFile, state)] : []),
   ],
   files: {},
   deployNextSteps,
