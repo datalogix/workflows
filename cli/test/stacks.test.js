@@ -279,6 +279,41 @@ test('tells an Astro app from an Astro integration', async (t) => {
   ).toStrictEqual(JS_APP);
 });
 
+test('tells a React Router or Remix app from a React single-page app and from Remix 3', async (t) => {
+  const JS_APP = ['js', 'project', 'JavaScript app'];
+  const JS_PACKAGE = ['js', 'package', 'JavaScript package'];
+  const manifest = (deps) => JSON.stringify({ private: true, dependencies: { react: '^19', ...deps } });
+  // React Router's framework mode and Remix 2 need no index.html
+  expect(
+    await detect(t, { 'package.json': manifest({ '@react-router/dev': '^7', 'react-router': '^7' }) }),
+  ).toStrictEqual(JS_APP);
+  expect(await detect(t, { 'package.json': manifest({ '@remix-run/dev': '^2' }) })).toStrictEqual(JS_APP);
+  // Or by their config file
+  expect(await detect(t, { 'package.json': manifest({}), 'react-router.config.ts': '' })).toStrictEqual(JS_APP);
+  expect(await detect(t, { 'package.json': manifest({}), 'remix.config.js': '' })).toStrictEqual(JS_APP);
+  // Vite with React Router as a library and an index.html is still a React single-page app
+  const spa = JSON.stringify({
+    private: true,
+    dependencies: { react: '^19', 'react-router': '^7' },
+    devDependencies: { vite: '^7' },
+  });
+  expect(await detect(t, { 'package.json': spa, 'index.html': '' })).toStrictEqual(JS_APP);
+  const jsApp = (await import('../stacks/js/app.js')).default;
+  const root = await folder(t, { 'package.json': spa, 'index.html': '' }, 'stacks-');
+  expect((await jsApp.inspect(root)).framework).toBe('react');
+  // The remix package alone is Remix 3, another framework: not detected as an app
+  expect(await detect(t, { 'package.json': JSON.stringify({ dependencies: { remix: '^3' } }) })).toStrictEqual(
+    JS_PACKAGE,
+  );
+  // A tooling composer.json next to it, like Next, Nuxt, SvelteKit and Astro
+  expect(
+    await detect(t, {
+      'package.json': manifest({ '@react-router/dev': '^7' }),
+      'composer.json': JSON.stringify({ autoload: { 'psr-4': {} } }),
+    }),
+  ).toStrictEqual(JS_APP);
+});
+
 test('takes the stack and kind from the flags, app being the project kind', () => {
   const detected = { stack: 'laravel', kind: 'package' };
   expect(fromFlags({ kind: 'app' }, detected).kind).toBe('project');

@@ -189,6 +189,13 @@ jobs:
         src/routes/api/*
         astro.config.*
         src/actions/*
+        react-router.config.*
+        remix.config.*
+        app/routes.ts
+        app/routes/api.*
+        app/routes/api/*
+        app/entry.server.*
+        app/sessions.server.*
         package.json
         .github/*
 
