@@ -3,9 +3,11 @@ import { exists, readComposer, usesLaravel } from '../laravel/index.js';
 import app from './app.js';
 import pkg from './package.js';
 
-// PHP without Laravel: a folder with composer.json, no artisan file and no Laravel dependency. An app has Symfony's
-// bin/console, public/index.php or Composer's type project; anything else is a package (library)
-const APP_FILES = ['bin/console', 'public/index.php'];
+// PHP without Laravel: a folder with composer.json, no artisan file and no Laravel dependency, that the js stack (tried
+// before) did not take as a JavaScript project with a tooling composer.json. An app has Symfony's bin/console,
+// public/index.php, a web/index.php and craft (Craft CMS) or Composer's type project; anything else is a package
+// (library)
+export const APP_FILES = ['bin/console', 'public/index.php', 'web/index.php', 'craft'];
 
 export default {
   id: 'php',

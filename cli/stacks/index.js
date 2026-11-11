@@ -8,10 +8,11 @@ import php from './php/index.js';
 /**
  * The stacks the commands support, in the order they are tried. A stack is { id, label, detect(root) → kind or null,
  * kinds: { project, package } }, each kind a module with what setup, check and protect need (see laravel/).
- * Adding a stack is a folder here and a line in this list. php comes after laravel, which claims every folder with
- * artisan or a Laravel dependency; js steps aside for any folder with composer.json.
+ * Adding a stack is a folder here and a line in this list. laravel comes first and claims every folder with artisan or
+ * a Laravel dependency; js then takes a folder with package.json unless its composer.json makes it a PHP project (a PHP
+ * entry point, or PHP code that is not only tooling, see js/index.js); php takes every other composer.json.
  */
-export const STACKS = [laravel, php, js];
+export const STACKS = [laravel, js, php];
 
 // A folder no stack recognizes (or no folder) is read as a Laravel app, the most common case; setup refuses it unless
 // --stack or --kind says what it is (recognized: false)

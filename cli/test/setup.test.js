@@ -2020,6 +2020,24 @@ describe('setup command', () => {
     expect(prompts.asked).toMatchObject([{ initialValue: 'Laravel app' }]);
     expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual(['Laravel app', 'Laravel package']);
   });
+
+  test('takes the kind of the stack --stack names, and hints at --stack js for a PHP folder with package.json', async (t) => {
+    // A Nuxt app whose composer.json has PHP code (and a PHP entry point) is detected as PHP
+    const nuxt = JSON.stringify({ devDependencies: { nuxt: '^4' } });
+    const composer = JSON.stringify({ autoload: { 'psr-4': { 'Acme\\': 'src/' } } });
+    const root = await folder(t, { 'package.json': nuxt, 'composer.json': composer, 'public/index.php': '' }, 'setup-');
+    expect((await chooseStack({ root, flags: { yes: true } })).label).toBe('PHP app');
+    // --stack js alone: package.json decides the kind, not the PHP detection
+    expect((await chooseStack({ root, flags: { stack: 'js' } })).label).toBe('JavaScript app');
+    const library = await folder(t, { 'package.json': '{}', 'composer.json': composer }, 'setup-');
+    expect((await chooseStack({ root: library, flags: { stack: 'js' } })).label).toBe('JavaScript package');
+    // --kind still wins
+    expect((await chooseStack({ root, flags: { stack: 'js', kind: 'package' } })).label).toBe('JavaScript package');
+
+    prompts.answer = 'PHP package';
+    await chooseStack({ root: library, flags: {} });
+    expect(prompts.asked.at(-1).message).toContain('a JavaScript project? run setup with --stack js');
+  });
 });
 
 test('sets a Next app up with stack js and Sentry, not deployed by the workflows', async (t) => {

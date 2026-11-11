@@ -59,7 +59,9 @@ async function inspectApp(root) {
     // Without the attribute routing a controller would not be routed: the health check is left to do by hand
     if (await attributeRouting(root)) health = SYMFONY_HEALTH;
   } else {
-    const file = (await exists(join(root, 'public'))) ? 'public/health.php' : 'health.php';
+    // The web root: public/, or web/ (Craft CMS and others), else the folder itself
+    const webRoot = (await exists(join(root, 'public'))) ? 'public/' : (await exists(join(root, 'web'))) ? 'web/' : '';
+    const file = `${webRoot}health.php`;
     health = { file, path: '/health.php' };
   }
   return {

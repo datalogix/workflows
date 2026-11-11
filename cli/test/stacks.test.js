@@ -103,10 +103,10 @@ test('offers every stack and kind setup supports', () => {
   expect(setupChoices().map((choice) => choice.label)).toStrictEqual([
     'Laravel app',
     'Laravel package',
-    'PHP app',
-    'PHP package',
     'JavaScript app',
     'JavaScript package',
+    'PHP app',
+    'PHP package',
   ]);
 });
 
@@ -124,10 +124,59 @@ test('tells a JavaScript library from a Next or Nuxt app, and a PHP project from
   ]) {
     expect(await detect(t, files)).toStrictEqual(['js', 'project', 'JavaScript app']);
   }
-  // composer.json makes it a PHP project, with frontend scripts
-  expect(await detect(t, { 'package.json': '{}', 'composer.json': '{}' })).toStrictEqual(PHP_PACKAGE);
+  // A composer.json with PHP code makes it a PHP project, with frontend scripts; artisan, a Laravel one
+  const library = composer({ autoload: { 'psr-4': { 'Acme\\': 'src/' } } });
+  expect(await detect(t, { 'package.json': '{}', 'composer.json': library })).toStrictEqual(PHP_PACKAGE);
   expect(await detect(t, { 'package.json': '{}', artisan: '', 'composer.json': '{}' })).toStrictEqual(APP);
   expect(await detect(t, { 'package.json': '{ not json' })).toStrictEqual(APP);
+});
+
+test('takes a JavaScript project whose composer.json is only for tooling, or a Next or Nuxt app with PHP inside', async (t) => {
+  const JS_APP = ['js', 'project', 'JavaScript app'];
+  const JS_PACKAGE = ['js', 'package', 'JavaScript package'];
+  const nuxt = JSON.stringify({ devDependencies: { nuxt: '^4' } });
+  const spa = JSON.stringify({ dependencies: { vue: '^3' }, devDependencies: { vite: '^8' } });
+  const tooling = composer({
+    require: { php: '>=8.3', 'ext-json': '*' },
+    'require-dev': { 'squizlabs/php_codesniffer': '^3' },
+  });
+  const tool = composer({ require: { 'symfony/console': '^7' }, autoload: { 'psr-4': { 'Tool\\': 'tools/' } } });
+
+  // Tooling only: no autoload, platform requirements only, no PHP in src/
+  expect(await detect(t, { 'package.json': nuxt, 'composer.json': tooling })).toStrictEqual(JS_APP);
+  expect(await detect(t, { 'package.json': '{}', 'composer.json': '{}' })).toStrictEqual(JS_PACKAGE);
+  expect(await detect(t, { 'package.json': spa, 'index.html': '', 'composer.json': tooling })).toStrictEqual(JS_APP);
+  // A Next or Nuxt app with a PHP tool inside is still a JavaScript app
+  expect(await detect(t, { 'package.json': nuxt, 'composer.json': tool })).toStrictEqual(JS_APP);
+  expect(await detect(t, { 'package.json': '{}', 'next.config.mjs': '', 'composer.json': tool })).toStrictEqual(JS_APP);
+
+  // A PHP entry point makes it PHP, even with Nuxt: Symfony, a public or web root, Craft, a *.php at the root
+  for (const entry of ['bin/console', 'public/index.php', 'web/index.php', 'craft', 'functions.php']) {
+    expect((await detect(t, { 'package.json': nuxt, 'composer.json': tooling, [entry]: '' }))[0]).toBe('php');
+  }
+  // Vite with Vue or React is also the frontend of PHP apps: PHP code keeps it PHP
+  expect(await detect(t, { 'package.json': spa, 'index.html': '', 'composer.json': tool })).toStrictEqual(PHP_PACKAGE);
+  expect(await detect(t, { 'package.json': '{}', 'composer.json': '{}', 'src/Thing.php': '' })).toStrictEqual(
+    PHP_PACKAGE,
+  );
+  // A WordPress theme or plugin type stays PHP
+  expect((await detect(t, { 'package.json': '{}', 'composer.json': composer({ type: 'wordpress-theme' }) }))[0]).toBe(
+    'php',
+  );
+  // A composer.json it cannot read is left to the fallback, as before
+  expect(
+    (await detectStack(await folder(t, { 'package.json': nuxt, 'composer.json': '{ not json' }, 'stacks-'))).recognized,
+  ).toBe(false);
+});
+
+test('keeps a JavaScript workflow file on js whatever composer.json says', async (t) => {
+  const file = '    uses: datalogix/workflows/.github/workflows/package.yml@v2\n    with:\n      stack: js\n';
+  const library = composer({ autoload: { 'psr-4': { 'Acme\\': 'src/' } } });
+  expect(await detect(t, { 'package.json': '{}', 'composer.json': library, [WORKFLOW_PATH]: file })).toStrictEqual([
+    'js',
+    'package',
+    'JavaScript package',
+  ]);
 });
 
 test('tells a PHP package without Laravel from a PHP app', async (t) => {
@@ -136,11 +185,14 @@ test('tells a PHP package without Laravel from a PHP app', async (t) => {
   expect(
     await detect(t, { 'composer.json': composer({ type: 'symfony-bundle', require: { 'symfony/console': '^7' } }) }),
   ).toStrictEqual(PHP_PACKAGE);
-  // A Symfony app (bin/console), a plain PHP app (public/index.php) or Composer's type project
+  // A Symfony app (bin/console), a plain PHP app (public/index.php or web/index.php), Craft CMS (craft) or Composer's
+  // type project
   for (const files of [
     { 'composer.json': composer({ type: 'project' }) },
     { 'composer.json': '{}', 'bin/console': '' },
     { 'composer.json': '{}', 'public/index.php': '' },
+    { 'composer.json': '{}', 'web/index.php': '' },
+    { 'composer.json': '{}', craft: '' },
   ]) {
     expect(await detect(t, files)).toStrictEqual(['php', 'project', 'PHP app']);
   }

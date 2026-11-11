@@ -21,7 +21,7 @@ Passed to `project` with `stack: js`:
 | `node-version` | empty | Node version; empty reads `.nvmrc` or `.node-version`, otherwise the current LTS |
 | `test-command` | empty | Empty runs the `test` script; `none` skips the unit tests |
 | `min-coverage` | `0` | Minimum coverage of the unit tests; the coverage is shown either way, and `0` never fails. See [Minimum coverage](../coverage.md) |
-| `lint-command` | empty | Extra lint command after the `typecheck` and `lint` scripts |
+| `lint-command` | empty | Extra lint command after the `typecheck` and `lint` scripts, e.g. `composer install --no-interaction && composer lint` for PHP tooling |
 | `e2e` | `true` | Run the `test:e2e` script after the build |
 | `tests` | `true` | `false` turns the layer off, and its required check with it: run `protect` again |
 
