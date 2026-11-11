@@ -7,7 +7,7 @@ import { netlifyApi, netlifyLockTask, netlifySites } from '../../providers/deplo
 import { monitoringServices } from '../../providers/monitoring/index.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 
-// What a JavaScript app (Next, Nuxt, SvelteKit, or a Vue, React or Svelte single-page app built with Vite) adds to project.yml
+// What a JavaScript app (Next, Nuxt, SvelteKit, Astro, or a Vue, React or Svelte single-page app built with Vite) adds to project.yml
 // (cli/kinds/project/index.js): Vercel deploys (its token, project and protection bypass, vercel.json and the health
 // route), Netlify deploys (its token, a site per environment, netlify.toml and the health route), Sentry, and whether
 // the tests run its end-to-end tests
@@ -51,6 +51,13 @@ export const prerender = false;
 export function GET() {
   return Response.json({ status: 'ok' });
 }
+`;
+
+// Astro renders it on demand (an adapter is then installed), even when the rest of the site is prerendered
+const ASTRO_ENDPOINT = `// Health check of the Datalogix deploys: answers 200 while the app serves requests
+export const prerender = false;
+
+export const GET = () => Response.json({ status: 'ok' });
 `;
 
 // The health check of an app with no server: a static file, which the build copies from public/ (a framework's
@@ -130,16 +137,22 @@ async function svelteConfigOf(root) {
   return { adapter: null, fallback: null };
 }
 
+// The adapters of Astro's on-demand rendering (@astrojs/<name>); without one, Astro builds only static files
+const ASTRO_ADAPTERS = ['vercel', 'netlify', 'node', 'cloudflare'];
+
+/** The on-demand rendering adapter of an Astro app, from its dependencies, or null when it builds static files. */
+const astroAdapterOf = (names) => ASTRO_ADAPTERS.find((adapter) => names.includes(`@astrojs/${adapter}`)) ?? null;
+
 /**
  * What setup knows of each framework, in the order they are detected:
  * - detect(names): whether the dependencies of package.json are this framework's;
- * - sentry: Sentry's SDK, and its wizard when Sentry has one;
+ * - sentry: Sentry's SDK, and its wizard or the command that installs it when Sentry has one;
  * - spa: a single-page app built with Vite, only static files: its health check is STATIC_HEALTH, and with a router
  *   the host rewrites every path to index.html;
  * - staticHealth: the file of STATIC_HEALTH when the framework copies another folder than public/;
  * - health (apps with a server): files(), the files that may answer its health route (whichever router or layout),
  *   create(root, ext), where a new one goes, and content(file, ext), what it holds;
- * - inspect(root, { manifest, vercelJson, netlifyToml }): what else it reads from the folder, as state (staticBuild:
+ * - inspect(root, { manifest, names, vercelJson, netlifyToml }): what else it reads from the folder, as state (staticBuild:
  *   built as static files, which also makes STATIC_HEALTH its health check; spaFallback: the page every path is
  *   rewritten to, when only the app knows its routes);
  * - deployWarning(state, target, provider): a reason its build does not suit the deploy target, for check.
@@ -218,6 +231,29 @@ const FRAMEWORKS = {
           ]
         : null,
   },
+  astro: {
+    detect: (names) => names.includes('astro'),
+    // Sentry has no wizard for Astro: the Astro CLI installs the SDK and adds its integration to astro.config
+    sentry: { name: '@sentry/astro', command: 'npx astro add @sentry/astro' },
+    health: {
+      // src/pages/api/health.json.ts would answer /api/health.json, not the health path
+      files: () => withExtensions(['src/pages/api/health', 'src/pages/api/health/index']),
+      create: async (_root, ext) => `src/pages/api/health.${ext}`,
+      content: () => ASTRO_ENDPOINT,
+    },
+    // Astro 5 builds static files unless an adapter renders pages on demand (one HTML file per page: no rewrite)
+    inspect: async (_root, { names }) => {
+      const adapter = astroAdapterOf(names);
+      return { astroAdapter: adapter, staticBuild: adapter === null };
+    },
+    deployWarning: (state, target, provider) =>
+      state.astroAdapter && state.astroAdapter !== target
+        ? [
+            `The app renders on demand with @astrojs/${state.astroAdapter}, which does not build for ${provider.name}`,
+            `use @astrojs/${target} (npx astro add ${target}), or remove the adapter to build static files`,
+          ]
+        : null,
+  },
   // Vue, React and Svelte apps built with Vite: single-page apps, with no server to answer a health route
   vue: {
     detect: (names) => names.includes('vite') && names.includes('vue'),
@@ -284,7 +320,7 @@ async function inspectApp(root) {
   const framework = frameworkOf(names);
   const vercelJson = await readFile(join(root, 'vercel.json'), 'utf8').catch(() => null);
   const netlifyToml = await readFile(join(root, 'netlify.toml'), 'utf8').catch(() => null);
-  const own = (await FRAMEWORKS[framework]?.inspect?.(root, { manifest, vercelJson, netlifyToml })) ?? {};
+  const own = (await FRAMEWORKS[framework]?.inspect?.(root, { manifest, names, vercelJson, netlifyToml })) ?? {};
   const nitroPreset = own.nitroPreset ?? null;
   const app = { framework, staticBuild: Boolean(own.staticBuild) };
   const spaRouter = Boolean(FRAMEWORKS[framework]?.spa) && names.some((name) => SPA_ROUTERS.includes(name));
@@ -300,6 +336,7 @@ async function inspectApp(root) {
     netlifyRedirects: await exists(join(root, 'public/_redirects')),
     nitroPreset,
     svelteAdapter: own.svelteAdapter ?? null,
+    astroAdapter: own.astroAdapter ?? null,
     e2eScript: Boolean(manifest.scripts?.['test:e2e']),
     sentry: names.some((name) => Object.values(FRAMEWORKS).some(({ sentry }) => sentry.name === name)),
     spaRouter,
@@ -617,7 +654,8 @@ function sentryNextSteps(answers, { state }) {
   if (answers.monitoring !== 'sentry' || !answers.incidents || state.sentry) return [];
   const sdk = FRAMEWORKS[state.framework]?.sentry;
   if (!sdk) return ["Install Sentry's SDK in the app, or nothing reaches Sentry."];
-  const command = sdk.wizard ? `npx @sentry/wizard@latest -i ${sdk.wizard}` : `npm install ${sdk.name}`;
+  const command =
+    sdk.command ?? (sdk.wizard ? `npx @sentry/wizard@latest -i ${sdk.wizard}` : `npm install ${sdk.name}`);
   return [`Install Sentry's SDK in the app, or nothing reaches Sentry: ${cyan(command)}`];
 }
 
@@ -666,6 +704,7 @@ export default projectKind({
     netlifyRedirects: false,
     nitroPreset: null,
     svelteAdapter: null,
+    astroAdapter: null,
     e2eScript: false,
     sentry: false,
     spaRouter: false,

@@ -4,7 +4,7 @@ Start with the [organization setup](organization-setup.md), done once: the Claud
 
 ## By stack
 
-Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages, PHP apps (Symfony and plain PHP) and packages without Laravel, and JavaScript apps (Next, Nuxt, Vue and React built with Vite) and libraries are supported; the `setup` command detects the stack and kind of the folder.
+Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages, PHP apps (Symfony and plain PHP) and packages without Laravel, and JavaScript apps (Next, Nuxt, SvelteKit, Astro, and Vue, React and Svelte built with Vite) and libraries are supported; the `setup` command detects the stack and kind of the folder.
 
 | Stack | App | App tests | Package | Package tests |
 | --- | --- | --- | --- | --- |
@@ -19,7 +19,7 @@ Each stack has the same four pages (plus a manual setup for apps): adding an app
 | [Organization setup](organization-setup.md) | Done once: the Claude GitHub App, the Claude token, shared issue forms, the monitoring relay, the task manager and release GitHub Apps |
 | [Daily use](daily-use.md) | Working with Claude, a feature from issue to production, what to do when something breaks |
 | [Verification layers](verification-layers.md) | The eight layers every change goes through, the branch ruleset, solo maintainers, project rules for the security review |
-| [Lint](lint.md) | What each tests workflow lints, the script names it runs and the recommended setup for Laravel apps and packages, Next, Nuxt, SvelteKit, Vue, React and JavaScript libraries |
+| [Lint](lint.md) | What each tests workflow lints, the script names it runs and the recommended setup for Laravel apps and packages, Next, Nuxt, SvelteKit, Astro, Vue, React and JavaScript libraries |
 | [Minimum coverage](coverage.md) | The coverage the tests require (100% by default in packages, shown without a minimum in apps), how it is checked and how to write the Clover report |
 | [Deploy](deploy.md) | Staging and production deploys, health checks, rollbacks and the release history |
 | [Production errors](production-errors.md) | Nightwatch, Sentry and Inspector problems as GitHub issues, the relay and how to add another monitoring provider |

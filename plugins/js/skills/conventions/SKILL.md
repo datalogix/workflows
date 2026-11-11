@@ -1,6 +1,6 @@
 ---
 name: conventions
-description: Datalogix conventions for JavaScript and TypeScript projects such as Next, Nuxt and SvelteKit apps, Vue, React and Svelte apps built with Vite, and libraries (feature flags, database migrations, tests, the tools of the validation and the pre-PR verification), on top of core:conventions (language, commits, scope, review rounds and pull requests). Use before changing code, creating commits, opening PRs or replying on issues and PRs.
+description: Datalogix conventions for JavaScript and TypeScript projects such as Next, Nuxt, SvelteKit and Astro apps, Vue, React and Svelte apps built with Vite, and libraries (feature flags, database migrations, tests, the tools of the validation and the pre-PR verification), on top of core:conventions (language, commits, scope, review rounds and pull requests). Use before changing code, creating commits, opening PRs or replying on issues and PRs.
 ---
 
 # Datalogix conventions for JavaScript and TypeScript
@@ -37,13 +37,14 @@ Every deploy can be rolled back by redeploying the previous commit, which does n
 - The package manager is the one of the lockfile: `pnpm-lock.yaml` (pnpm), `yarn.lock` (Yarn) or `package-lock.json` (npm). Never add another lockfile.
 - Run the end-to-end tests (`test:e2e`) only for the specs related to your change, when the project has them.
 - SvelteKit: the type check is `svelte-kit sync && svelte-check`. Its templates name that script `check`, which CI runs as lint when there is no `lint` script, and skips when there is one: when the project has `lint` and `check` but no `typecheck`, run `check` yourself and suggest a `typecheck` script in **Observações**. Never edit `.svelte-kit/`, which `svelte-kit sync` generates.
+- Astro: the type check is `astro check` (with `@astrojs/check`), which the templates do not put in a script: when the project has no `typecheck` script, run `npx astro check` yourself and suggest one in **Observações**. Never edit `.astro/`, which Astro generates. A page or endpoint that must run on the server needs `export const prerender = false` and an adapter; without one, Astro builds only static files.
 
 ## Pre-PR verification
 
 The checks to run on what you changed (see `core:conventions`; never loosen `tsconfig.json`, add `@ts-ignore`, `eslint-disable` or `.skip` to pass):
 
-1. The typecheck script of `package.json` (`typecheck`, `types:check` or `type-check`; in SvelteKit, `check`; `npx tsc --noEmit` in a TypeScript project without one).
+1. The typecheck script of `package.json` (`typecheck`, `types:check` or `type-check`; in SvelteKit, `check`; in Astro, `npx astro check` without one; `npx tsc --noEmit` in a TypeScript project without one).
 2. The `lint` script (or `check`), or the linter on the changed files. CI fails when these scripts change files, so never make them fix (`--fix`, `--write`); run the project's fixing script (`lint:fix`, `format`) locally instead.
 3. The tests related to the change, through the `test` script, and the related `test:e2e` specs when the project has them.
-4. The `build` script, when you changed routes, server code, configuration or dependencies: Next, Nuxt and SvelteKit report rendering and route errors only there.
+4. The `build` script, when you changed routes, server code, configuration or dependencies: Next, Nuxt, SvelteKit and Astro report rendering and route errors only there.
 5. The audit of the lockfile you changed (`npm audit --audit-level=high`, `pnpm audit --audit-level high`, `yarn audit --level high` or `yarn npm audit --recursive --severity high`).

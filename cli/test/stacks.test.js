@@ -261,6 +261,24 @@ test('tells a SvelteKit app and a Svelte single-page app from a Svelte library',
   ).toStrictEqual(JS_APP);
 });
 
+test('tells an Astro app from an Astro integration', async (t) => {
+  const JS_APP = ['js', 'project', 'JavaScript app'];
+  const JS_PACKAGE = ['js', 'package', 'JavaScript package'];
+  const site = (extra = {}, deps = {}) =>
+    JSON.stringify({ private: true, dependencies: { astro: '^5', ...deps }, ...extra });
+  expect(await detect(t, { 'package.json': site(), 'astro.config.mjs': '' })).toStrictEqual(JS_APP);
+  expect(await detect(t, { 'package.json': site() })).toStrictEqual(JS_APP);
+  // With a UI framework of its islands, still Astro
+  expect(await detect(t, { 'package.json': site({}, { react: '^19', '@astrojs/react': '^4' }) })).toStrictEqual(JS_APP);
+  // An integration publishes what it builds
+  expect(await detect(t, { 'package.json': site({ exports: { '.': './dist/index.js' } }) })).toStrictEqual(JS_PACKAGE);
+  expect(await detect(t, { 'package.json': site({ main: 'dist/index.js' }) })).toStrictEqual(JS_PACKAGE);
+  // A tooling composer.json next to it, like Next, Nuxt and SvelteKit
+  expect(
+    await detect(t, { 'package.json': site(), 'composer.json': JSON.stringify({ autoload: { 'psr-4': {} } }) }),
+  ).toStrictEqual(JS_APP);
+});
+
 test('takes the stack and kind from the flags, app being the project kind', () => {
   const detected = { stack: 'laravel', kind: 'package' };
   expect(fromFlags({ kind: 'app' }, detected).kind).toBe('project');
