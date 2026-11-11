@@ -32,7 +32,7 @@ From the commits since the last tag (`vX.Y.Z` or `X.Y.Z`; the next tag keeps the
 
 ## What it needs
 
-- **The release GitHub App**, with **Contents: Read and write** (it pushes the release branch) and Pull requests: read and write, installed on the package's repository: see [Organization setup, step 6](organization-setup.md#6-create-the-release-github-app). Without it, the release pull request is opened with the workflow token and runs no workflows: its required checks never report, and a protected default branch cannot merge it. `check` reports it as an error where the branch can be protected.
+- **The release GitHub App**, with **Contents: Read and write** (it commits the release branch through the API, so GitHub signs the commit) and Pull requests: read and write, installed on the package's repository: see [Organization setup, step 6](organization-setup.md#6-create-the-release-github-app). Without it, the release pull request is opened with the workflow token and runs no workflows: its required checks never report, and a protected default branch cannot merge it. `check` reports it as an error where the branch can be protected.
 - **The workflow file's `release` job** with `contents` and `pull-requests` write, and `id-token` write for npm; the tests keep `contents: read`. Setup writes it; `check` reports a job without them.
 - **npm (JavaScript packages)**: [trusted publishing](https://docs.npmjs.com/trusted-publishers), with no long-lived token. On npmjs.com, add a trusted publisher to the package: GitHub Actions, this repository, workflow `datalogix.yml`. It can only be set up for a package that exists: publish the first version by hand, or store an `NPM_TOKEN` secret (setup asks), which is then used instead. `package.json`'s `repository` must be this repository, or npm refuses the provenance; `check` warns.
 
@@ -42,4 +42,4 @@ From the commits since the last tag (`vX.Y.Z` or `X.Y.Z`; the next tag keeps the
 - **`composer.json` without `version`**: Packagist reads the version from the tag; `check` warns about a `version` field.
 - **One publisher**: another workflow that runs `npm publish` or on a published release would publish again; `check` warns.
 - **Claude's review** skips the release pull request (it only changes the changelog and the version); the security review and the risk gate run on it as on any other.
-- The release branch is pushed with force on every push to the default branch: do not commit to it by hand.
+- The release branch is moved with force on every push to the default branch, to a signed commit the API creates on top of the pushed one: do not commit to it by hand.

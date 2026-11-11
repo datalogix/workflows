@@ -181,6 +181,34 @@ nothing_to_release() {
     "Nada a lançar: os commits desde \`$1\` não mudam nada que precise de uma versão (só docs, testes, CI e afins). Um rodapé \`Release-As: X.Y.Z\` num commit lança mesmo assim."
 }
 
+# Commits the files (paths in the working tree) on top of the pushed commit and points the release branch at that
+# commit, through the API: GitHub signs the commits it creates for the token (Verified), which a git push from the
+# runner would not be. Each file becomes a blob, the tree is the pushed commit's with them, and the branch is moved
+# with force, since it is rebuilt from the pushed commit every time (its name goes in the path as it is: GitHub reads
+# the slashes of a ref there)
+commit_through_api() {
+  local message=$1 path blob base_tree tree commit existing
+  shift
+  local repo="repos/$GITHUB_REPOSITORY"
+  local fields=()
+  for path in "$@"; do
+    blob=$(gh api "$repo/git/blobs" -f encoding=utf-8 -F "content=@$path" --jq .sha)
+    fields+=(-f "tree[][path]=$path" -f 'tree[][mode]=100644' -f 'tree[][type]=blob' -f "tree[][sha]=$blob")
+  done
+  base_tree=$(gh api "$repo/git/commits/$SHA" --jq .tree.sha)
+  tree=$(gh api "$repo/git/trees" -f "base_tree=$base_tree" "${fields[@]}" --jq .sha)
+  commit=$(gh api "$repo/git/commits" -f "message=$message" -f "tree=$tree" -f "parents[]=$SHA" --jq .sha)
+  if ! existing=$(gh_or_missing api "$repo/git/ref/heads/$BRANCH" --jq .object.sha); then
+    echo "::error::Could not read the branch $BRANCH: $existing"
+    exit 1
+  fi
+  if [ -n "$existing" ]; then
+    gh api -X PATCH "$repo/git/refs/heads/$BRANCH" -f "sha=$commit" -F force=true --silent
+  else
+    gh api "$repo/git/refs" -f "ref=refs/heads/$BRANCH" -f "sha=$commit" --silent
+  fi
+}
+
 # Opens or updates the release pull request: CHANGELOG.md and, for js, the version of package.json, committed on the
 # release branch, rebuilt from the pushed commit each time
 propose() {
@@ -207,17 +235,14 @@ propose() {
   tag="$prefix$next"
   notes=$(changelog "$tag" "$previous")
 
-  git switch --quiet -C "$BRANCH"
   write_changelog "$notes"
-  git add CHANGELOG.md
+  local files=(CHANGELOG.md)
   if [ "$STACK" = js ] && [ -f package.json ]; then
     npm version "$next" --no-git-tag-version --allow-same-version --ignore-scripts >/dev/null
-    git add package.json
-    [ ! -f package-lock.json ] || git add package-lock.json
+    files+=(package.json)
+    [ ! -f package-lock.json ] || files+=(package-lock.json)
   fi
-  git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-    commit --quiet -m "chore(release): $tag"
-  git push --quiet --force origin "HEAD:refs/heads/$BRANCH"
+  commit_through_api "chore(release): $tag" "${files[@]}"
 
   body="<!-- $MARKER: $tag -->
 $(t "Merging this pull request releases **$tag**: it tags the merge commit and creates the GitHub release with these notes" \

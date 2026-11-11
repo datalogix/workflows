@@ -17,14 +17,14 @@ afterEach(async () => {
 });
 
 /**
- * A package repository with an origin it pushes to (kept after the run, to read what was pushed): `history` is a list
- * of commits (a subject, or { subject, body, files }) and tags ({ tag }), oldest first.
+ * A package repository with an origin (kept after the run, to check nothing was pushed with git): `history` is a list of commits (a subject, or { subject, body, files }) and tags ({ tag }), oldest first.
  */
 async function repository(history, files = {}) {
   const remote = await mkdtemp(join(tmpdir(), 'release-origin-'));
   remotes.push(remote);
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
-  const setup = async (dir) => {
+  const repo = { remote };
+  repo.setup = async (dir) => {
     const cwd = join(dir, 'package');
     execFileSync('git', ['init', '-q', '-b', 'main', cwd]);
     for (const [path, content] of Object.entries(files)) await writeFile(join(cwd, path), content);
@@ -43,18 +43,24 @@ async function repository(history, files = {}) {
     git(cwd, 'push', '-q', 'origin', 'main');
     return cwd;
   };
-  return { remote, setup };
+  return repo;
 }
 
-const pushed = (remote, path) => git(remote, 'show', `datalogix/release:${path}`);
-
-async function release({ history, files, env = {}, pulls = [], openPull = null }) {
+async function release({ history, files, env = {}, pulls = [], openPull = null, branch = true }) {
   const repo = await repository(history, files);
   const result = await runScript('package-release/release.sh', {
     env: { MODE: 'release', BASE: 'main', SHA: 'f'.repeat(40), ...env },
     setup: repo.setup,
     gh: [
       { match: `commits/${'f'.repeat(40)}/pulls`, stdout: pulls },
+      // The commit through the API: blobs, the pushed commit's tree, the new tree and commit, then the branch
+      { match: 'git/blobs -f encoding=utf-8 -F content=@', stdout: { sha: 'b'.repeat(40) } },
+      { match: `git/commits/${'f'.repeat(40)}$`, stdout: { tree: { sha: 'e'.repeat(40) } } },
+      { match: 'git/trees -f base_tree=', stdout: { sha: 'd'.repeat(40) } },
+      { match: 'git/commits -f message=', stdout: { sha: 'c'.repeat(40) } },
+      branch
+        ? { match: 'git/ref/heads/datalogix/release', stdout: { object: { sha: '9'.repeat(40) } } }
+        : { match: 'git/ref/heads/datalogix/release', code: 1, stderr: 'gh: Not Found (HTTP 404)' },
       {
         match: 'pulls\\?state=open&base=main&head=datalogix%3Adatalogix%2Frelease$',
         stdout: openPull ? [{ number: openPull }] : [],
@@ -66,6 +72,13 @@ async function release({ history, files, env = {}, pulls = [], openPull = null }
   expect(unmatchedReads(result)).toEqual([]);
   return { ...result, remote: repo.remote };
 }
+
+/** The content of a file the run committed through the API, as the fake gh recorded it with its blob. */
+const pushed = (result, path) => {
+  const call = result.calls.find(([name, ...args]) => name === 'gh' && args.includes(`content=@${path}`));
+  return call?.[call.indexOf(`<file ${path}>`) + 1];
+};
+const gitCalls = (result, pattern) => callsTo(result, 'gh').filter((call) => pattern.test(call));
 
 const field = (call, name) => call.split(` -f ${name}=`)[1]?.split(/ -f \w+=| --jq /)[0];
 const createdPull = (result) =>
@@ -91,9 +104,31 @@ test('opens the release pull request with the next minor version and its changel
   expect(body).not.toContain('- first');
   expect(result.outputs.version).toBe('1.3.0');
 
-  const changelog = pushed(result.remote, 'CHANGELOG.md');
+  const changelog = pushed(result, 'CHANGELOG.md');
   expect(changelog).toMatch(/^# Changelog\n\n## \[v1\.3\.0\]/);
-  expect(git(result.remote, 'log', '-1', '--format=%s', 'datalogix/release')).toBe('chore(release): v1.3.0');
+  // Committed through the API, so GitHub signs it: the changelog on top of the pushed commit, then the branch moved
+  expect(gitCalls(result, /git\/blobs/)).toEqual([
+    expect.stringMatching(
+      /^api repos\/datalogix\/app\/git\/blobs -f encoding=utf-8 -F content=@CHANGELOG\.md --jq \.sha/,
+    ),
+  ]);
+  expect(gitCalls(result, /git\/trees/)[0]).toContain(`base_tree=${'e'.repeat(40)} -f tree[][path]=CHANGELOG.md`);
+  expect(gitCalls(result, /git\/commits -f/)).toEqual([
+    `api repos/datalogix/app/git/commits -f message=chore(release): v1.3.0 -f tree=${'d'.repeat(40)} -f parents[]=${'f'.repeat(40)} --jq .sha`,
+  ]);
+  expect(gitCalls(result, /git\/refs/)).toEqual([
+    `api -X PATCH repos/datalogix/app/git/refs/heads/datalogix/release -f sha=${'c'.repeat(40)} -F force=true --silent`,
+  ]);
+  // Nothing is pushed with git
+  expect(() => git(result.remote, 'rev-parse', '--verify', '-q', 'datalogix/release')).toThrow();
+});
+
+test('creates the release branch when it does not exist yet', async () => {
+  const result = await release({ history: ['feat: first'], branch: false });
+  expect(result.code).toBe(0);
+  expect(gitCalls(result, /git\/refs/)).toEqual([
+    `api repos/datalogix/app/git/refs -f ref=refs/heads/datalogix/release -f sha=${'c'.repeat(40)} --silent`,
+  ]);
 });
 
 test('bumps by the commit types: breaking is major, fix alone patch, and breaking is minor before 1.0.0', async () => {
@@ -128,7 +163,11 @@ test('writes the version to package.json for a js package', async () => {
     env: { STACK: 'js' },
   });
   expect(result.code).toBe(0);
-  expect(JSON.parse(pushed(result.remote, 'package.json')).version).toBe('1.0.1');
+  expect(JSON.parse(pushed(result, 'package.json')).version).toBe('1.0.1');
+  expect(gitCalls(result, /git\/blobs/).map((call) => call.split('content=@')[1].split(' ')[0])).toEqual([
+    'CHANGELOG.md',
+    'package.json',
+  ]);
   expect(field(createdPull(result), 'body')).toContain('publica no npm');
 });
 
@@ -140,7 +179,7 @@ test('counts every commit as a patch in a project without type prefixes', async 
 
 test('updates the open release pull request, and says so when nothing is releasable', async () => {
   const update = await release({ history: ['feat: first', { tag: 'v1.0.0' }, 'feat: x'], openPull: 7 });
-  const patch = callsTo(update, 'gh').find((call) => call.includes('-X PATCH'));
+  const patch = callsTo(update, 'gh').find((call) => call.includes('-X PATCH') && call.includes('/pulls/'));
   expect(patch).toContain('pulls/7');
   expect(field(patch, 'title')).toBe('chore(release): v1.1.0');
   expect(createdPull(update)).toBe(undefined);
@@ -151,7 +190,7 @@ test('updates the open release pull request, and says so when nothing is releasa
   });
   expect(nothing.code).toBe(0);
   const body = field(
-    callsTo(nothing, 'gh').find((call) => call.includes('-X PATCH')),
+    callsTo(nothing, 'gh').find((call) => call.includes('-X PATCH') && call.includes('/pulls/')),
     'body',
   );
   expect(body).toContain('Nada a lançar');
