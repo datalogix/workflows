@@ -4,12 +4,15 @@ import { APP_FILES } from '../php/index.js';
 import app from './app.js';
 import pkg from './package.js';
 
-// JavaScript and TypeScript: a folder with package.json, an app (Next, Nuxt, SvelteKit, Astro, or a Vue, React or
-// Svelte single-page app built with Vite) or else a library. A composer.json at the root makes it a PHP project, except
+// JavaScript and TypeScript: a folder with package.json, an app (Next, Nuxt, SvelteKit, Astro, React Router, Remix, or
+// a Vue, React or Svelte single-page app built with Vite) or else a library. A composer.json at the root makes it a PHP project, except
 // for a Next, Nuxt, SvelteKit or Astro app without a PHP entry point, or a composer.json only there for tooling (see
 // detect)
 const APP_PACKAGES = ['next', 'nuxt'];
 const APP_CONFIG = /^(next|nuxt)\.config\.(js|cjs|mjs|ts|mts)$/;
+// React Router's framework mode and Remix 2 (the remix package alone is Remix 3, another framework)
+const ROUTER_PACKAGES = ['@react-router/dev', '@remix-run/dev'];
+const ROUTER_CONFIG = /^(react-router\.config\.(ts|js)|remix\.config\.(js|cjs|mjs))$/;
 const SPA_PACKAGES = ['vue', 'react', 'svelte'];
 // What a library publishes; a component library built with Vite or SvelteKit, or an Astro integration, has them, an
 // app does not
@@ -54,7 +57,8 @@ const exists = (path) =>
 /**
  * Whether the folder has an app of a framework with a server: Next or Nuxt (the package among the dependencies, or its
  * config file), SvelteKit (@sveltejs/kit, without what a Svelte library publishes: svelte.config.* alone is also a
- * plain Svelte app's) or Astro (astro, without what an integration publishes).
+ * plain Svelte app's), Astro (astro, without what an integration publishes), or React Router's framework mode or Remix 2
+ * (@react-router/dev or @remix-run/dev, or their config file).
  */
 const isFrameworkApp = (manifest, names, files) => {
   const published = PUBLISHED.some((field) => field in manifest);
@@ -62,7 +66,9 @@ const isFrameworkApp = (manifest, names, files) => {
     names.some((name) => APP_PACKAGES.includes(name)) ||
     files.some((file) => APP_CONFIG.test(file)) ||
     (names.includes('@sveltejs/kit') && !names.includes(SVELTE_LIBRARY) && !published) ||
-    (names.includes('astro') && !published)
+    (names.includes('astro') && !published) ||
+    (names.some((name) => ROUTER_PACKAGES.includes(name)) && !published) ||
+    files.some((file) => ROUTER_CONFIG.test(file))
   );
 };
 

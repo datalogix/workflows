@@ -910,6 +910,38 @@ test('warns about an Astro adapter that does not build for the deploy target', a
   }
 });
 
+test('warns about a React Router or Remix app on Netlify without the package that builds it there', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'netlify',
+    monitoring: 'none',
+    incidents: false,
+  });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    healthFile: 'app/routes/api.health.ts',
+    healthRoute: true,
+  };
+  const warnings = async (extra) =>
+    titles(await run({ ...state, ...extra }, { repository: 'datalogix/app', probe: async () => 200 }), 'warn');
+  expect(await warnings({ framework: 'react-router', netlifyAdapter: false })).toContainEqual(
+    'The React Router app renders on the server without @netlify/vite-plugin-react-router, so Netlify serves 404 for its pages',
+  );
+  expect(await warnings({ framework: 'remix', netlifyAdapter: false })).toContainEqual(
+    'The Remix app renders on the server without @netlify/remix-adapter, so Netlify serves 404 for its pages',
+  );
+  // With the package, or as a single-page app (ssr: false)
+  for (const extra of [
+    { framework: 'react-router', netlifyAdapter: true },
+    { framework: 'react-router', netlifyAdapter: false, staticBuild: true, healthFile: 'public/health.json' },
+  ]) {
+    expect((await warnings(extra)).join('\n')).not.toContain('Netlify serves 404');
+  }
+});
+
 test('takes a protected health URL as passing only with the bypass secret of the environment', async () => {
   const workflow = await renderProjectWorkflow({
     stack: 'js',

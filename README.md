@@ -1,6 +1,6 @@
 # datalogix/workflows
 
-Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt, SvelteKit, Astro, Vue, React and Svelte with Vite, libraries) projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
+Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt, SvelteKit, Astro, React Router, Remix, Vue, React and Svelte with Vite, libraries) projects: one workflow file gives every project tests, Claude reviews, safe deploys with automatic rollback, and production errors as issues.
 
 What each project gets:
 

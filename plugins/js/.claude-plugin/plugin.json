@@ -1,6 +1,6 @@
 {
   "name": "js",
-  "description": "Datalogix conventions and commands for JavaScript and TypeScript projects (Next, Nuxt, SvelteKit, Astro, Vue, React and Svelte with Vite, libraries)",
+  "description": "Datalogix conventions and commands for JavaScript and TypeScript projects (Next, Nuxt, SvelteKit, Astro, React Router, Remix, Vue, React and Svelte with Vite, libraries)",
   "author": {
     "name": "Datalogix"
   }

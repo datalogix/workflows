@@ -7,7 +7,8 @@ import { netlifyApi, netlifyLockTask, netlifySites } from '../../providers/deplo
 import { monitoringServices } from '../../providers/monitoring/index.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 
-// What a JavaScript app (Next, Nuxt, SvelteKit, Astro, or a Vue, React or Svelte single-page app built with Vite) adds to project.yml
+// What a JavaScript app (Next, Nuxt, SvelteKit, Astro, React Router, Remix, or a Vue, React or Svelte single-page app
+// built with Vite) adds to project.yml
 // (cli/kinds/project/index.js): Vercel deploys (its token, project and protection bypass, vercel.json and the health
 // route), Netlify deploys (its token, a site per environment, netlify.toml and the health route), Sentry, and whether
 // the tests run its end-to-end tests
@@ -60,6 +61,13 @@ export const prerender = false;
 export const GET = () => Response.json({ status: 'ok' });
 `;
 
+// A resource route of React Router (framework mode) or Remix: a loader that returns a response, no component
+const RESOURCE_ROUTE = `// Health check of the Datalogix deploys: answers 200 while the app serves requests
+export function loader() {
+  return Response.json({ status: 'ok' });
+}
+`;
+
 // The health check of an app with no server: a static file, which the build copies from public/ (a framework's
 // staticHealth folder) and the host serves
 const STATIC_HEALTH = {
@@ -74,6 +82,8 @@ const SPA_INDEX = '/index.html';
 
 /** The stems (no extension) of the files, each as .ts and .js. */
 const withExtensions = (stems) => stems.flatMap((stem) => [`${stem}.ts`, `${stem}.js`]);
+/** The stems as .ts, .tsx, .js and .jsx: React Router and Remix routes may be either. */
+const withJsxExtensions = (stems) => stems.flatMap((stem) => ['ts', 'tsx', 'js', 'jsx'].map((ext) => `${stem}.${ext}`));
 
 // The Nitro presets each deploy target builds with; static files are served by both
 const NITRO_PRESETS = { vercel: /^(vercel|static$)/, netlify: /^(netlify|static$)/ };
@@ -143,6 +153,104 @@ const ASTRO_ADAPTERS = ['vercel', 'netlify', 'node', 'cloudflare'];
 /** The on-demand rendering adapter of an Astro app, from its dependencies, or null when it builds static files. */
 const astroAdapterOf = (names) => ASTRO_ADAPTERS.find((adapter) => names.includes(`@astrojs/${adapter}`)) ?? null;
 
+// The health route of React Router and Remix, under the app directory: a flat route file (api.health.ts), a route
+// folder (api.health/route.ts) or a nested one (api/health.ts)
+const ROUTE_STEMS = ['routes/api.health', 'routes/api.health/route', 'routes/api/health'];
+// The entry of the health route in app/routes.ts, relative to the app directory
+const routeEntry = (file, appDirectory, quote) =>
+  `route(${quote}api/health${quote}, ${quote}${file.slice(appDirectory.length + 1)}${quote})`;
+// The array React Router's app/routes.ts exports, and the import of its helpers
+const ROUTES_END = /\]\s*satisfies\s+RouteConfig/g;
+const ROUTES_IMPORT = /import\s*\{([^}]*)\}\s*from\s*(['"])@react-router\/dev\/routes\2/g;
+
+/** The folder of the app's routes: appDirectory of the config file, else app. */
+async function appDirectoryOf(root, configs) {
+  for (const file of configs) {
+    const config = await readFile(join(root, file), 'utf8').catch(() => null);
+    const directory = config && /\bappDirectory\s*:\s*['"]([^'"]+)['"]/.exec(config)?.[1];
+    if (directory) return directory.replace(/^\.\//, '').replace(/\/$/, '');
+  }
+  return 'app';
+}
+
+/** Whether a config file of the app turns server rendering off (ssr: false, single-page app mode). */
+async function ssrOff(root, configs) {
+  for (const file of configs) {
+    const config = await readFile(join(root, file), 'utf8').catch(() => null);
+    if (config !== null && /\bssr\s*:\s*false\b/.test(config)) return true;
+  }
+  return false;
+}
+
+/**
+ * How React Router's app/routes.ts takes the health route: 'flat' when it reads the files (flatRoutes()), 'registered'
+ * when it lists api/health already, 'insert' when setup can add it (one `] satisfies RouteConfig`, one import of the
+ * helpers), 'manual' otherwise; null without the file.
+ */
+async function routesConfigOf(root, appDirectory) {
+  for (const ext of ['ts', 'js']) {
+    const file = `${appDirectory}/routes.${ext}`;
+    const content = await readFile(join(root, file), 'utf8').catch(() => null);
+    if (content === null) continue;
+    let registration = 'manual';
+    if (/\bflatRoutes\s*\(/.test(content)) registration = 'flat';
+    else if (/['"]\/?api\/health['"]/.test(content)) registration = 'registered';
+    else if ([...content.matchAll(ROUTES_END)].length === 1 && [...content.matchAll(ROUTES_IMPORT)].length === 1)
+      registration = 'insert';
+    return { routesFile: file, routesRegistration: registration };
+  }
+  return { routesFile: null, routesRegistration: null };
+}
+
+/**
+ * React Router's app/routes.ts with the health route: route() added to the import of its helpers when missing, and the
+ * entry before `] satisfies RouteConfig`, in the quotes the file uses.
+ */
+export function registerHealthRoute(content, file, appDirectory) {
+  const [imported] = [...content.matchAll(ROUTES_IMPORT)];
+  const quote = imported[2];
+  const names = imported[1].split(',').map((name) => name.trim());
+  let updated = content;
+  if (!names.some((name) => name === 'route')) {
+    const list = imported[1].trimEnd();
+    const separator = list.trim() ? `${list.endsWith(',') ? '' : ','} ` : ' ';
+    const replaced = imported[0].replace(imported[1], `${list}${separator}route${imported[1].slice(list.length)}`);
+    updated = updated.replace(imported[0], replaced);
+  }
+  const end = updated.search(ROUTES_END);
+  const before = updated.slice(0, end).trimEnd();
+  const space = updated.slice(before.length, end);
+  const last = before.at(-1);
+  const comma = last === '[' || last === ',' ? '' : ',';
+  const entry = routeEntry(file, appDirectory, quote);
+  const inserted = space.includes('\n')
+    ? `${before}${comma}\n  ${entry},${space}`
+    : `${before}${comma}${last === '[' ? '' : ' '}${entry}${space}`;
+  return `${inserted}${updated.slice(end)}`;
+}
+
+/** React Router or Remix: the app directory, single-page app mode, the routes config and the Netlify adapter. */
+async function routerAppOf(root, { names, configs, netlifyAdapters, routesConfig }) {
+  const appDirectory = await appDirectoryOf(root, configs);
+  const spa = await ssrOff(root, configs);
+  return {
+    appDirectory,
+    staticBuild: spa,
+    spaFallback: spa ? SPA_INDEX : null,
+    netlifyAdapter: netlifyAdapters.some((name) => names.includes(name)),
+    ...(routesConfig ? await routesConfigOf(root, appDirectory) : {}),
+  };
+}
+
+/** The warning of a server-rendered React Router or Remix app on Netlify without the package that builds it there. */
+const routerNetlifyWarning = (name, adapter) => (state, target) =>
+  target === 'netlify' && !state.staticBuild && state.netlifyAdapter === false
+    ? [
+        `The ${name} app renders on the server without ${adapter}, so Netlify serves 404 for its pages`,
+        `npm install -D ${adapter} and add it to vite.config, or set ssr: false`,
+      ]
+    : null;
+
 /**
  * What setup knows of each framework, in the order they are detected:
  * - detect(names): whether the dependencies of package.json are this framework's;
@@ -150,8 +258,9 @@ const astroAdapterOf = (names) => ASTRO_ADAPTERS.find((adapter) => names.include
  * - spa: a single-page app built with Vite, only static files: its health check is STATIC_HEALTH, and with a router
  *   the host rewrites every path to index.html;
  * - staticHealth: the file of STATIC_HEALTH when the framework copies another folder than public/;
- * - health (apps with a server): files(), the files that may answer its health route (whichever router or layout),
- *   create(root, ext), where a new one goes, and content(file, ext), what it holds;
+ * - health (apps with a server): files(app), the files that may answer its health route (whichever router or layout),
+ *   create(root, ext, app), where a new one goes, and content(file, ext), what it holds (app: what inspect read, such
+ *   as React Router's app directory);
  * - inspect(root, { manifest, names, vercelJson, netlifyToml }): what else it reads from the folder, as state (staticBuild:
  *   built as static files, which also makes STATIC_HEALTH its health check; spaFallback: the page every path is
  *   rewritten to, when only the app knows its routes);
@@ -254,6 +363,43 @@ const FRAMEWORKS = {
           ]
         : null,
   },
+  // React Router's framework mode (before React: it has react and vite too). Remix 2 is the same router under its
+  // former name; the remix package alone is Remix 3, another framework
+  'react-router': {
+    detect: (names) => names.includes('@react-router/dev'),
+    sentry: { name: '@sentry/react-router', wizard: 'reactRouter' },
+    health: {
+      files: (app) => withJsxExtensions(ROUTE_STEMS.map((stem) => `${app.appDirectory ?? 'app'}/${stem}`)),
+      create: async (_root, ext, app) => `${app.appDirectory ?? 'app'}/routes/api.health.${ext}`,
+      content: () => RESOURCE_ROUTE,
+    },
+    inspect: (root, { names }) =>
+      routerAppOf(root, {
+        names,
+        configs: ['react-router.config.ts', 'react-router.config.js'],
+        netlifyAdapters: ['@netlify/vite-plugin-react-router'],
+        routesConfig: true,
+      }),
+    deployWarning: routerNetlifyWarning('React Router', '@netlify/vite-plugin-react-router'),
+  },
+  remix: {
+    detect: (names) => names.includes('@remix-run/dev'),
+    sentry: { name: '@sentry/remix', wizard: 'remix' },
+    health: {
+      files: (app) => withJsxExtensions(ROUTE_STEMS.map((stem) => `${app.appDirectory ?? 'app'}/${stem}`)),
+      create: async (_root, ext, app) => `${app.appDirectory ?? 'app'}/routes/api.health.${ext}`,
+      content: () => RESOURCE_ROUTE,
+    },
+    // Flat routes by default: the file is the route. The Vite plugin's options (ssr, appDirectory) are in vite.config
+    inspect: (root, { names }) =>
+      routerAppOf(root, {
+        names,
+        configs: ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'remix.config.js'],
+        netlifyAdapters: ['@netlify/remix-adapter', '@netlify/remix-edge-adapter'],
+        routesConfig: false,
+      }),
+    deployWarning: routerNetlifyWarning('Remix', '@netlify/remix-adapter'),
+  },
   // Vue, React and Svelte apps built with Vite: single-page apps, with no server to answer a health route
   vue: {
     detect: (names) => names.includes('vite') && names.includes('vue'),
@@ -290,13 +436,13 @@ async function healthRouteFile(root, app) {
   if (isStatic(app)) return staticHealthFile(app);
   const health = FRAMEWORKS[app.framework]?.health;
   if (!health) return null;
-  return health.create(root, (await exists(join(root, 'tsconfig.json'))) ? 'ts' : 'js');
+  return health.create(root, (await exists(join(root, 'tsconfig.json'))) ? 'ts' : 'js', app);
 }
 
 /** The files that answer the health route of the framework, whichever router or layout the app uses. */
 function healthRouteFiles(app) {
   if (isStatic(app)) return [staticHealthFile(app)];
-  return FRAMEWORKS[app.framework]?.health?.files() ?? [];
+  return FRAMEWORKS[app.framework]?.health?.files(app) ?? [];
 }
 
 /** What the health route file of the app holds: the framework's handler, or the static file. */
@@ -322,21 +468,26 @@ async function inspectApp(root) {
   const netlifyToml = await readFile(join(root, 'netlify.toml'), 'utf8').catch(() => null);
   const own = (await FRAMEWORKS[framework]?.inspect?.(root, { manifest, names, vercelJson, netlifyToml })) ?? {};
   const nitroPreset = own.nitroPreset ?? null;
-  const app = { framework, staticBuild: Boolean(own.staticBuild) };
+  const app = { framework, staticBuild: Boolean(own.staticBuild), appDirectory: own.appDirectory ?? null };
   const spaRouter = Boolean(FRAMEWORKS[framework]?.spa) && names.some((name) => SPA_ROUTERS.includes(name));
   // A route the app already has anywhere is not created again: next to one of another router, it breaks the build
   const present = await Promise.all(healthRouteFiles(app).map((file) => exists(join(root, file))));
   const existing = healthRouteFiles(app).find((_file, index) => present[index]);
+  // React Router answers a route only once app/routes.ts lists it (unless it reads the files with flatRoutes())
+  const routed = isStatic(app) || !own.routesRegistration || ['flat', 'registered'].includes(own.routesRegistration);
   return {
     ...app,
     healthFile: existing ?? (await healthRouteFile(root, app)),
-    healthRoute: Boolean(existing),
+    healthRoute: Boolean(existing) && routed,
     vercelJson,
     netlifyToml,
     netlifyRedirects: await exists(join(root, 'public/_redirects')),
     nitroPreset,
     svelteAdapter: own.svelteAdapter ?? null,
     astroAdapter: own.astroAdapter ?? null,
+    netlifyAdapter: own.netlifyAdapter ?? null,
+    routesFile: own.routesFile ?? null,
+    routesRegistration: own.routesRegistration ?? null,
     e2eScript: Boolean(manifest.scripts?.['test:e2e']),
     sentry: names.some((name) => Object.values(FRAMEWORKS).some(({ sentry }) => sentry.name === name)),
     spaRouter,
@@ -605,11 +756,36 @@ function healthRouteTask(root, file, state) {
     title: `Health route ${healthPathOf(state)}`,
     run: async () => {
       const path = join(root, file);
+      // A React Router route that exists but is not registered yet is kept: only its entry in app/routes.ts is missing
+      if (await exists(path)) return 'unchanged';
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, healthRouteContent(file, state));
       return `created ${file}`;
     },
   };
+}
+
+/** React Router's app/routes.ts with the entry of the health route, when setup can add it. */
+function routesTask(root, state) {
+  return {
+    id: `file:${state.routesFile}`,
+    title: `Health route in ${state.routesFile}`,
+    run: async () => {
+      const path = join(root, state.routesFile);
+      const content = await readFile(path, 'utf8');
+      if (/['"]\/?api\/health['"]/.test(content)) return 'unchanged';
+      await writeFile(path, registerHealthRoute(content, state.healthFile, state.appDirectory ?? 'app'));
+      return `updated: route api/health → ${state.healthFile}`;
+    },
+  };
+}
+
+/** The health route to register by hand in React Router's app/routes.ts, when setup could not add it. */
+function routesNextSteps(answers, { state }) {
+  if (!answers.healthRoute || state.routesRegistration !== 'manual' || isStatic(state)) return [];
+  return [
+    `Register the health route in ${state.routesFile}, or it answers 404: ${cyan(routeEntry(state.healthFile, state.appDirectory ?? 'app', "'"))}`,
+  ];
 }
 
 /** The branch the workflows deploy to the environment. */
@@ -705,6 +881,10 @@ export default projectKind({
     nitroPreset: null,
     svelteAdapter: null,
     astroAdapter: null,
+    appDirectory: null,
+    netlifyAdapter: null,
+    routesFile: null,
+    routesRegistration: null,
     e2eScript: false,
     sentry: false,
     spaRouter: false,
@@ -736,10 +916,13 @@ export default projectKind({
       : []),
     ...(deploys(answers) && answers.deploy === 'netlify' && spaPageOf(state) ? [netlifyTomlTask({ root, state })] : []),
     ...(answers.healthRoute && state.healthFile ? [healthRouteTask(root, state.healthFile, state)] : []),
+    ...(answers.healthRoute && state.healthFile && state.routesRegistration === 'insert' && !isStatic(state)
+      ? [routesTask(root, state)]
+      : []),
   ],
   files: {},
   deployNextSteps,
-  nextSteps: sentryNextSteps,
+  nextSteps: (answers, ctx) => [...sentryNextSteps(answers, ctx), ...routesNextSteps(answers, ctx)],
   evaluateDeploy,
   evaluateMonitoring,
 });

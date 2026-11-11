@@ -7,7 +7,7 @@ The tests workflows run the project's own lint tools, so CI, your machine and Cl
 | Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request (Blade views too, see [Blade views](#blade-views)), PHPStan, `lint-command`; with `js`, the typecheck and lint scripts of `package.json` |
 | Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files (Blade views too), PHPStan, `lint-command`, once outside the matrix |
 | PHP package | [`laravel-package-tests`](php/package-tests.md), without Laravel | Pint on the changed files, PHPStan, `lint-command` (php-cs-fixer, ECS, Psalm, Rector), once outside the matrix |
-| Next, Nuxt, SvelteKit, Astro, and Vue, React and Svelte built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
+| Next, Nuxt, SvelteKit, Astro, React Router, Remix, and Vue, React and Svelte built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
 | JavaScript or TypeScript library | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, the build, then `lint-command` |
 
 ## Rules for every project
@@ -145,6 +145,19 @@ The SvelteKit templates name the type check `check` (`svelte-kit sync && svelte-
 ```
 
 The Astro templates write no type check script: add `typecheck` with `astro check` (it needs `@astrojs/check` and `typescript` in the dev dependencies), so CI runs it. `astro build` does not type-check `.astro` files.
+
+## React Router and Remix
+
+```json
+{
+    "scripts": {
+        "typecheck": "react-router typegen && tsc",
+        "lint": "eslint ."
+    }
+}
+```
+
+The React Router templates already name the type check `typecheck`, which CI runs; `react-router typegen` writes the route types to `.react-router/`, so it goes first. Remix 2 apps run `tsc` alone.
 
 ## JavaScript and TypeScript libraries
 
