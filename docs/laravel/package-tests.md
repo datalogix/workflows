@@ -8,7 +8,7 @@ For each combination of the matrix it:
 
 1. Sets up PHP with the requested extensions.
 2. Restores the Composer cache.
-3. Requires the Laravel version under test (`composer require laravel/framework:<version> --no-update`) and runs `composer update --prefer-lowest` or `--prefer-stable`.
+3. Requires the Laravel version under test (`composer require laravel/framework:<version> --no-update`; skipped with `laravel: '[""]'`, which a [PHP package](../php/package-tests.md) gets) and runs `composer update --prefer-lowest` or `--prefer-stable`.
 4. Runs the tests: `composer test` when `composer.json` defines it, otherwise `vendor/bin/pest` when Pest is installed, otherwise `vendor/bin/phpunit` (or `test-command`; `none` skips the matrix). See [Test scripts](app-tests.md#test-scripts).
 
 Coverage is collected only on the newest combination (highest PHP and Laravel, `prefer-stable`, first OS), with `pcov` by default, uploaded to Codecov (`coverage`) and checked against `min-coverage` (100% by default, see [Minimum coverage](../coverage.md)): the driver slows the tests down, and the other combinations would measure the same code. If `exclude` removes that combination, the run warns and coverage is neither reported nor checked. The other jobs run PHPUnit or Pest with `--no-coverage`, so a coverage report configured in `phpunit.xml` does not fail them with `failOnWarning`. With `composer test`, the flag is passed only when the script is a single PHPUnit or Pest command (e.g. `"test": "vendor/bin/pest"`). The package's `phpunit.xml.dist` must produce a Clover report: see the model in [Minimum coverage](../coverage.md#laravel-packages).
@@ -47,7 +47,7 @@ A package that still supports Laravel 11 adds it back with `laravel: '["^11.0", 
 | Input             | Default                                                                | Description                                                             |
 | ----------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `php`             | `["8.2", "8.3", "8.4", "8.5"]`                                         | PHP versions (JSON)                                                     |
-| `laravel`         | `["^12.0", "^13.0"]`                                                   | Laravel versions (JSON)                                                 |
+| `laravel`         | `["^12.0", "^13.0"]`                                                   | Laravel versions (JSON); `[""]` installs no framework                    |
 | `stability`       | `["prefer-lowest", "prefer-stable"]`                                   | Composer stability (JSON)                                               |
 | `exclude`         | Laravel 13 on PHP 8.2; `prefer-lowest` on PHP 8.4 and 8.5              | Matrix exclusions (JSON)                                                |
 | `os`              | `["ubuntu-latest"]`                                                    | Runners (JSON)                                                          |

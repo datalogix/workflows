@@ -19,7 +19,7 @@ const validLint = (value) =>
 const validTests = (value) => (value?.trim() === NO_TESTS ? undefined : validCommand(value));
 
 // A lint tool in a script's commands
-const LINT = /\b(pint|phpstan|larastan|psalm|rector|phpcs)\b/;
+const LINT = /\b(pint|phpstan|larastan|psalm|rector|phpcs|php-cs-fixer|ecs)\b/;
 // The composer scripts a lint command suggests: those that only check
 const CHECK_SCRIPT = /(^|:)check$|^(analy[sz]e|phpstan|stan|psalm|types)$/;
 const TESTS = /\b(artisan test|pest|phpunit|paratest)\b|^@test$/;

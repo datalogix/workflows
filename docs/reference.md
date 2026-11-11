@@ -55,12 +55,12 @@ Secrets: `CLAUDE_CODE_OAUTH_TOKEN` (required); `RELEASE_APP_CLIENT_ID` and `RELE
 
 ## `package`
 
-The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Laravel packages](laravel/package.md) and [JavaScript libraries](js/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults, or with `stack: js` [`node-package-tests`](js/package-tests.md#inputs) (with `node`, `os`, `test-command`, `min-coverage`, `lint-command` and `timeout-minutes`), plus:
+The workflow packages call ([`examples/package.yml`](../examples/package.yml), see [Laravel packages](laravel/package.md), [PHP packages](php/package.md) and [JavaScript libraries](js/package.md)). Its `tests` job calls [`laravel-package-tests`](laravel/package-tests.md#inputs) with the same inputs and defaults (with `stack: php`, an empty Laravel axis, `laravel: '[""]'`, so `laravel` is ignored), or with `stack: js` [`node-package-tests`](js/package-tests.md#inputs) (with `node`, `os`, `test-command`, `min-coverage`, `lint-command` and `timeout-minutes`), plus:
 
 | Input   | Default | Description                                                                                |
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
-| `stack` | `laravel` | Stack of the package, which picks its tests: `laravel` or `js` (another one fails the run) |
-| `tests` | `true`  | Run the test suite (`laravel`: across the matrix, Pint, PHPStan and the lint command); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
+| `stack` | `laravel` | Stack of the package, which picks its tests: `laravel`, `php` (a [PHP package without Laravel](php/package.md)) or `js` (another one fails the run) |
+| `tests` | `true`  | Run the test suite (`laravel` and `php`: across the matrix, Pint, PHPStan and the lint command); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 
 Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
 

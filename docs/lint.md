@@ -6,6 +6,7 @@ The tests workflows run the project's own lint tools, so CI, your machine and Cl
 | --- | --- | --- |
 | Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request (Blade views too, see [Blade views](#blade-views)), PHPStan, `lint-command`; with `js`, the typecheck and lint scripts of `package.json` |
 | Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files (Blade views too), PHPStan, `lint-command`, once outside the matrix |
+| PHP package | [`laravel-package-tests`](php/package-tests.md), without Laravel | Pint on the changed files, PHPStan, `lint-command` (php-cs-fixer, ECS, Psalm, Rector), once outside the matrix |
 | Next, Nuxt, Vue and React built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
 | JavaScript or TypeScript library | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, the build, then `lint-command` |
 
@@ -53,9 +54,11 @@ Frontend, in `package.json`, run with `js` (on by default). The Vue and React st
 
 With ESLint and Prettier instead of Vite+: `"lint": "eslint . && prettier --check resources/"` and `"typecheck": "vue-tsc --noEmit"` (`tsc --noEmit` with React). Older starter kits wrote `"lint": "eslint . --fix"`: drop the `--fix`. A Livewire app has no frontend scripts: Pint and PHPStan are its lint.
 
-## Laravel package
+## Laravel and PHP packages
 
 The same `composer.json` tools as an app (`laravel/pint`, `larastan/larastan` or `phpstan/phpstan`). Pint runs only when the package requires `laravel/pint`, and PHPStan when it requires PHPStan or Larastan; both run once, on the newest PHP of the matrix.
+
+A PHP package without Laravel uses the same steps: Pint works on any PHP code, and PHPStan without Larastan. Other tools run through `lint-command`, e.g. `composer cs:check` with `"cs:check": "php-cs-fixer fix --dry-run --diff"` (or `ecs check`), and Psalm or Rector (`rector --dry-run`) in the same script; setup suggests the check scripts of `composer.json`.
 
 A package without Blade views needs nothing else: without a `package.json` that declares `prettier-plugin-blade`, the lint job does not install Node and Pint checks PHP only. A package with views can check them too: see [Blade views](#blade-views).
 

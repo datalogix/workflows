@@ -9,7 +9,7 @@ What each project gets:
 - **Safe deploys**: every merge goes to staging, then production, each watched after the deploy and rolled back automatically if it goes down.
 - **Production errors as issues**: problems detected by Nightwatch, Sentry or Inspector become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.
 
-Packages call a single `package` workflow, today the test matrix: Laravel packages (only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
+Packages call a single `package` workflow, today the test matrix: Laravel packages, PHP packages without Laravel (`stack: php`; only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
 
 ## Requirements
 
@@ -33,7 +33,7 @@ All commands run as `npx --allow-git=root github:datalogix/workflows#v2 <command
 | `check` | Any time | Nothing: it lists what is missing or different |
 | `protect` | After the first pull request shows its checks | The branch ruleset that requires those checks |
 
-A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md), [Adding a Laravel package](docs/laravel/package.md), [Adding a JavaScript app](docs/js/app.md) or [Adding a JavaScript library](docs/js/package.md).
+A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md), [Adding a Laravel package](docs/laravel/package.md), [Adding a PHP package](docs/php/package.md), [Adding a JavaScript app](docs/js/app.md) or [Adding a JavaScript library](docs/js/package.md).
 
 > **GitHub Free:** private repositories have no rulesets, so `protect` changes nothing (the checks still run on every pull request, but do not block the merge), and they cannot read organization secrets, so `setup` asks for the Claude token in each project.
 
@@ -71,6 +71,7 @@ The [documentation index](docs/README.md) lists every guide. The main ones:
 | [Laravel app tests](docs/laravel/app-tests.md) | What the tests job runs, the project's test scripts, its inputs |
 | [Adding a Laravel package](docs/laravel/package.md) | For each package: the setup command, protecting the branch |
 | [Laravel package tests](docs/laravel/package-tests.md) | The test matrix, coverage, Pint and its inputs |
+| [Adding a PHP package](docs/php/package.md) / [PHP package tests](docs/php/package-tests.md) | A PHP package without Laravel: the same tests without the Laravel axis |
 | [Adding a JavaScript app](docs/js/app.md) | For each app: the setup command, what is left to do by hand, Vercel or Netlify deploys, Sentry, `check`; [by hand](docs/js/app-manual-setup.md) without it |
 | [JavaScript app tests](docs/js/app-tests.md) | What the tests job runs and its inputs |
 | [Adding a JavaScript library](docs/js/package.md) | For each library: the setup command, protecting the branch |

@@ -12,6 +12,7 @@ const detect = async (t, files) => {
 
 const APP = ['laravel', 'project', 'Laravel app'];
 const PACKAGE = ['laravel', 'package', 'Laravel package'];
+const PHP_PACKAGE = ['php', 'package', 'PHP package'];
 
 const composer = (json) => JSON.stringify(json);
 const LARAVEL_PACKAGE = composer({ require: { 'illuminate/support': '^12.0' } });
@@ -25,8 +26,11 @@ test('tells a Laravel app from a Laravel package by the folder', async (t) => {
   expect(await detect(t, { 'composer.json': composer({ extra: { laravel: { providers: ['A'] } } }) })).toStrictEqual(
     PACKAGE,
   );
-  // Not a Laravel folder (or a composer.json it cannot read): read as a Laravel app, not recognized
-  expect(await detect(t, { 'composer.json': '{}' })).toStrictEqual(APP);
+  // Testbench alone makes it a Laravel package, not a PHP one
+  expect(
+    await detect(t, { 'composer.json': composer({ 'require-dev': { 'orchestra/testbench': '^10.0' } }) }),
+  ).toStrictEqual(PACKAGE);
+  // A composer.json it cannot read: read as a Laravel app, not recognized
   expect(await detect(t, { 'composer.json': '{ not json' })).toStrictEqual(APP);
   expect(await detect(t, {})).toStrictEqual(APP);
 });
@@ -37,6 +41,8 @@ test('tells whether a stack recognized the folder or its workflow file', async (
   expect(await recognized({ 'composer.json': LARAVEL_PACKAGE })).toBe(true);
   expect(await recognized({ [WORKFLOW_PATH]: await renderProjectWorkflow({ deploy: 'none' }) })).toBe(true);
   expect(await recognized({ 'package.json': '{}' })).toBe(true);
+  expect(await recognized({ 'composer.json': '{}' })).toBe(true);
+  expect(await recognized({ 'composer.json': composer({ type: 'project' }) })).toBe(false);
   expect(await recognized({ Gemfile: '' })).toBe(false);
   expect(await recognized({})).toBe(false);
 });
@@ -97,6 +103,7 @@ test('offers every stack and kind setup supports', () => {
   expect(setupChoices().map((choice) => choice.label)).toStrictEqual([
     'Laravel app',
     'Laravel package',
+    'PHP package',
     'JavaScript app',
     'JavaScript package',
   ]);
@@ -117,8 +124,38 @@ test('tells a JavaScript library from a Next or Nuxt app, and a PHP project from
     expect(await detect(t, files)).toStrictEqual(['js', 'project', 'JavaScript app']);
   }
   // composer.json makes it a PHP project, with frontend scripts
-  expect(await detect(t, { 'package.json': '{}', 'composer.json': '{}' })).toStrictEqual(APP);
+  expect(await detect(t, { 'package.json': '{}', 'composer.json': '{}' })).toStrictEqual(PHP_PACKAGE);
+  expect(await detect(t, { 'package.json': '{}', artisan: '', 'composer.json': '{}' })).toStrictEqual(APP);
   expect(await detect(t, { 'package.json': '{ not json' })).toStrictEqual(APP);
+});
+
+test('tells a PHP package without Laravel from a PHP app, which is not supported yet', async (t) => {
+  // Composer's default type is library: any composer.json without Laravel is a PHP package
+  expect(await detect(t, { 'composer.json': '{}' })).toStrictEqual(PHP_PACKAGE);
+  expect(
+    await detect(t, { 'composer.json': composer({ type: 'symfony-bundle', require: { 'symfony/console': '^7' } }) }),
+  ).toStrictEqual(PHP_PACKAGE);
+  // A PHP app is not recognized: read as a Laravel app, which setup refuses without --stack or --kind
+  for (const files of [
+    { 'composer.json': composer({ type: 'project' }) },
+    { 'composer.json': '{}', 'bin/console': '' },
+    { 'composer.json': '{}', 'public/index.php': '' },
+  ]) {
+    const detected = await detectStack(await folder(t, files, 'stacks-'));
+    expect([detected.stack, detected.kind, detected.recognized]).toStrictEqual(['laravel', 'project', false]);
+  }
+  expect(() => fromFlags({ stack: 'php', kind: 'app' }, { stack: 'laravel', kind: 'project' })).toThrow(
+    'PHP apps are not supported yet',
+  );
+});
+
+test('keeps a package workflow file without a stack input on laravel, its default', async (t) => {
+  // composer.json does not name Laravel, but the file runs the Laravel package tests
+  const file = '    uses: datalogix/workflows/.github/workflows/package.yml@v2\n';
+  expect(await detect(t, { 'composer.json': '{}', [WORKFLOW_PATH]: file })).toStrictEqual(PACKAGE);
+  expect(await detect(t, { 'composer.json': LARAVEL_PACKAGE, [WORKFLOW_PATH]: naming('php') })).toStrictEqual(
+    PHP_PACKAGE,
+  );
 });
 
 test('tells a Vue or React app built with Vite from a component library', async (t) => {
