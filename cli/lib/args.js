@@ -8,6 +8,7 @@ export const BOOLEAN = [
   'incidents',
   'js',
   'api-check',
+  'release',
   'solo',
   'yes',
   'help',
@@ -132,6 +133,7 @@ Options (each one skips its question in setup)
   --test-command "<command>"  Test command (none turns the test suite off)
   --js / --no-js              Run the typecheck, lint and test scripts of package.json
   --api-check / --no-api-check  Packages: check the public API on pull requests (js: what the library publishes)
+  --release / --no-release    Packages: release new versions from the commits (release pull request, tag, GitHub release, npm)
   --database <server>         Database server of the tests of a Symfony app (postgres, mysql, mariadb or none)
   --yes                       Do not ask for confirmation before applying
   --help                      Show this help

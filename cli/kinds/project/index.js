@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
 import {
   CLAUDE_STATE,
   claudeAppNextSteps,
@@ -16,6 +13,7 @@ import {
 import { coverageItems } from '../../lib/coverage.js';
 import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
 import { driftPhrases, includedRefs, protectsBranch, rulesetDrift } from '../../lib/ruleset.js';
+import { answersReleaseApp, releaseAppSteps, releaseAppTask } from '../../lib/release-app.js';
 import { checksOn, readOrFail } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
@@ -86,18 +84,6 @@ const validBranch = (value) =>
   /^(?!-)(?!.*\.\.)[\w./-]+$/.test(value ?? '') && !/[./]$|^\/|\/\/|(^|\/)\.|\.lock(\/|$)/.test(value)
     ? undefined
     : 'Use a branch name, e.g. main';
-// The App's private key file, as GitHub downloads it; ~ is the home folder
-const keyPath = (value) => resolve(value.trim().replace(/^~(?=$|\/)/, homedir()));
-const readKey = (value) => readFileSync(keyPath(value), 'utf8');
-const validKey = (value) => {
-  try {
-    return /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(readKey(value ?? ''))
-      ? undefined
-      : 'Not a private key (.pem) file';
-  } catch {
-    return 'Cannot read that file';
-  }
-};
 // What an empty signing secret does: registered (true), not registered (false) or unknown (null, the relay was not read)
 const relayHint = (registered) =>
   registered === null
@@ -512,38 +498,10 @@ function setupSteps(stack) {
       exists: (ctx, a) => hasToken(ctx.state.environments.staging, serviceOf(stack, a)),
     }),
     claudeTokenStep(),
-    {
-      id: 'releaseAppClientId',
-      // Organization secrets reach private repositories only on paid plans: elsewhere, the repository stores its own
-      when: (a, ctx) => branches(a) && !ctx.state.releaseApp,
-      ask: async ({ header }) =>
-        orExit(
-          await clack.text({
-            message: question(
-              header,
-              `Client ID of the release GitHub App${dim('  optional; empty to add it later')}`,
-              'Empty: GitHub Actions opens the release pull requests, and their checks do not run',
-            ),
-            placeholder: 'Iv23li...',
-          }),
-        ),
-    },
-    {
-      id: 'releaseAppKey',
-      validate: validKey,
-      when: (a, ctx) => branches(a) && !ctx.state.releaseApp && Boolean(a.releaseAppClientId?.trim()),
-      ask: async ({ header }) =>
-        orExit(
-          await clack.text({
-            message: question(
-              header,
-              `Private key file of the release GitHub App${dim('  the .pem GitHub downloaded')}`,
-            ),
-            placeholder: '~/Downloads/app.private-key.pem',
-            validate: validKey,
-          }),
-        ),
-    },
+    ...releaseAppSteps({
+      needed: (a) => branches(a),
+      without: 'Empty: GitHub Actions opens the release pull requests, and their checks do not run',
+    }),
     {
       id: 'incidents',
       flag: 'incidents',
@@ -867,19 +825,9 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
 
   tasks.push(...claudeTokenTasks(answers, github));
 
-  const storesApp = twoBranches(answers) && Boolean(answers.releaseAppClientId?.trim() && answers.releaseAppKey);
+  const storesApp = twoBranches(answers) && answersReleaseApp(answers);
   if (storesApp) {
-    tasks.push({
-      id: 'releaseApp',
-      title: 'Release GitHub App',
-      run: async () => {
-        // Read when applying, so the key never stays in the answers; sent on stdin like every secret
-        await github.setSecret('RELEASE_APP_CLIENT_ID', answers.releaseAppClientId.trim());
-        await github.setSecret('RELEASE_APP_PRIVATE_KEY', readKey(answers.releaseAppKey));
-        done.appStored = true;
-        return 'stored as repository secrets';
-      },
-    });
+    tasks.push(releaseAppTask(answers, github, () => (done.appStored = true)));
   } else if (twoBranches(answers) && !state.releaseApp && state.actionsPullRequests?.allowed === false) {
     // Without the App, the release pull requests are opened with the workflow token
     tasks.push({

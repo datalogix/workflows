@@ -1,0 +1,51 @@
+name: Package release
+description: Releases of a package from its Conventional Commits. release mode keeps the release pull request open with the next version and its changelog, and when the pushed commit merged it, tags it and creates the GitHub release; npm mode publishes the checked out release to npm
+
+inputs:
+  mode:
+    description: release or npm
+    default: release
+  stack:
+    description: Stack of the package (laravel, php or js); js also writes the version to package.json
+    default: laravel
+  token:
+    description: Token that opens the release pull request and pushes its branch; only a GitHub App token makes its checks run
+    default: ${{ github.token }}
+  branch:
+    description: Branch of the release pull request
+    default: datalogix/release
+  tag:
+    description: npm mode, the tag being published (vX.Y.Z)
+    default: ""
+  npm-token:
+    description: npm mode, an npm token; empty publishes with trusted publishing (OIDC, id-token write)
+    default: ""
+  language:
+    description: Language of the pull request and release texts (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+
+outputs:
+  tag:
+    description: release mode, the tag it created or found for the merged release pull request; empty when it only proposed
+    value: ${{ steps.release.outputs.tag }}
+  version:
+    description: The version it proposed or released
+    value: ${{ steps.release.outputs.version }}
+
+runs:
+  using: composite
+
+  steps:
+    - id: release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        MODE: ${{ inputs.mode }}
+        STACK: ${{ inputs.stack }}
+        BRANCH: ${{ inputs.branch }}
+        BASE: ${{ github.event.repository.default_branch }}
+        SHA: ${{ github.sha }}
+        TAG: ${{ inputs.tag }}
+        NPM_TOKEN: ${{ inputs.npm-token }}
+        LANGUAGE: ${{ inputs.language }}
+      run: bash "$GITHUB_ACTION_PATH/release.sh"

@@ -1,0 +1,121 @@
+name: package-release
+
+# The releases of a package, off unless its workflow file calls this from a job of its own (examples/package-release.yml):
+# `release`, after the pipeline job (needs: pipeline) on pushes, with the permissions releases need. Like
+# package-claude.yml, it is not in package.yml: GitHub checks the permissions of every called workflow when the run
+# starts, so a package file that grants only contents: read would no longer start.
+#
+# On each push to the default branch whose tests passed, it opens or updates the release pull request (branch
+# datalogix/release) with the next version, from the Conventional Commits since the last tag, and its changelog. The
+# push that merges it tags the merge commit and creates the GitHub release; for js it also publishes to npm.
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the package (laravel, php or js); js also writes the version to package.json and publishes to npm
+      language:
+        type: string
+        default: pt-BR
+        description: Language of the release pull request and of the changelog headings (pt-BR or en; other languages get pt-BR)
+    secrets:
+      # The release GitHub App, which opens the release pull request and pushes its branch: with the workflow token, the
+      # pull request runs no workflows, so its required checks never report and a protected branch cannot merge it
+      RELEASE_APP_CLIENT_ID:
+        required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
+      # js only: without it, npm's trusted publishing (the npm package must trust this repository and its workflow file)
+      NPM_TOKEN:
+        required: false
+
+jobs:
+  release:
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    env:
+      APP: ${{ secrets.RELEASE_APP_CLIENT_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+
+    # One at a time, in order: a newer push rebuilds the release pull request from a newer commit
+    concurrency:
+      group: package-release-${{ github.repository }}
+      cancel-in-progress: false
+
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - name: Create the GitHub App token
+        id: token
+        if: env.APP == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # The history and the tags tell the commits since the last release; the token pushes the release branch
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.token.outputs.token || github.token }}
+
+      - name: Release
+        id: release
+        uses: datalogix/workflows/.github/actions/package-release@v2
+        with:
+          stack: ${{ inputs.stack }}
+          token: ${{ steps.token.outputs.token || github.token }}
+          language: ${{ inputs.language }}
+
+  # After the release: the tag it created, checked out and built as the package's scripts say (prepare, prepublishOnly)
+  npm:
+    needs: release
+    if: inputs.stack == 'js' && needs.release.outputs.tag != ''
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      # Trusted publishing and provenance
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Setup JavaScript
+        uses: datalogix/workflows/.github/actions/setup-js@v2
+        with:
+          node-version: 24
+
+      # Trusted publishing needs npm 11.5.1 or newer, which Node 24 ships; the registry URL writes the .npmrc that
+      # reads NODE_AUTH_TOKEN. After setup-js, so its setup-node does not replace it
+      - name: Registry
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish to npm
+        uses: datalogix/workflows/.github/actions/package-release@v2
+        with:
+          mode: npm
+          tag: ${{ needs.release.outputs.tag }}
+          npm-token: ${{ secrets.NPM_TOKEN }}

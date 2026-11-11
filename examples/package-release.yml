@@ -1,0 +1,46 @@
+name: datalogix
+
+# The workflow file of a package with releases, as .github/workflows/datalogix.yml (without them, examples/package.yml;
+# setup writes it, adding the release job to the file it would write anyway, with or without the claude job of
+# examples/package-claude.yml). Every event below is handled by datalogix/workflows; jobs that do not apply to an
+# event are skipped. The tests keep contents: read; only the release job gets the permissions of releases.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Required when the repository uses a merge queue
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    uses: datalogix/workflows/.github/workflows/package.yml@v2
+    # Only CODECOV_TOKEN is used, for coverage reports
+    secrets: inherit
+    # All inputs are optional:
+    # with:
+    #   laravel: '["^11.0", "^12.0", "^13.0"]'
+    #   php: '["8.3", "8.4", "8.5"]'
+    #   pint: false
+    #   min-coverage: 90   # 100 by default; 0 turns the coverage check off
+    #   api-check: true    # fail on pull requests that break the public API (js: check what is published)
+
+  release:
+    # On pushes, after the tests passed: the release pull request is rebuilt, and the push that merges it is released
+    needs: pipeline
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+      pull-requests: write
+      # js: npm's trusted publishing and provenance
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/package-release.yml@v2
+    # RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY (the release GitHub App, so the release pull request runs its
+    # checks) and, for js, NPM_TOKEN when npm's trusted publishing is not set up
+    secrets: inherit
+    # Other inputs: stack (laravel, php or js) and language
+    with:
+      stack: laravel

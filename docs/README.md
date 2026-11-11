@@ -21,6 +21,7 @@ Each stack has the same four pages (plus a manual setup for apps): adding an app
 | [Verification layers](verification-layers.md) | The eight layers every change goes through, the branch ruleset, solo maintainers, project rules for the security review |
 | [Lint](lint.md) | What each tests workflow lints, the script names it runs and the recommended setup for Laravel apps and packages, Next, Nuxt, SvelteKit, Astro, React Router, Remix, Vue, React and JavaScript libraries |
 | [Minimum coverage](coverage.md) | The coverage the tests require (100% by default in packages, shown without a minimum in apps), how it is checked and how to write the Clover report |
+| [Package releases](releases.md) | The release pull request of a package, its version from the commits, the tag, the GitHub release and npm |
 | [Deploy](deploy.md) | Staging and production deploys, health checks, rollbacks and the release history |
 | [Production errors](production-errors.md) | Nightwatch, Sentry and Inspector problems as GitHub issues, the relay and how to add another monitoring provider |
 | [Task manager](task-manager.md) | How the task manager turns client tasks into GitHub issues, picks up issues labeled `task` and follows them |

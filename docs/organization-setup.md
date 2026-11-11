@@ -88,17 +88,19 @@ Skip this if client tasks are not tracked in a task manager. The task manager mu
 
 ## 6. Create the release GitHub App
 
-Optional. Without it, release pull requests (`production-branch`, see [Production branch](deploy.md#production-branch)) are opened by GitHub Actions and run no checks, so the production branch cannot require them. Skip it if no project has a production branch, or if they are all private repositories on GitHub Free, where no branch can be protected anyway.
+Optional. Without it, release pull requests are opened by GitHub Actions and run no checks, so a protected branch cannot require them: the release pull requests of apps with a production branch (`production-branch`, see [Production branch](deploy.md#production-branch)) and of packages with [releases](releases.md). Skip it if no project uses either, or if they are all private repositories on GitHub Free, where no branch can be protected anyway.
 
 1. In **Organization settings → Developer settings → GitHub Apps → New GitHub App**, create an App with:
 
    | Setting                   | Value                                                        |
    | ------------------------- | ------------------------------------------------------------ |
    | Webhook                   | Off                                                          |
-   | Permissions               | Contents: read, Pull requests: read and write, Metadata: read |
+   | Permissions               | Contents: read and write, Pull requests: read and write, Metadata: read |
    | Where can it be installed | Only on this account                                         |
 
-2. Generate a private key, and install the App on the project repositories (or all repositories).
+   Contents: **read and write** is for packages: their release workflow pushes the release branch with the App's token. Apps keep asking for a read-only token, so their token does not get write access. An App created before packages had releases has Contents: read: change it to read and write, and an organization admin accepts the new permission for each installation.
+
+2. Generate a private key, and install the App on the project and package repositories (or all repositories).
 3. Store the App's **Client ID** and private key as organization secrets available to those repositories:
 
    ```bash

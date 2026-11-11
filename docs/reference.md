@@ -92,6 +92,18 @@ The Claude jobs that write or review code get a rule in front of `extra-instruct
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (only with a Claude layer on), passed with `secrets: inherit`.
 
 
+## `package-release`
+
+The releases of a package ([Package releases](releases.md)), called by the `release` job of [`examples/package-release.yml`](../examples/package-release.yml), which setup writes with `--release`. That job runs on pushes after the pipeline job (`needs: pipeline`, `if: github.event_name == 'push'`), and asks for its own permissions: `contents` and `pull-requests` write, and `id-token` write (npm's trusted publishing and provenance); the tests keep `contents: read`. On the default branch, it opens or updates the release pull request (`datalogix/release`), and on the push that merges it, tags the merge commit and creates the GitHub release; for `js`, a second job publishes the tag to npm.
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `stack` | `laravel` | Stack of the package; `js` also writes the version to `package.json` and publishes to npm |
+| `language` | `pt-BR` | Language of the release pull request and of the changelog headings |
+
+Secrets: `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY` (the [release GitHub App](organization-setup.md#6-create-the-release-github-app), with Contents: read and write, so the release pull request runs its checks), `NPM_TOKEN` (optional, `js`: without it, npm's trusted publishing), passed with `secrets: inherit`.
+
+
 ## `laravel-app-tests`
 
 The tests of a Laravel app: see [Laravel app tests](laravel/app-tests.md#inputs).

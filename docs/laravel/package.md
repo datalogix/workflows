@@ -83,6 +83,10 @@ Things to know before turning them on in a public package:
 - **Older workflow files.** A workflow file written before these layers keeps working: it has no `claude` job. To turn a layer on, run setup again (it adds the job and the events) rather than editing the file by hand.
 - **The tests come first.** The `claude` job runs after the pipeline job, so the code review, the security review and the risk gate start once the tests finish (Fix CI needs their result).
 
+## Releases (optional)
+
+With releases on (setup asks; `--release`), every push to the default branch keeps a release pull request with the next version, from the Conventional Commits since the last tag, and its changelog; merging it tags the version and creates the GitHub release, which Packagist reads. It needs the release GitHub App with Contents: read and write. See [Package releases](../releases.md).
+
 Private Composer packages are not supported: the workflow passes no Composer credentials (`COMPOSER_AUTH`).
 
 What the tests run and how to change the matrix: [Laravel package tests](package-tests.md).

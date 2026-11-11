@@ -25,6 +25,10 @@ export const PACKAGE_REF = 'datalogix/workflows/.github/workflows/package.yml@v2
 // permissions they need, apart from the tests (package.yml), which keep contents: read
 export const CLAUDE_JOB = 'claude';
 
+// The job of the package's workflow file that calls package-release.yml: the release pull request, the tag, the GitHub
+// release and, for js, npm, on pushes after the tests, with the permissions releases need. Its presence turns them on
+export const RELEASE_JOB = 'release';
+
 // The Claude layers and the risk gate a package turns on, by answer and input of the claude job (the layers question):
 // off by default in package-claude.yml
 export const PACKAGE_LAYERS = {
@@ -64,8 +68,16 @@ export function packageAnswers(inputs, claudeInputs = {}) {
   };
 }
 
-/** packageAnswers of a whole workflow file: the inputs of its pipeline job and of its claude job. */
-export const workflowAnswers = (inputs, workflow = '') => packageAnswers(inputs, parseInputs(workflow, CLAUDE_JOB));
+/**
+ * packageAnswers of a whole workflow file: the inputs of its pipeline job and of its claude job, and whether it has the
+ * release job (release). The team language is the claude job's, else the release job's.
+ */
+export function workflowAnswers(inputs, workflow = '') {
+  const claudeInputs = parseInputs(workflow, CLAUDE_JOB);
+  const releaseInputs = parseInputs(workflow, RELEASE_JOB);
+  const language = scalar(claudeInputs.language) || scalar(releaseInputs.language) || DEFAULT_LANGUAGE;
+  return { ...packageAnswers(inputs, claudeInputs), language, release: hasJob(workflow, RELEASE_JOB) };
+}
 
 /** The example package workflow up to its inputs: examples/package-claude.yml with a layer on, else package.yml. */
 export async function packageTemplate(branch, withLayers = false) {
@@ -73,10 +85,10 @@ export async function packageTemplate(branch, withLayers = false) {
   return upToPipeline(await templateBase(branch, null, 'package-claude.yml'));
 }
 
-/** The claude job of examples/package-claude.yml up to its with: line, which setup writes after. */
-async function claudeJobHead() {
-  const template = await readFile(join(packageRoot, 'examples', 'package-claude.yml'), 'utf8');
-  const job = jobText(template, CLAUDE_JOB);
+/** A job of an example up to its with: line, which setup writes after. */
+async function jobHead(example, name) {
+  const template = await readFile(join(packageRoot, 'examples', example), 'utf8');
+  const job = jobText(template, name);
   return job.slice(0, job.search(/^ {4}with:/m)).trimEnd();
 }
 
@@ -103,7 +115,30 @@ const CLAUDE_MANAGED = ['tests-result', 'stack', ...Object.values(PACKAGE_LAYERS
 async function claudeJob(answers, existing) {
   const kept = Object.entries(parseInputs(existing, CLAUDE_JOB)).filter(([key]) => !CLAUDE_MANAGED.includes(key));
   const inputs = [...claudeJobInputs(answers), ...kept];
-  return [await claudeJobHead(), '    with:', ...inputs.map(([key, value]) => `      ${key}: ${value}`)].join('\n');
+  return [
+    await jobHead('package-claude.yml', CLAUDE_JOB),
+    '    with:',
+    ...inputs.map(([key, value]) => `      ${key}: ${value}`),
+  ].join('\n');
+}
+
+// The inputs of the release job setup manages; any other is kept
+const RELEASE_MANAGED = ['stack', 'language'];
+
+/** The release job of examples/package-release.yml with the stack, the language and the other existing inputs. */
+async function releaseJob(answers, existing) {
+  const current = parseInputs(existing, RELEASE_JOB);
+  const kept = Object.entries(current).filter(([key]) => !RELEASE_MANAGED.includes(key));
+  // The stack is always written, so the job has a with: block and package-release.yml knows a js package
+  const stack = answers.stack ?? scalar(current.stack) ?? 'laravel';
+  const inputs = [['stack', stack]];
+  const language = answers.language?.trim() ?? scalar(current.language);
+  if (language && language !== DEFAULT_LANGUAGE) inputs.push(['language', language]);
+  return [
+    await jobHead('package-release.yml', RELEASE_JOB),
+    '    with:',
+    ...[...inputs, ...kept].map(([key, value]) => `      ${key}: ${value}`),
+  ].join('\n');
 }
 
 /**
@@ -111,7 +146,8 @@ async function claudeJob(answers, existing) {
  * the pipeline job and every other input of the existing file. With a layer on (or, when the layers question was not
  * asked, an existing claude job), the file is examples/package-claude.yml: its events, and the claude job with the
  * layers, the language and its other existing inputs. With every layer off, it is examples/package.yml, without the
- * claude job, so the file grants only contents: read as before the layers existed.
+ * claude job, so the file grants only contents: read as before the layers existed. With release on (or, when the
+ * question was not asked, an existing release job), the release job of examples/package-release.yml follows.
  */
 export async function renderPackageWorkflow(existing = '', branch = 'main', answers = {}) {
   const current = parseInputs(existing);
@@ -136,6 +172,17 @@ export async function renderPackageWorkflow(existing = '', branch = 'main', answ
     : answered
       ? await claudeJob(answers, existing)
       : (jobText(lf(existing), CLAUDE_JOB) ?? '');
-  const after = withoutJob(afterInputs(existing), CLAUDE_JOB);
-  return withInputs(await packageTemplate(branch, withLayers), inputs, [job, after].filter(Boolean).join('\n\n'));
+  // Releases: on when answered, else as the existing file has them
+  const withRelease = answers.release === undefined ? hasJob(existing, RELEASE_JOB) : answers.release === true;
+  const release = !withRelease
+    ? ''
+    : answers.release === undefined
+      ? (jobText(lf(existing), RELEASE_JOB) ?? '')
+      : await releaseJob(answers, existing);
+  const after = withoutJob(withoutJob(afterInputs(existing), CLAUDE_JOB), RELEASE_JOB);
+  return withInputs(
+    await packageTemplate(branch, withLayers),
+    inputs,
+    [job, release, after].filter(Boolean).join('\n\n'),
+  );
 }

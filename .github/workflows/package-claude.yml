@@ -101,9 +101,10 @@ jobs:
       extra-instructions: This repository is a published package, whose public API (public classes, methods, functions, config keys and exports) is used by apps you cannot see. Report, or in your own changes avoid, any change that breaks it (removed or renamed, a changed signature, return type or default behavior) unless the issue or pull request asks for a major version; prefer deprecating and adding. ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
-  # Once per pull request (opened, reopened or ready for review), not on every push: ask @claude for another review
+  # Once per pull request (opened, reopened or ready for review), not on every push: ask @claude for another review.
+  # Not on the release pull request of package-release.yml, which only changes the changelog and the version
   review:
-    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.review && github.event_name == 'pull_request' && github.event.action != 'synchronize'
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.review && github.event_name == 'pull_request' && github.event.action != 'synchronize' && github.head_ref != 'datalogix/release'
     permissions:
       contents: read
       pull-requests: read

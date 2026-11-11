@@ -48,27 +48,10 @@ export function labelsFor(environments) {
   ];
 }
 
-// Secrets of the GitHub App that opens the release pull requests (production-branch)
-const RELEASE_APP_SECRETS = ['RELEASE_APP_CLIENT_ID', 'RELEASE_APP_PRIVATE_KEY'];
+// The release GitHub App is shared with packages (cli/lib/release-app.js)
+export { hasReleaseApp } from '../../lib/release-app.js';
 
 export const NO_ENVIRONMENT = { exists: false, deployHook: false, healthUrl: null, monitoringToken: false };
-
-/**
- * Whether the repository can read both secrets of the release GitHub App, as repository or organization secrets.
- * Without them the release pull requests are opened with the workflow token, so their checks do not run.
- */
-export async function hasReleaseApp(github) {
-  const found = await Promise.all(
-    RELEASE_APP_SECRETS.map(async (name) => {
-      const [repository, organization] = await Promise.all([
-        github.hasRepositorySecret(name),
-        github.hasOrganizationSecret(name).catch(() => false),
-      ]);
-      return repository || organization;
-    }),
-  );
-  return found.every(Boolean);
-}
 
 /** The production branch of a project that deploys, which protect and check consider for the ruleset. */
 export function deployedProductionBranch(current) {
