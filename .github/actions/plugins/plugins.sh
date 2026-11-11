@@ -4,7 +4,10 @@
 set -euo pipefail
 
 stack=$(tr '[:upper:]' '[:lower:]' <<< "${STACK:-}")
-[ "$stack" = js ] || stack=laravel
+case "$stack" in
+  js | php) ;;
+  *) stack=laravel ;;
+esac
 
 {
   echo 'plugins<<DATALOGIX_PLUGINS'

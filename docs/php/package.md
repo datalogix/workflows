@@ -2,7 +2,7 @@
 
 PHP packages without Laravel (framework-agnostic libraries, Symfony bundles, Composer plugins) call `package`, the same entry point as Laravel packages, with `stack: php`. Today it runs the same tests as a [Laravel package](../laravel/package.md), without the Laravel axis of the matrix: the test suite across PHP versions and dependency stability (`prefer-lowest` / `prefer-stable`), with coverage uploaded to Codecov, and the lint checks once. New layers are added to `package`, so packages get them without changing their workflow file.
 
-PHP apps without Laravel (Symfony, plain PHP) are not supported yet.
+PHP apps without Laravel (Symfony, plain PHP) call `project` with `stack: php`; the setup command does not set them up yet: see [Manual setup of a PHP app](app-manual-setup.md).
 
 ## Setup
 

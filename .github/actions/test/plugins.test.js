@@ -20,6 +20,9 @@ test('always installs core and the plugin of the stack', async () => {
   expect(await list({ STACK: 'laravel' })).toStrictEqual(['core@datalogix', 'laravel@datalogix']);
   expect(await list({ STACK: 'js' })).toStrictEqual(['core@datalogix', 'js@datalogix']);
   expect(await list({ STACK: 'JS' })).toStrictEqual(['core@datalogix', 'js@datalogix']);
+  expect(await list({ STACK: 'php' })).toStrictEqual(['core@datalogix', 'php@datalogix']);
+  expect(await list({ STACK: 'PHP' })).toStrictEqual(['core@datalogix', 'php@datalogix']);
+  expect(await list({ STACK: 'nuxt' })).toStrictEqual(['core@datalogix', 'laravel@datalogix']);
   expect(await list({})).toStrictEqual(['core@datalogix', 'laravel@datalogix']);
 });
 
