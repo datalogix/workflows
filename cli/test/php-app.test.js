@@ -102,7 +102,9 @@ test('creates a health script in the web root of a plain PHP app', async (t) => 
   const script = await readFile(join(root, 'public/health.php'), 'utf8');
   expect(script).toContain("echo json_encode(['status' => 'ok']);");
 
-  // Without a public folder, the script goes to the root
+  // Craft and others serve web/; without either folder, the script goes to the root
+  const craft = await stateOf(await folder(t, { 'composer.json': '{}', craft: '', 'web/index.php': '' }, 'php-app-'));
+  expect(craft).toMatchObject({ healthFile: 'web/health.php', healthRoutePath: '/health.php' });
   const bare = await stateOf(await folder(t, { 'composer.json': '{"type": "project"}' }, 'php-app-'));
   expect(bare).toMatchObject({ healthFile: 'health.php', healthRoutePath: '/health.php' });
 });
