@@ -15,13 +15,13 @@ export function lf(content) {
 }
 
 /**
- * Reads the `with:` block of the pipeline job as { input: raw value }. A multi-line value (`key: |` followed by
- * more indented lines) keeps its lines as they are, so it can be written back unchanged.
+ * Reads the `with:` block of the pipeline job (or of another job) as { input: raw value }. A multi-line value (`key: |`
+ * followed by more indented lines) keeps its lines as they are, so it can be written back unchanged.
  */
-export function parseInputs(content) {
+export function parseInputs(content, job = 'pipeline') {
   const inputs = {};
   const lines = lf(content).split('\n');
-  const block = inputsBlock(lines);
+  const block = inputsBlock(lines, job);
   if (!block) return inputs;
   let current = null;
   let blank = [];
@@ -44,28 +44,32 @@ export function parseInputs(content) {
 }
 
 /**
- * Where the pipeline job's `with:` block is in the file's lines: the index of `with:` and of the first line after
- * the block (at most the end of the job), or null without one.
+ * Where a job's `with:` block is in the file's lines: the index of `with:` and of the first line after the block (at
+ * most the end of the job), or null without one. A file without a pipeline job is read as that job; another job that
+ * is missing has none.
  */
-function inputsBlock(lines) {
-  // Inside the pipeline job only: another job before it may have a with: of its own
-  const job = pipelineStart(lines);
-  const end = pipelineEnd(lines);
+function inputsBlock(lines, name = 'pipeline') {
+  // Inside that job only: another job may have a with: of its own
+  const job = jobStart(lines, name);
+  if (job === -1 && name !== 'pipeline') return null;
+  const end = jobEnd(lines, name);
   const offset = lines.slice(job + 1, end).findIndex((line) => WITH.test(line));
   return offset === -1 ? null : { start: job + 1 + offset, end };
 }
 
-/** The index of the pipeline job's line, or -1 without one (then the whole file is read as it). */
-function pipelineStart(lines) {
-  return lines.findIndex((line) => /^ {2}pipeline:/.test(line));
+/** The index of a job's line, or -1 without one (for the pipeline job, the whole file is then read as it). */
+function jobStart(lines, name) {
+  return lines.findIndex((line) => new RegExp(`^ {2}${name}:`).test(line));
 }
 
+const pipelineEnd = (lines) => jobEnd(lines, 'pipeline');
+
 /**
- * The index of the first line after the pipeline job (another job, say), or the number of lines. Blank lines and
- * comments less indented than the job's keys right before the next key belong to what follows.
+ * The index of the first line after a job (another job, say), or the number of lines. Blank lines and comments less
+ * indented than the job's keys right before the next key belong to what follows.
  */
-function pipelineEnd(lines) {
-  const start = pipelineStart(lines);
+function jobEnd(lines, name) {
+  const start = jobStart(lines, name);
   if (start === -1) return lines.length;
   let end = start + 1;
   while (end < lines.length && (lines[end].trim() === '' || /^ {4}/.test(lines[end]) || /^\s*#/.test(lines[end]))) {
@@ -75,6 +79,36 @@ function pipelineEnd(lines) {
     while (end > start + 1 && (lines[end - 1].trim() === '' || /^ {0,3}#/.test(lines[end - 1]))) end--;
   }
   return end;
+}
+
+/** Whether the workflow file has a job of that name. */
+export function hasJob(content, name) {
+  return jobStart(lf(content).split('\n'), name) !== -1;
+}
+
+/** The text of a job (its line and everything indented below it), without the blank lines after it, or null. */
+export function jobText(content, name) {
+  const lines = lf(content).split('\n');
+  const start = jobStart(lines, name);
+  if (start === -1) return null;
+  return lines.slice(start, jobEnd(lines, name)).join('\n').trimEnd();
+}
+
+/** The content without a job, and without the blank lines it leaves. */
+export function withoutJob(content, name) {
+  const lines = lf(content).split('\n');
+  const start = jobStart(lines, name);
+  if (start === -1) return content;
+  return [...lines.slice(0, start), ...lines.slice(jobEnd(lines, name))]
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** The lines of a template up to the end of its pipeline job: the base setup writes the pipeline's inputs after. */
+export function upToPipeline(content) {
+  const lines = lf(content).split('\n');
+  return lines.slice(0, pipelineEnd(lines)).join('\n').trimEnd();
 }
 
 /** What the file has after the pipeline job (another job, say), without the blank lines around it. */
@@ -188,6 +222,24 @@ export function grantedPermissions(content) {
   if (inline === '{}') return {};
   const block = text.slice(top.index + top[0].length + 1).split(/^[^\s#]/m)[0];
   return Object.fromEntries([...block.matchAll(/^ {2}([\w-]+):[ \t]*(\w+)/gm)].map((match) => [match[1], match[2]]));
+}
+
+/**
+ * The permissions a job asks for (its `permissions:`), in the form of grantedPermissions, or null when it sets none
+ * (then it gets the workflow's).
+ */
+export function jobPermissions(content, name) {
+  const lines = lf(content).split('\n');
+  const start = jobStart(lines, name);
+  if (start === -1) return null;
+  const job = lines.slice(start + 1, jobEnd(lines, name)).join('\n');
+  const own = /^ {4}permissions:[ \t]*(.*)$/m.exec(job);
+  if (!own) return null;
+  const inline = own[1].replace(/\s+#.*$/, '').trim();
+  if (inline === 'read-all' || inline === 'write-all') return { '*': inline.slice(0, -4) };
+  if (inline === '{}') return {};
+  const block = job.slice(own.index + own[0].length + 1).split(/^ {0,4}[^\s#]/m)[0];
+  return Object.fromEntries([...block.matchAll(/^ {6}([\w-]+):[ \t]*(\w+)/gm)].map((match) => [match[1], match[2]]));
 }
 
 /** Whether the granted permissions (grantedPermissions) give at least that level of the scope. */

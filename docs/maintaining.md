@@ -30,7 +30,7 @@ Both live here and have their own README, for working on them:
 
 [`ci.yml`](../.github/workflows/ci.yml) runs on every pull request and push to `main`:
 
-- **lint**: `actionlint` on the workflows, on the examples and on `project.yml` and `package.yml` (pointed at the local workflows, so their inputs and secrets are checked too), `shellcheck` on the scripts of the actions, the tests of the relay, of the setup command and of the action scripts (with fake `gh`, `curl` and `sleep`), `claude plugin validate` on the marketplace and the plugin, ESLint and Prettier (`npm run lint`).
+- **lint**: `actionlint` on the workflows, on the examples and on `project.yml`, `package.yml` and `package-claude.yml` (pointed at the local workflows, so their inputs and secrets are checked too), `shellcheck` on the scripts of the actions, the tests of the relay, of the setup command and of the action scripts (with fake `gh`, `curl` and `sleep`), `claude plugin validate` on the marketplace and the plugin, ESLint and Prettier (`npm run lint`).
 - **setup-laravel**: creates a fresh Laravel app and runs the action across PHP, Node and package manager versions, with and without Laravel Boost, then checks the environment, starts the Boost MCP server and runs the app's tests.
 - **all-checks**: passes only when every job above passed. It is the required status check of the `main` branch protection, so it does not depend on the matrix job names.
 

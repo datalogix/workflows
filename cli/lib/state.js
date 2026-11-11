@@ -60,7 +60,8 @@ export async function readLocal(detected, root) {
   const inspected = detected?.module.inspect ? await detected.module.inspect(root) : {};
   return {
     workflow,
-    current: workflow ? answers(parseInputs(workflow)) : null,
+    // A package's answers also read its claude job (the whole file is the second argument)
+    current: workflow ? answers(parseInputs(workflow), workflow) : null,
     clover: await writesClover(root),
     ...inspected,
   };

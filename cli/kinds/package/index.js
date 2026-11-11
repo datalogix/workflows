@@ -21,26 +21,29 @@ import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { NO_TESTS } from '../../lib/tools.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
-import { grantedPermissions, grants, triggerEvents } from '../../lib/workflow-file.js';
+import { grantedPermissions, grants, jobPermissions, triggerEvents } from '../../lib/workflow-file.js';
 import {
+  CLAUDE_JOB,
   claudeOn,
+  layersOn,
   PACKAGE_LAYERS,
   PACKAGE_REF,
-  packageAnswers,
   packageTemplate,
   renderPackageWorkflow,
+  workflowAnswers,
 } from './workflow.js';
 
 // What package.yml needs from a package, whatever its stack: the workflow file, the Codecov token, the ruleset and the
 // code owners, and with a Claude layer on, the Claude token, the Claude GitHub App and the labels. A stack's package
 // module (cli/stacks/<stack>/package.js) calls packageKind with what only it knows.
 
-// Check of each layer that can be required (package.yml), keyed by its answer in packageAnswers; the tests end in
-// the all-checks job of the stack's package tests. The security review is off unless the workflow file turns it on
+// Check of each layer that can be required, keyed by its answer in packageAnswers: the tests (package.yml, the
+// pipeline job) end in the all-checks job of the stack's package tests; the security review and the risk gate
+// (package-claude.yml, the claude job) are off unless the workflow file turns them on
 export const PACKAGE_CHECKS = {
   tests: 'pipeline / tests / all-checks',
-  securityReview: 'pipeline / security / security',
-  riskGate: 'pipeline / gate / gate',
+  securityReview: `${CLAUDE_JOB} / security / security`,
+  riskGate: `${CLAUDE_JOB} / gate / gate`,
 };
 
 /**
@@ -50,8 +53,8 @@ export const PACKAGE_CHECKS = {
 const checksOfPackage = (checks, a) =>
   checksOn(checks, { ...a, securityReview: a?.securityReview === true, riskGate: a?.riskGate === true });
 
-// What each layer needs of the workflow file: the events that run it and the permissions its jobs use (setup writes
-// them from examples/package.yml; a file written before, or by hand, may lack them)
+// What each layer needs of the workflow file: the events that run it and the permissions of the claude job (setup
+// writes them from examples/package-claude.yml; a file edited by hand may lack them)
 const LAYER_NEEDS = {
   claude: {
     name: '@claude',
@@ -79,7 +82,8 @@ const LAYER_NEEDS = {
 function layerNeedItems(report, state) {
   if (!state.workflow) return;
   const events = triggerEvents(state.workflow);
-  const granted = grantedPermissions(state.workflow);
+  // The claude job's own permissions, else the workflow's
+  const granted = jobPermissions(state.workflow, CLAUDE_JOB) ?? grantedPermissions(state.workflow);
   for (const [answer, needs] of Object.entries(LAYER_NEEDS)) {
     if (state.current?.[answer] !== true) continue;
     const missing = [
@@ -235,7 +239,7 @@ async function setupWarnings(answers, ctx) {
   const { workflow, defaultBranch } = ctx.state;
   return workflowWarnings(
     ctx.state,
-    await packageTemplate(defaultBranch),
+    await packageTemplate(defaultBranch, layersOn({ ...ctx.state.current, ...answers })),
     await renderPackageWorkflow(workflow ?? '', defaultBranch, answers),
   );
 }
@@ -317,7 +321,7 @@ export function packageKind(stack) {
     checks,
     empty: { ...PACKAGE_STATE, ...stack.empty },
     inspect: stack.inspect,
-    answers: packageAnswers,
+    answers: workflowAnswers,
     /**
      * What collectState reads from GitHub for a package: whether it can read a Codecov token and, in setup (claude) or
      * with a Claude layer on, its labels, the Claude token and the Claude GitHub App.

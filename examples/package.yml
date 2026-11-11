@@ -1,45 +1,28 @@
 name: datalogix
 
 # The only workflow file a package needs, as .github/workflows/datalogix.yml. Every event below is handled by
-# datalogix/workflows; jobs that do not apply to an event are skipped (the issue, comment and review events, and the
-# permissions beyond contents: read, are for the Claude layers and the risk gate, off by default: claude, review,
-# security-review and risk-gate).
+# datalogix/workflows; jobs that do not apply to an event are skipped. With the Claude layers or the risk gate, the
+# file is examples/package-claude.yml instead (setup writes it).
 on:
-  issues:
-    types: [assigned, labeled]
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
-  pull_request_review:
-    types: [submitted, dismissed]
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
+  pull_request:
   # Required when the repository uses a merge queue
   merge_group:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read
-  id-token: write
+  contents: read
 
 jobs:
   pipeline:
     uses: datalogix/workflows/.github/workflows/package.yml@v2
-    # CODECOV_TOKEN for coverage reports, and CLAUDE_CODE_OAUTH_TOKEN for the Claude layers
+    # Only CODECOV_TOKEN is used, for coverage reports
     secrets: inherit
     # All inputs are optional:
     # with:
-    #   claude: true            # @claude, issues labeled claude or claude-plan, and fixes of Claude's failed tests
-    #   review: true            # Claude reviews each pull request
-    #   security-review: true   # required check pipeline / security / security
-    #   language: en            # pt-BR by default
     #   laravel: '["^11.0", "^12.0", "^13.0"]'
     #   php: '["8.3", "8.4", "8.5"]'
     #   pint: false
     #   min-coverage: 90   # 100 by default; 0 turns the coverage check off
+    #   api-check: true    # fail on pull requests that break the public API (js: check what is published)

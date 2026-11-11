@@ -62,20 +62,34 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
 | `stack` | `laravel` | Stack of the package, which picks its tests: `laravel`, `php` (a [PHP package without Laravel](php/package.md)) or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite (`laravel` and `php`: across the matrix, Pint, PHPStan and the lint command); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
+| `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
+
+Secrets: `CODECOV_TOKEN` (optional), passed with `secrets: inherit`.
+
+`package` has only the tests, which need `contents: read`, the only permission a package file used to grant: GitHub checks the permissions of every called workflow when the run starts, even of a job that would be skipped, so a job needing more would stop every package's run. The Claude layers and the risk gate are [`package-claude`](#package-claude), in a job of their own.
+
+
+## `package-claude`
+
+The Claude layers and the risk gate of a package ([Claude and the risk gate (optional)](laravel/package.md#claude-and-the-risk-gate-optional)), called by the `claude` job of [`examples/package-claude.yml`](../examples/package-claude.yml), which setup writes when a layer is on. That job runs after the pipeline job (`needs: pipeline`, `if: ${{ !cancelled() }}`), passing its result, and asks for its own permissions: `contents`, `pull-requests` and `issues` write, `actions` read and `id-token` write. The workflow file adds the events of the layers: `issues` (`assigned`, `labeled`), `issue_comment`, `pull_request_review_comment`, `pull_request_review` (`submitted`, `dismissed`) and `pull_request` with `ready_for_review`; the tests keep `contents: read`.
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `stack` | `laravel` | Stack of the package: the environment prepared for Claude, its plugin and the default high-risk paths |
+| `tests-result` | empty | `needs.pipeline.result`: `failure` on a pull request lets Fix CI run on Claude's own pull requests |
 | `claude` | `false` | [`claude`](#claude) on issues and pull requests (`@claude`, the `claude` and `claude-plan` labels), and [`claude-fix-ci`](#claude-fix-ci) on Claude's own pull requests when the tests fail |
 | `review` | `false` | [`claude-review`](#claude-review) once per pull request |
-| `security-review` | `false` | [`claude-security-review`](#claude-security-review) on every push, with the required check `pipeline / security / security`; run `protect` again after changing it |
-| `risk-gate` | `false` | [`risk-gate`](#risk-gate) with the patterns of a package of the stack, and the required check `pipeline / gate / gate`; run `protect` again after changing it |
+| `security-review` | `false` | [`claude-security-review`](#claude-security-review) on every push, with the required check `claude / security / security`; run `protect` again after changing it |
+| `risk-gate` | `false` | [`risk-gate`](#risk-gate) with the patterns of a package of the stack, and the required check `claude / gate / gate`; run `protect` again after changing it |
 | `approvals-medium` / `approvals-high` / `count-author` / `extra-high-risk-paths` | `1` / `1` / `false` / empty | As for apps, with `risk-gate` |
-| `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
 | `model` / `plan-model` / `fix-ci-model` | `opus` / `best` / `sonnet` | Models of the Claude layers, as for apps |
 | `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes) |
 | `language` | `pt-BR` | Language of what Claude writes for the team |
 | `security-fail-on` | `high` | Lowest security finding severity that fails the check (`high`, `medium`, `low` or `none`) |
 
-The Claude layers and the risk gate are off by default: see [Claude and the risk gate (optional)](laravel/package.md#claude-and-the-risk-gate-optional). The Claude jobs that write or review code get a rule in front of `extra-instructions`: keep the package's public API compatible. With any of them on, the workflow file needs the events and permissions of [`examples/package.yml`](../examples/package.yml): `issues` (`assigned`, `labeled`), `issue_comment`, `pull_request_review_comment`, `pull_request_review` and `pull_request` with `ready_for_review`, and `contents`, `pull-requests` and `issues` write, `actions` read and `id-token` write. The risk gate needs `pull_request_review` (`submitted`, `dismissed`) and `pull-requests` and `issues` write. Their jobs in `package` set no permissions, so a file written before them (with `contents: read` only) keeps running its tests while they are off; `check` reports a layer that is on without them.
+The Claude jobs that write or review code get a rule in front of `extra-instructions`: keep the package's public API compatible. `check` reports a layer that is on when the workflow file lacks its events, or the `claude` job its permissions.
 
-Secrets: `CODECOV_TOKEN` (optional) and `CLAUDE_CODE_OAUTH_TOKEN` (only with a Claude layer on), passed with `secrets: inherit`.
+Secret: `CLAUDE_CODE_OAUTH_TOKEN` (only with a Claude layer on), passed with `secrets: inherit`.
 
 
 ## `laravel-app-tests`

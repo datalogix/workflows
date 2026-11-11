@@ -2,11 +2,12 @@ import { expect, test, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
+import { packageAnswers, renderPackageWorkflow, workflowAnswers } from '../kinds/package/workflow.js';
+import { packageRoot } from '../lib/project.js';
 import { rulesetBody } from '../lib/ruleset.js';
 import { NO_TESTS } from '../lib/tools.js';
 import { collectState } from '../lib/state.js';
-import { parseInputs, WORKFLOW_PATH } from '../lib/workflow-file.js';
+import { grantedPermissions, hasJob, jobPermissions, parseInputs, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
 import jsPackage from '../stacks/js/package.js';
 import laravelPackage from '../stacks/laravel/package.js';
@@ -284,10 +285,61 @@ test('writes no stack input for a Laravel package, and keeps the one of the file
   expect(parseInputs(await renderPackageWorkflow(js, 'main', { stack: 'js' })).stack).toBe('js');
 });
 
-test('turns the Claude layers on only when asked, writing true, and reads what they need', async () => {
-  // Off by default: nothing is written, and the questions of the layers are not asked
+// The layers live in the claude job (package-claude.yml), apart from the tests: a file without it is the old one
+const ALL_ON = { claude: true, review: true, securityReview: true, riskGate: true };
+const answersOf = (workflow) => workflowAnswers(parseInputs(workflow), workflow);
+
+test('writes the claude job only with a layer on, and the old minimal file without one', async () => {
+  // Off by default: the file is examples/package.yml, with contents: read and no claude job
   const off = await renderPackageWorkflow('', 'main', { claude: false, review: false, securityReview: false });
+  const minimal = await readFile(join(packageRoot, 'examples', 'package.yml'), 'utf8');
+  expect(off).toBe(minimal);
   expect(parseInputs(off)).toStrictEqual({});
+
+  // Every layer on, with the defaults: exactly examples/package-claude.yml
+  const all = await renderPackageWorkflow('', 'main', ALL_ON);
+  expect(all).toBe(await readFile(join(packageRoot, 'examples', 'package-claude.yml'), 'utf8'));
+  // The tests keep contents: read; only the claude job asks for more
+  expect(grantedPermissions(all)).toStrictEqual({ contents: 'read' });
+  expect(jobPermissions(all, 'claude')).toMatchObject({ contents: 'write', 'id-token': 'write' });
+  expect(answersOf(all)).toMatchObject({ claude: true, review: true, securityReview: true, riskGate: true });
+
+  const on = await renderPackageWorkflow('', 'main', {
+    stack: 'php',
+    claude: true,
+    review: false,
+    securityReview: true,
+    language: 'en',
+  });
+  // The stack goes to both jobs; the layers and the language only to the claude job
+  expect(parseInputs(on)).toStrictEqual({ stack: 'php' });
+  expect(parseInputs(on, 'claude')).toStrictEqual({
+    'tests-result': '${{ needs.pipeline.result }}',
+    stack: 'php',
+    claude: 'true',
+    'security-review': 'true',
+    language: 'en',
+  });
+  expect(answersOf(on)).toMatchObject({ claude: true, review: false, securityReview: true, language: 'en' });
+
+  // Turned off again: the claude job goes away; not asked (no layer answer): kept, with its other inputs
+  const tuned = on.replace('      language: en', '      language: en\n      model: sonnet');
+  expect(parseInputs(await renderPackageWorkflow(tuned, 'main', { claude: true }), 'claude')).toMatchObject({
+    claude: 'true',
+    model: 'sonnet',
+  });
+  const removed = await renderPackageWorkflow(tuned, 'main', { claude: false, securityReview: false });
+  expect(hasJob(removed, 'claude')).toBe(false);
+  expect(removed).not.toContain('issue_comment');
+  expect(await renderPackageWorkflow(tuned, 'main', {})).toBe(tuned);
+
+  // The pipeline job's inputs are untouched by the claude job
+  const withTools = await renderPackageWorkflow(all, 'main', { apiCheck: true });
+  expect(parseInputs(withTools)).toStrictEqual({ 'api-check': 'true' });
+  expect(hasJob(withTools, 'claude')).toBe(true);
+});
+
+test('asks the language and the Claude token with a Claude layer on, and reads what they need', async () => {
   const steps = setup.steps();
   const language = steps.find((step) => step.id === 'language');
   const token = steps.find((step) => step.id === 'claudeToken');
@@ -299,35 +351,13 @@ test('turns the Claude layers on only when asked, writing true, and reads what t
     token.when({ review: true }, { state: { ...state, claudeToken: { repository: false, organization: true } } }),
   ).toBe(false);
 
-  const on = await renderPackageWorkflow('', 'main', {
-    stack: 'php',
-    claude: true,
-    review: false,
-    securityReview: true,
-    language: 'en',
-  });
-  expect(parseInputs(on)).toStrictEqual({ stack: 'php', claude: 'true', 'security-review': 'true', language: 'en' });
-  expect(packageAnswers(parseInputs(on))).toMatchObject({
-    claude: true,
-    review: false,
-    securityReview: true,
-    language: 'en',
-  });
-  // Turned off again: the input goes away; not asked (no layer answer): kept
-  expect(parseInputs(await renderPackageWorkflow(on, 'main', { claude: false, securityReview: true }))).toStrictEqual({
-    stack: 'php',
-    'security-review': 'true',
-  });
-  expect(parseInputs(await renderPackageWorkflow(on, 'main', {}))).toMatchObject({ claude: 'true', language: 'en' });
-
-  // The security review is a required check only when it is on
+  // The security review and the risk gate are required checks of the claude job, only when on
   expect(laravelPackage.requiredChecks({ current: packageAnswers({}) })).toStrictEqual([
     'pipeline / tests / all-checks',
   ]);
-  expect(laravelPackage.requiredChecks({ current: packageAnswers(parseInputs(on)) })).toStrictEqual([
-    'pipeline / tests / all-checks',
-    'pipeline / security / security',
-  ]);
+  expect(
+    laravelPackage.requiredChecks({ current: answersOf(await renderPackageWorkflow('', 'main', ALL_ON)) }),
+  ).toStrictEqual(['pipeline / tests / all-checks', 'claude / security / security', 'claude / gate / gate']);
 
   // Setup reads the labels, the Claude token and the App; so does check when a layer is on
   const github = fakeGitHub({
@@ -342,7 +372,7 @@ test('turns the Claude layers on only when asked, writing true, and reads what t
     claudeToken: { repository: false, organization: true },
     claudeApp: 'selected',
   });
-  expect(await read(github, { current: packageAnswers({ review: 'true' }) })).toMatchObject({ labels: ['claude'] });
+  expect(await read(github, { current: packageAnswers({}, { review: 'true' }) })).toMatchObject({ labels: ['claude'] });
 });
 
 test('creates the labels of the layers that are on, stores the token and checks them', async (t) => {
@@ -367,14 +397,12 @@ test('creates the labels of the layers that are on, stores the token and checks 
 
   // check: the token and the App are errors only with a layer on
   const workflow = await readFile(join(root, WORKFLOW_PATH), 'utf8');
-  const titles = async (current, extra = {}) =>
-    (await laravelPackage.evaluate({ ...PACKAGE_STATE, workflow, current, ...extra })).map(
-      (item) => `${item.status} ${item.title}`,
-    );
-  expect(await titles(packageAnswers(parseInputs(workflow)))).toContainEqual(
+  const titles = async (current) =>
+    (await laravelPackage.evaluate({ ...PACKAGE_STATE, workflow, current })).map((item) => item.title);
+  expect(await titles(answersOf(workflow))).toContainEqual(
     expect.stringContaining('Missing labels: claude, claude-plan, no-review'),
   );
-  expect(await titles(packageAnswers(parseInputs(workflow)))).toContainEqual(
+  expect(await titles(answersOf(workflow))).toContainEqual(
     expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN is not available'),
   );
   expect(await titles(packageAnswers({}))).not.toContainEqual(expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN'));
@@ -382,19 +410,25 @@ test('creates the labels of the layers that are on, stores the token and checks 
 
 test('turns the risk gate on as a layer that needs no Claude, counting a solo author as one approval', async () => {
   const gate = await renderPackageWorkflow('', 'main', { riskGate: true, solo: true });
-  expect(parseInputs(gate)).toStrictEqual({ 'risk-gate': 'true', 'count-author': 'true' });
-  // A team: the author does not count
-  expect(parseInputs(await renderPackageWorkflow('', 'main', { riskGate: true, solo: false }))).toStrictEqual({
+  expect(parseInputs(gate)).toStrictEqual({});
+  expect(parseInputs(gate, 'claude')).toStrictEqual({
+    'tests-result': '${{ needs.pipeline.result }}',
     'risk-gate': 'true',
+    'count-author': 'true',
   });
-  // Turned off: count-author goes with it
-  expect(parseInputs(await renderPackageWorkflow(gate, 'main', { riskGate: false, solo: true }))).toStrictEqual({});
+  // A team: the author does not count
+  expect(parseInputs(await renderPackageWorkflow('', 'main', { riskGate: true, solo: false }), 'claude')).toStrictEqual(
+    {
+      'tests-result': '${{ needs.pipeline.result }}',
+      'risk-gate': 'true',
+    },
+  );
 
-  const current = packageAnswers(parseInputs(gate));
+  const current = answersOf(gate);
   expect(current.riskGate).toBe(true);
   expect(laravelPackage.requiredChecks({ current })).toStrictEqual([
     'pipeline / tests / all-checks',
-    'pipeline / gate / gate',
+    'claude / gate / gate',
   ]);
   // No Claude token or language for the risk gate alone
   const steps = setup.steps();
@@ -417,19 +451,15 @@ test('writes api-check only when on, and keeps it when the question is not asked
 
 test('reports a layer that is on when the workflow file lacks its events or permissions', async () => {
   const errors = async (workflow) =>
-    (await laravelPackage.evaluate({ ...PACKAGE_STATE, workflow, current: packageAnswers(parseInputs(workflow)) }))
+    (await laravelPackage.evaluate({ ...PACKAGE_STATE, workflow, current: answersOf(workflow) }))
       .filter((item) => item.level === 'error')
       .map((item) => item.title);
-  // The file setup writes has what every layer needs
-  const full = await renderPackageWorkflow('', 'main', {
-    claude: true,
-    review: true,
-    securityReview: true,
-    riskGate: true,
-  });
-  expect(await errors(full)).not.toContainEqual(expect.stringContaining('lacks'));
+  // The file setup writes has what every layer needs: the events, and the claude job's own permissions
+  expect(await errors(await renderPackageWorkflow('', 'main', ALL_ON))).not.toContainEqual(
+    expect.stringContaining('lacks'),
+  );
 
-  // An older file: only pushes and pull requests, and contents: read
+  // A claude job added by hand to the old file: no events of its own, and no permissions beyond the workflow's
   const old = [
     'name: datalogix',
     'on:',
@@ -441,6 +471,10 @@ test('reports a layer that is on when the workflow file lacks its events or perm
     'jobs:',
     '  pipeline:',
     '    uses: datalogix/workflows/.github/workflows/package.yml@v2',
+    '    secrets: inherit',
+    '  claude:',
+    '    needs: pipeline',
+    '    uses: datalogix/workflows/.github/workflows/package-claude.yml@v2',
     '    secrets: inherit',
     '    with:',
     '      risk-gate: true',
