@@ -20,7 +20,7 @@ Passed to `package` with `stack: js`:
 | `os` | `["ubuntu-latest"]` | Runners the tests run on (JSON) |
 | `test-command` | empty | Empty runs the `test` script; `none` skips the tests |
 | `min-coverage` | `100` | Minimum coverage of the tests; `0` turns the check off. See [Minimum coverage](../coverage.md) |
-| `lint-command` | empty | Extra lint command after the `build` script, e.g. `npx publint && npx attw --pack .` |
+| `lint-command` | empty | Extra lint command after the `build` script, e.g. `npx publint && npx attw --pack .`, or `composer install --no-interaction && composer lint` for PHP tooling |
 | `timeout-minutes` | `30` | Timeout of each job |
 | `tests` | `true` | `false` turns the layer off, and its required check with it: run `protect` again |
 

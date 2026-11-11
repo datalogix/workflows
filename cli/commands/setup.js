@@ -1,6 +1,26 @@
+import { access } from 'node:fs/promises';
+import { join } from 'node:path';
 import { askSteps, clack, logResults, orExit, runTasks } from '../lib/ui.js';
 import { WORKFLOW_PATH } from '../lib/workflow-file.js';
-import { detectStack, fromFlags, setupChoices } from '../stacks/index.js';
+import { detectStack, fromFlags, setupChoices, STACKS } from '../stacks/index.js';
+
+/**
+ * The flags with --kind added from the stack --stack names, when it is not the detected one and --kind is not given:
+ * the detected kind belongs to another stack (a Nuxt app with a composer.json detected as a PHP package would become a
+ * JavaScript package). The named stack's kindOf (or detect) reads the folder; without an answer, the detected kind stays.
+ */
+async function withNamedKind(flags, detected, root) {
+  if (flags.stack === undefined || flags.kind !== undefined || flags.stack === detected.stack) return flags;
+  const named = STACKS.find((stack) => stack.id === flags.stack);
+  const kind = named && (await (named.kindOf ?? named.detect)(root));
+  return kind ? { ...flags, kind: kind === 'project' ? 'app' : 'package' } : flags;
+}
+
+const hasPackageJson = (root) =>
+  access(join(root, 'package.json')).then(
+    () => true,
+    () => false,
+  );
 
 /**
  * The stack and kind to set up: --stack and --kind, else the detected ones, confirmed with a question (the detection
@@ -15,20 +35,25 @@ export async function chooseStack(ctx) {
   // Laravel folder detection misses (e.g. a repository not scaffolded yet)
   if (!detected.recognized && !flagged) {
     throw new Error(
-      'This folder is not a Laravel app or package (no artisan file, and composer.json does not require Laravel), a PHP app or package (no composer.json) nor a JavaScript library (no package.json). Run setup from the project folder, or pass --stack and --kind to set it up anyway.',
+      'This folder is not a Laravel app or package (no artisan file, and composer.json does not require Laravel), a PHP app or package (no composer.json) nor a JavaScript app or library (no package.json). Run setup from the project folder, or pass --stack and --kind to set it up anyway.',
     );
   }
   let chosen = detected;
-  if (flagged) chosen = fromFlags(ctx.flags, detected);
+  if (flagged) chosen = fromFlags(await withNamedKind(ctx.flags, detected, ctx.root), detected);
   else if (!ctx.flags.yes) {
     // The kinds of the detected stack: another stack's template would not run this folder's tests
     const choices = setupChoices().filter(
       (choice) => choice.stack === detected.stack && (!fileKind || choice.kind === fileKind),
     );
     if (choices.length > 1 && choices.some((choice) => choice.label === detected.label)) {
+      // composer.json made it PHP, with package.json there too: another stack is only a flag away
+      const hint =
+        detected.stack === 'php' && (await hasPackageJson(ctx.root))
+          ? ' (a JavaScript project? run setup with --stack js)'
+          : '';
       const label = orExit(
         await clack.select({
-          message: `This folder looks like a ${detected.label}. Set it up as:`,
+          message: `This folder looks like a ${detected.label}${hint}. Set it up as:`,
           initialValue: detected.label,
           options: choices.map((choice) => ({ value: choice.label, label: choice.label })),
         }),

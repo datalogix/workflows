@@ -851,6 +851,35 @@ test('checks the Netlify token and site of each environment, and a Nitro preset 
   expect(titles(staticPreset, 'warn').join('\n')).not.toContain('Nitro preset');
 });
 
+test('warns about a SvelteKit adapter that does not build for the deploy target', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'netlify',
+    monitoring: 'none',
+    incidents: false,
+  });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'sveltekit',
+    healthFile: 'src/routes/api/health/+server.ts',
+    healthRoute: true,
+  };
+  const warnings = async (svelteAdapter) =>
+    titles(await run({ ...state, svelteAdapter }, { repository: 'datalogix/app', probe: async () => 200 }), 'warn');
+  expect(await warnings('node')).toContainEqual(
+    'svelte.config uses @sveltejs/adapter-node, which does not build for Netlify',
+  );
+  expect(await warnings('vercel')).toContainEqual(
+    'svelte.config uses @sveltejs/adapter-vercel, which does not build for Netlify',
+  );
+  for (const adapter of ['auto', 'netlify', 'static', null]) {
+    expect((await warnings(adapter)).join('\n')).not.toContain('svelte.config');
+  }
+});
+
 test('takes a protected health URL as passing only with the bypass secret of the environment', async () => {
   const workflow = await renderProjectWorkflow({
     stack: 'js',

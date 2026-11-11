@@ -7,7 +7,7 @@ The tests workflows run the project's own lint tools, so CI, your machine and Cl
 | Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request (Blade views too, see [Blade views](#blade-views)), PHPStan, `lint-command`; with `js`, the typecheck and lint scripts of `package.json` |
 | Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files (Blade views too), PHPStan, `lint-command`, once outside the matrix |
 | PHP package | [`laravel-package-tests`](php/package-tests.md), without Laravel | Pint on the changed files, PHPStan, `lint-command` (php-cs-fixer, ECS, Psalm, Rector), once outside the matrix |
-| Next, Nuxt, Vue and React built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
+| Next, Nuxt, SvelteKit, and Vue, React and Svelte built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
 | JavaScript or TypeScript library | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, the build, then `lint-command` |
 
 ## Rules for every project
@@ -119,6 +119,19 @@ A package without Blade views needs nothing else: without a `package.json` that 
 ```
 
 `create-vite` writes `"lint": "oxlint"` (or `"eslint ."`), which already checks only, and type-checks in `build` (`tsc -b && vite build`).
+
+## SvelteKit
+
+```json
+{
+    "scripts": {
+        "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+        "lint": "prettier --check . && eslint ."
+    }
+}
+```
+
+The SvelteKit templates name the type check `check` (`svelte-kit sync && svelte-check`) and also write `lint`. CI runs the first of `lint` and `check` as lint, so with both, `svelte-check` never runs: add a `typecheck` script with the same command (keep `check` for your editor if you like). Without a `lint` script, `check` runs as lint instead. A Svelte single-page app built with Vite has `svelte-check` too: name it `typecheck` the same way.
 
 ## JavaScript and TypeScript libraries
 

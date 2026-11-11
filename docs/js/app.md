@@ -1,6 +1,6 @@
 # Adding a JavaScript app
 
-Next and Nuxt apps, and Vue and React single-page apps built with Vite, call `project`, the same entry point as Laravel apps, with `stack: js`. They get Claude on issues and pull requests, the tests, the Claude code review, the security review, the risk gate, Fix CI, Sentry problems as issues and, on [Vercel](../deploy.md#vercel), the same deploys as a Laravel app: staging, then production, each watched and rolled back automatically when its health checks fail.
+Next, Nuxt and SvelteKit apps, and Vue, React and Svelte single-page apps built with Vite, call `project`, the same entry point as Laravel apps, with `stack: js`. They get Claude on issues and pull requests, the tests, the Claude code review, the security review, the risk gate, Fix CI, Sentry problems as issues and, on [Vercel](../deploy.md#vercel), the same deploys as a Laravel app: staging, then production, each watched and rolled back automatically when its health checks fail.
 
 Claude follows the `core` and `js` plugins ([Claude's conventions](../claude.md)): the language and pull request rules of every project, plus JavaScript's practices (feature flags only with the project's flag library, additive migrations, the `package.json` scripts and the build before a pull request). The security review uses a checklist for server routes, API handlers, server actions, secrets exposed to the browser and the page payload.
 
@@ -12,7 +12,7 @@ After the [organization setup](../organization-setup.md), from the app folder:
 npx --allow-git=root github:datalogix/workflows#v2 setup
 ```
 
-It detects a JavaScript app (a `package.json` without `composer.json`, with `next` or `nuxt` among its dependencies or a `next.config.*` or `nuxt.config.*` file, or a Vue or React single-page app built with Vite: `vite` and `vue` or `react` among its dependencies, an `index.html` at the root and no `exports`, `main` or `module` in `package.json`, which a component library has) and asks you to confirm whether it is an app or a library (`--stack js --kind app` answers it). Then it asks, as for a Laravel app and in this order:
+It detects a JavaScript app (a `package.json` with `next` or `nuxt` among its dependencies or a `next.config.*` or `nuxt.config.*` file; `@sveltejs/kit` without `@sveltejs/package` or the `exports`, `main`, `module` or `svelte` fields a Svelte library publishes; or a Vue, React or Svelte single-page app built with Vite: `vite` and `vue`, `react` or `svelte` among its dependencies, an `index.html` at the root and none of those fields, which a component library has) and asks you to confirm whether it is an app or a library (`--stack js --kind app` answers it). A `composer.json` at the root makes the folder a PHP project, with two exceptions that stay JavaScript: a Next or Nuxt app without a PHP entry point (`bin/console`, `public/index.php`, `web/index.php`, `craft` or a `*.php` file at the root), even when it has a PHP tool inside, and a `composer.json` only there for tooling (no `autoload`, only platform requirements such as `php` and `ext-*`, the default type, `library` or `project`, and no PHP in `src/`). Anything else, a Vite single-page app with PHP code (the frontend of a PHP app) or a WordPress theme, is PHP; `--stack js` sets it up as JavaScript anyway, with the kind its `package.json` says. To run PHP tooling in CI, use `lint-command` (the runner has PHP and Composer), e.g. `composer install --no-interaction && composer lint`. Then it asks, as for a Laravel app and in this order:
 
 | Question | Asked when |
 | --- | --- |
@@ -27,7 +27,7 @@ It detects a JavaScript app (a `package.json` without `composer.json`, with `nex
 | The app's monitoring service: Sentry or none (`monitoring`) | always |
 | Claude token (hidden input) | the repository cannot read one |
 | Whether Sentry problems become issues (of the `production` and `staging` environments: `incident-environments` changes them), and Sentry's signing secret (the Client Secret of an [internal integration](../production-errors.md#sentry)) | the app has a monitoring service; the secret, when the relay is configured |
-| Whether to create the health route `/api/health` (`app/api/health/route.ts` or `pages/api/health.ts` on Next, `server/api/health.get.ts` on Nuxt, in JavaScript without a `tsconfig.json`), or for a single-page app or a Nuxt app built as static files (`nuxt generate` or `nuxt build --prerender` as the build command of `netlify.toml` or `vercel.json` or as the `build` script, or the `static` Nitro preset) the static file `public/health.json`, which the build copies and the host serves at `/health.json` | the app deploys to that path and has no route there |
+| Whether to create the health route `/api/health` (`app/api/health/route.ts` or `pages/api/health.ts` on Next, `server/api/health.get.ts` on Nuxt, `src/routes/api/health/+server.ts` on SvelteKit, not prerendered, in JavaScript without a `tsconfig.json`), or for a single-page app, a Nuxt app built as static files (`nuxt generate` or `nuxt build --prerender` as the build command of `netlify.toml` or `vercel.json` or as the `build` script, or the `static` Nitro preset) or a SvelteKit app with `@sveltejs/adapter-static` the static file `public/health.json` (`static/health.json` on SvelteKit), which the build copies and the host serves at `/health.json` | the app deploys to that path and has no route there |
 | Whether the tests run the end-to-end tests (`test:e2e`) | `package.json` has that script |
 | Claude and the risk gate on pull requests: code review, security review, risk gate and fix CI | always |
 | Language of what is written for the team | always |
@@ -48,7 +48,7 @@ With Netlify it:
 - writes, for a single-page app with a router, the redirect of every path to `index.html` in `netlify.toml`, unless it or `public/_redirects` has its own `[[redirects]]`. Commit it with the workflow file;
 - creates the health route, when you said so.
 
-It ends with what is left: the commit, what Vercel or Netlify still needs (the secrets left empty, the staging domain on Vercel, auto publishing to lock and a site whose production branch is not the one it deploys on Netlify), Sentry's SDK when `package.json` does not have it (`npx @sentry/wizard@latest -i nextjs`, or `-i nuxt`; `npm install @sentry/vue` or `@sentry/react` in a single-page app), the Sentry webhook, and `protect`.
+It ends with what is left: the commit, what Vercel or Netlify still needs (the secrets left empty, the staging domain on Vercel, auto publishing to lock and a site whose production branch is not the one it deploys on Netlify), Sentry's SDK when `package.json` does not have it (`npx @sentry/wizard@latest -i nextjs`, or `-i nuxt`, `-i sveltekit`; `npm install @sentry/vue`, `@sentry/react` or `@sentry/svelte` in a single-page app), the Sentry webhook, and `protect`.
 
 ## Step 2: protect the default branch
 
@@ -60,6 +60,6 @@ npx --allow-git=root github:datalogix/workflows#v2 protect
 
 The required checks are the same as a Laravel app's: `pipeline / tests / tests`, `pipeline / security / security` and `pipeline / gate / gate`, for the layers that are on.
 
-`check` reports what is missing: the workflow file, labels, Claude token, the environments with `VERCEL_TOKEN`, `VERCEL_PROJECT` and `HEALTH_URL`, or `NETLIFY_TOKEN`, `NETLIFY_SITE_ID` and `HEALTH_URL` (and whether it answers `200`; a `401` is not a problem with `VERCEL_AUTOMATION_BYPASS_SECRET` in the environment, which the deploys send and `check` cannot), the health route, a Nitro preset in `nuxt.config` that does not build for the deploy target, the ruleset, the code owners, Sentry's SDK in `package.json` and the relay registration.
+`check` reports what is missing: the workflow file, labels, Claude token, the environments with `VERCEL_TOKEN`, `VERCEL_PROJECT` and `HEALTH_URL`, or `NETLIFY_TOKEN`, `NETLIFY_SITE_ID` and `HEALTH_URL` (and whether it answers `200`; a `401` is not a problem with `VERCEL_AUTOMATION_BYPASS_SECRET` in the environment, which the deploys send and `check` cannot), the health route, a Nitro preset in `nuxt.config` or a SvelteKit adapter in `svelte.config` that does not build for the deploy target (`@sveltejs/adapter-auto`, `-static` and the target's own adapter do), the ruleset, the code owners, Sentry's SDK in `package.json` and the relay registration.
 
 What the tests run: [JavaScript app tests](app-tests.md). Without setup: [by hand](app-manual-setup.md).
