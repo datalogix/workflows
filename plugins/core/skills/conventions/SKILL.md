@@ -13,6 +13,8 @@ These rules apply to every project. The stack's conventions skill (e.g. `laravel
 - Everything you write for the team is in the team language: issue and PR comments, PR titles and descriptions, commit messages.
 - Use Conventional Commits with the type in English (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `style`, `perf`, `build`, `ci`) and the description in the team language.
   - Example: `feat: adiciona autenticação via OAuth`
+- The project's `CLAUDE.md` can set another commit format with a `- Commits: <format>` line, which takes priority: with `- Commits: no type prefix`, write only the description, capitalized, with no type (e.g. `Adiciona autenticação via OAuth`). A breaking change then gets only the `BREAKING CHANGE:` footer.
+- PR titles follow the same format as the commits.
 - Section names and fixed phrases in these instructions and in the Datalogix commands (**Resumo**, **Observações**, "problema pré-existente, fora do escopo") are in Brazilian Portuguese: in another team language, write them translated.
 
 ## Implementation
