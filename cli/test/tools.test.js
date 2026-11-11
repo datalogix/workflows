@@ -90,6 +90,12 @@ test('suggests a test command that does not lint again', async (t) => {
     value: '',
     label: 'vendor/bin/phpunit',
   });
+
+  // A test script that also runs a formatter of a PHP package lints again
+  for (const linter of ['vendor/bin/php-cs-fixer fix --dry-run', 'vendor/bin/ecs check']) {
+    const formatted = { ...NO_TOOLS, phpunit: true, scripts: { test: [linter, 'vendor/bin/phpunit'] } };
+    expect(suggestedTests(formatted, 'package').label).toBe('vendor/bin/phpunit');
+  }
 });
 
 test('suggests the check scripts the chosen tools do not cover', async (t) => {

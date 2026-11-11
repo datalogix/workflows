@@ -17,7 +17,7 @@ Where it runs:
 | Workflow | Where | Driver |
 | --- | --- | --- |
 | [`laravel-app-tests`](laravel/app-tests.md) | The PHP test suite (`composer test`, `php artisan test` or `test-command`). The `package.json` `test` script is not read | `pcov`, installed with the suite |
-| [`laravel-package-tests`](laravel/package-tests.md) | The newest combination of the matrix, the one that uploads to Codecov, when `min-coverage` is not 0 | `coverage-driver` (`pcov` by default) |
+| [`laravel-package-tests`](laravel/package-tests.md) (Laravel and PHP packages) | The newest combination of the matrix, the one that uploads to Codecov, when `min-coverage` is not 0 | `coverage-driver` (`pcov` by default) |
 | [`node-app-tests`](js/app-tests.md) | The `test` script (or `test-command`) | the project's (`@vitest/coverage-v8`, Jest's own) |
 | [`node-package-tests`](js/package-tests.md) | Each Node version, on the first runner of `os` (every runner measures the same code), when `min-coverage` is not 0 | the project's |
 
@@ -32,7 +32,7 @@ Every project ignores the report in `.gitignore`, next to PHPUnit's cache:
 clover.xml
 ```
 
-### Laravel packages
+### Laravel and PHP packages
 
 `phpunit.xml.dist`, the same in every package:
 

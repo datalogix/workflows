@@ -4,11 +4,12 @@ Start with the [organization setup](organization-setup.md), done once: the Claud
 
 ## By stack
 
-Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages and JavaScript apps (Next, Nuxt, Vue and React built with Vite) and libraries are supported; the `setup` command detects the stack and kind of the folder.
+Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages, PHP packages without Laravel, and JavaScript apps (Next, Nuxt, Vue and React built with Vite) and libraries are supported; the `setup` command detects the stack and kind of the folder.
 
 | Stack | App | App tests | Package | Package tests |
 | --- | --- | --- | --- | --- |
 | Laravel | [Adding a Laravel app](laravel/app.md) ([by hand](laravel/app-manual-setup.md)) | [Laravel app tests](laravel/app-tests.md) | [Adding a Laravel package](laravel/package.md) | [Laravel package tests](laravel/package-tests.md) |
+| PHP without Laravel (`php`) | — | — | [Adding a PHP package](php/package.md) | [PHP package tests](php/package-tests.md) |
 | JavaScript (`js`) | [Adding a JavaScript app](js/app.md) ([by hand](js/app-manual-setup.md)) | [JavaScript app tests](js/app-tests.md) | [Adding a JavaScript library](js/package.md) | [JavaScript library tests](js/package-tests.md) |
 
 ## Common to every stack
@@ -30,4 +31,4 @@ Each stack has the same four pages (plus a manual setup for apps): adding an app
 
 ## Adding a stack
 
-A stack (php, js, vue, nuxt) adds a folder here with the same four pages, `cli/stacks/<stack>/` for the setup command ([cli/README.md](../cli/README.md)), its jobs in `project.yml` and `package.yml` behind the `stack` input, and its Claude plugin in `plugins/<stack>`.
+A stack adds a folder here with the same four pages (or the two of the kind it supports), `cli/stacks/<stack>/` for the setup command ([cli/README.md](../cli/README.md)), its jobs in `project.yml` and `package.yml` behind the `stack` input, and, when it has apps (the Claude jobs live in `project.yml`), its Claude plugin in `plugins/<stack>`.

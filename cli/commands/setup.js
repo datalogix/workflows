@@ -15,7 +15,7 @@ export async function chooseStack(ctx) {
   // Laravel folder detection misses (e.g. a repository not scaffolded yet)
   if (!detected.recognized && !flagged) {
     throw new Error(
-      'This folder is not a Laravel app or package (no artisan file, and composer.json does not require Laravel) nor a JavaScript library (no package.json). Run setup from the project folder, or pass --stack and --kind to set it up anyway.',
+      'This folder is not a Laravel app or package (no artisan file, and composer.json does not require Laravel), a PHP package (no composer.json, or it is a PHP app, which is not supported yet) nor a JavaScript library (no package.json). Run setup from the project folder, or pass --stack and --kind to set it up anyway.',
     );
   }
   let chosen = detected;

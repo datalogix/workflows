@@ -10,6 +10,7 @@ import { parseInputs, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import { detectStack } from '../stacks/index.js';
 import jsPackage from '../stacks/js/package.js';
 import laravelPackage from '../stacks/laravel/package.js';
+import phpPackage from '../stacks/php/package.js';
 import { byTitle, fakeGitHub, folder, PACKAGE_STATE, runResults, tempRoot } from './helpers.js';
 
 // Quiet progress bars: the tests read the results, not the terminal
@@ -244,6 +245,24 @@ test('writes stack: js for a JavaScript library, and asks for no Codecov token',
     current: packageAnswers(parseInputs(workflow)),
   });
   expect(items.map((item) => item.title)).not.toContainEqual(expect.stringContaining('CODECOV_TOKEN'));
+});
+
+test('writes stack: php for a PHP package, with the lint and test tools and the Codecov token of a Laravel one', async (t) => {
+  const root = await tempRoot(t, 'package-');
+  const answers = { repository: 'datalogix/lib', solo: true, codeOwners: '@ana' };
+  const results = await runResults(
+    phpPackage.setup.tasks(answers, { github: fakeGitHub(), root, state: PACKAGE_STATE }),
+  );
+  expect(results.every((result) => result.ok)).toBe(true);
+  const workflow = await readFile(join(root, WORKFLOW_PATH), 'utf8');
+  expect(parseInputs(workflow)).toMatchObject({ stack: 'php' });
+  expect(packageAnswers(parseInputs(workflow)).stack).toBe('php');
+
+  // The same questions as a Laravel package
+  const ids = (kind) => kind.setup.steps().map((step) => step.id);
+  expect(ids(phpPackage)).toStrictEqual(ids(laravelPackage));
+  const codecov = phpPackage.setup.steps().find((step) => step.id === 'codecovToken');
+  expect(codecov.when({}, { state: { ...PACKAGE_STATE, codecovToken: false } })).toBe(true);
 });
 
 test('writes no stack input for a Laravel package, and keeps the one of the file when not given', async () => {

@@ -12,6 +12,7 @@ on:
       laravel:
         type: string
         default: '["^12.0", "^13.0"]'
+        description: Laravel versions of the matrix; '[""]' installs no framework, for a PHP package without Laravel (package.yml passes it with stack php)
       stability:
         type: string
         default: '["prefer-lowest", "prefer-stable"]'
@@ -87,7 +88,7 @@ jobs:
         stability: ${{ fromJSON(inputs.stability) }}
         exclude: ${{ fromJSON(inputs.exclude) }}
 
-    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
+    name: P${{ matrix.php }}${{ matrix.laravel && format(' - L{0}', matrix.laravel) || '' }} - ${{ matrix.stability }} - ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -116,16 +117,19 @@ jobs:
           laravel=$(jq -r "$newest" <<< "$LARAVEL")
           stability=$(jq -r 'if index("prefer-stable") then "prefer-stable" else last end' <<< "$STABILITY")
 
+          # Without the Laravel axis (laravel: '[""]') the messages leave Laravel out
+          named="PHP $php${laravel:+, Laravel $laravel}, $stability, $os"
+
           # An exclude entry matching the newest combination would leave no job collecting coverage
           combination=$(jq -n --arg os "$os" --arg php "$php" --arg laravel "$laravel" --arg stability "$stability" '$ARGS.named')
           if jq -e --argjson c "$combination" 'any(.[]; to_entries | all((.value | tostring) == $c[.key]))' <<< "$EXCLUDE" >/dev/null; then
-            echo "::warning::exclude removes PHP $php, Laravel $laravel, $stability, $os, the combination that collects coverage: coverage is neither reported nor checked"
+            echo "::warning::exclude removes $named, the combination that collects coverage: coverage is neither reported nor checked"
           fi
 
           if [ "$MATRIX_OS" = "$os" ] && [ "$MATRIX_PHP" = "$php" ] && [ "$MATRIX_LARAVEL" = "$laravel" ] && [ "$MATRIX_STABILITY" = "$stability" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Coverage is collected on PHP $php, Laravel $laravel, $stability, $os"
+            echo "Coverage is collected on $named"
           fi
 
       - name: Setup PHP
@@ -153,7 +157,10 @@ jobs:
           LARAVEL: ${{ matrix.laravel }}
           STABILITY: ${{ matrix.stability }}
         run: |
-          composer require "laravel/framework:$LARAVEL" --no-interaction --no-update
+          # Empty without the Laravel axis: a PHP package installs its own requirements only
+          if [ -n "$LARAVEL" ]; then
+            composer require "laravel/framework:$LARAVEL" --no-interaction --no-update
+          fi
           composer update "--$STABILITY" --prefer-dist --no-interaction
 
       - name: Execute tests

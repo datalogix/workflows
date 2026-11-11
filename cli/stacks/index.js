@@ -3,13 +3,15 @@ import { join } from 'node:path';
 import { parseInputs, stackOf, usesRef, WORKFLOW_PATH } from '../lib/workflow-file.js';
 import js from './js/index.js';
 import laravel from './laravel/index.js';
+import php from './php/index.js';
 
 /**
  * The stacks the commands support, in the order they are tried. A stack is { id, label, detect(root) → kind or null,
  * kinds: { project, package } }, each kind a module with what setup, check and protect need (see laravel/).
- * Adding a stack (php, js, vue, nuxt) is a folder here and a line in this list.
+ * Adding a stack is a folder here and a line in this list. php comes after laravel, which claims every folder with
+ * artisan or a Laravel dependency; js steps aside for any folder with composer.json.
  */
-export const STACKS = [laravel, js];
+export const STACKS = [laravel, php, js];
 
 // A folder no stack recognizes (or no folder) is read as a Laravel app, the most common case; setup refuses it unless
 // --stack or --kind says what it is (recognized: false)
@@ -28,7 +30,9 @@ export async function detectStack(root) {
   } catch {
     // no workflow file yet
   }
-  const named = workflow && stackOf(parseInputs(workflow));
+  // A workflow file that calls an entry point without a stack input runs the default, laravel: a Laravel package whose
+  // composer.json does not name Laravel stays one instead of being detected as a PHP package
+  const named = workflow && (stackOf(parseInputs(workflow)) || (callsEntryPoint(workflow) ? laravel.id : null));
   let found = named ? { stack: STACKS.find((stack) => stack.id === named), kind: null } : null;
   if (found && !found.stack)
     throw new Error(`${WORKFLOW_PATH} uses stack ${named}, which this command does not support yet`);
@@ -60,6 +64,11 @@ export function fromFlags(flags, detected) {
   // parseArgs accepts only app and package; app is the project kind (project.yml)
   const kind = flags.kind === undefined ? detected.kind : { app: 'project', package: 'package' }[flags.kind];
   return withModule(stack, kind);
+}
+
+/** Whether the workflow file calls the entry point of any kind (project.yml or package.yml). */
+function callsEntryPoint(workflow) {
+  return STACKS.some((stack) => workflowKind(stack, workflow) !== null);
 }
 
 /** The kind whose entry point (its module's ref, at any version) the workflow file calls, or null. */

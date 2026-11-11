@@ -1,6 +1,6 @@
 name: package
 
-# Every workflow a Laravel package or a JavaScript library needs, behind a single file in the package
+# Every workflow a Laravel package, a PHP package or a JavaScript library needs, behind a single file in the package
 # (examples/package.yml). New layers are added here, so packages get them without changing their file.
 #
 # Required checks (branch ruleset): <calling job> / tests / all-checks. The tests job of each stack is named tests, so
@@ -12,11 +12,11 @@ on:
       stack:
         type: string
         default: laravel
-        description: Stack of the package, which picks its tests (laravel or js)
+        description: Stack of the package, which picks its tests (laravel, php for a PHP package without Laravel, or js)
       tests:
         type: boolean
         default: true
-        description: Run the test suite across the matrix and the lint checks (laravel-package-tests, or node-package-tests for js)
+        description: Run the test suite across the matrix and the lint checks (laravel-package-tests, without the Laravel axis for php, or node-package-tests for js)
 
       # Passed to laravel-package-tests (and os, test-command, min-coverage, lint-command and timeout-minutes to
       # node-package-tests), with the same defaults
@@ -33,6 +33,7 @@ on:
       laravel:
         type: string
         default: '["^12.0", "^13.0"]'
+        description: Laravel versions of the matrix; ignored with stack php, which installs no framework
       stability:
         type: string
         default: '["prefer-lowest", "prefer-stable"]'
@@ -86,7 +87,7 @@ jobs:
   # Fails the run for an unsupported stack; the other jobs check inputs.stack in their condition, so no runner starts
   # just to check it on every event
   stack:
-    if: ${{ !contains(fromJSON('["laravel", "js"]'), inputs.stack) }}
+    if: ${{ !contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -96,11 +97,13 @@ jobs:
         env:
           STACK: ${{ inputs.stack }}
         run: |
-          echo "::error::stack '$STACK' is not supported; use laravel or js"
+          echo "::error::stack '$STACK' is not supported; use laravel, php or js"
           exit 1
 
+  # Laravel and PHP packages share laravel-package-tests: php runs it with an empty Laravel axis ('[""]'), so no
+  # framework is installed
   tests:
-    if: inputs.stack == 'laravel' && inputs.tests && contains(fromJSON('["push", "pull_request", "merge_group", "schedule", "workflow_dispatch"]'), github.event_name)
+    if: contains(fromJSON('["laravel", "php"]'), inputs.stack) && inputs.tests && contains(fromJSON('["push", "pull_request", "merge_group", "schedule", "workflow_dispatch"]'), github.event_name)
     permissions:
       contents: read
     uses: datalogix/workflows/.github/workflows/laravel-package-tests.yml@v2
@@ -109,7 +112,7 @@ jobs:
     with:
       os: ${{ inputs.os }}
       php: ${{ inputs.php }}
-      laravel: ${{ inputs.laravel }}
+      laravel: ${{ inputs.stack == 'php' && '[""]' || inputs.laravel }}
       stability: ${{ inputs.stability }}
       exclude: ${{ inputs.exclude }}
       extensions: ${{ inputs.extensions }}
