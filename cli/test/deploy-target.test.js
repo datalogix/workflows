@@ -12,7 +12,8 @@ import {
   withCommitCheckout,
   ZERO_DOWNTIME_SNIPPET,
 } from '../providers/deploy/forge.js';
-import app, { suggestedTarget } from '../stacks/laravel/app.js';
+import { suggestedTarget } from '../providers/deploy/sites.js';
+import app from '../stacks/laravel/app.js';
 import { APP_STATE, askedSteps, fakeGitHub, RELAY as relay } from './helpers.js';
 
 const { steps: setupSteps, tasks: setupTasks, nextSteps } = app.setup;

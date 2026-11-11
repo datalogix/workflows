@@ -109,6 +109,10 @@ on:
         type: string
         default: ""
         description: Extra lint command run after Pint and PHPStan (e.g. composer lint:check); empty runs none
+      database:
+        type: string
+        default: none
+        description: Database server for the tests of a Symfony app with Doctrine (stack php); postgres, mysql or mariadb starts it as a service and points DATABASE_URL at it; none (the default) uses the database of .env.test
       test-command:
         type: string
         default: ""
@@ -226,6 +230,7 @@ jobs:
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}
       js: ${{ inputs.js }}
+      database: ${{ inputs.database }}
 
   js-tests:
     # Same name as the Laravel job: the required check is <calling job> / tests / tests for every stack

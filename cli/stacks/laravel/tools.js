@@ -60,11 +60,14 @@ export function scriptCommands(scripts, name, seen = new Set()) {
 
 /**
  * The test command to suggest: { value, label }, value '' when it is what the workflow runs without test-command
- * (composer test when defined; otherwise php artisan test for an app, Pest or PHPUnit for a package). composer test is
- * not suggested when it also runs a lint tool, which the lint question covers.
+ * (composer test when defined; otherwise php artisan test for an app, Pest or PHPUnit for a package, or what
+ * testFallback(tools) says, for a PHP app without Laravel). composer test is not suggested when it also runs a lint
+ * tool, which the lint question covers.
  */
-export function suggestedTests(tools, kind) {
-  const fallback = kind === 'package' ? (tools.pest ? 'vendor/bin/pest' : 'vendor/bin/phpunit') : 'php artisan test';
+export function suggestedTests(tools, kind, testFallback = null) {
+  const fallback =
+    testFallback?.(tools) ??
+    (kind === 'package' ? (tools.pest ? 'vendor/bin/pest' : 'vendor/bin/phpunit') : 'php artisan test');
   if (!tools.scripts.test) return { value: '', label: fallback };
   if (scriptCommands(tools.scripts, 'test').some((command) => LINT.test(command))) {
     return { value: fallback, label: fallback };
@@ -90,8 +93,11 @@ export function suggestedLint(tools, chosen = []) {
 // The tools the lint question offers, those installed
 const offered = (tools) => ['pint', 'phpstan'].filter((tool) => tools[tool]);
 
-/** The lint and test questions of a Laravel app (kind 'project') or package ('package'). */
-export function toolSteps(kind) {
+/**
+ * The lint and test questions of a Laravel app (kind 'project') or package ('package'); testFallback(tools) names the
+ * test command the workflow runs without composer test, when it is not the one of a Laravel app or package.
+ */
+export function toolSteps(kind, { testFallback = null } = {}) {
   const tools = (ctx) => ctx.state.tools ?? NO_TOOLS;
   return [
     {
@@ -147,7 +153,7 @@ export function toolSteps(kind) {
       validate: validTests,
       parse: (value) => (value.trim() === NO_TESTS ? NO_TESTS : 'other'),
       ask: async ({ header, ctx }) => {
-        const suggested = suggestedTests(tools(ctx), kind);
+        const suggested = suggestedTests(tools(ctx), kind, testFallback);
         const current = ctx.state.current?.testCommand ?? null;
         const installed = tools(ctx).phpunit || Boolean(tools(ctx).scripts.test);
         const initialValue =

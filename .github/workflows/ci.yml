@@ -263,17 +263,56 @@ jobs:
         shell: bash
         run: php artisan test
 
-  # setup-laravel on a Symfony app (stack php): no Laravel environment or Boost, the test database of .env.test migrated
+  # setup-laravel on a Symfony app (stack php): no Laravel environment or Boost, the test database migrated. sqlite is
+  # set in .env.test; the servers as laravel-app-tests starts them for its database input (same images and URLs)
   setup-symfony:
     runs-on: ubuntu-latest
 
     timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres, mysql, mariadb]
+
+    name: setup-symfony (${{ matrix.database }})
+
+    services:
+      database:
+        image: ${{ matrix.database == 'postgres' && 'postgres:17' || matrix.database == 'mysql' && 'mysql:8.4' || matrix.database == 'mariadb' && 'mariadb:11.4' || '' }}
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: app
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: app
+        ports:
+          - 5432:5432
+          - 3306:3306
+        options: >-
+          ${{ matrix.database == 'postgres' && '--health-cmd "pg_isready -U app" --health-interval 5s --health-timeout 5s --health-retries 20' || matrix.database == 'mariadb' && '--health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 20' || '--health-cmd "mysqladmin ping -h 127.0.0.1 -proot" --health-interval 5s --health-timeout 5s --health-retries 20' }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           path: .central
+
+      # As the step of laravel-app-tests that reads its database input
+      - name: Point DATABASE_URL at the database service
+        if: matrix.database != 'sqlite'
+        shell: bash
+        env:
+          DATABASE: ${{ matrix.database }}
+        run: |
+          case "$DATABASE" in
+            postgres) url='postgresql://app:app@127.0.0.1:5432/app?serverVersion=17&charset=utf8' ;;
+            mysql) url='mysql://root:root@127.0.0.1:3306/app?serverVersion=8.4.0&charset=utf8mb4' ;;
+            mariadb) url='mysql://root:root@127.0.0.1:3306/app?serverVersion=11.4.0-MariaDB&charset=utf8mb4' ;;
+          esac
+          echo "DATABASE_URL=$url" >> "$GITHUB_ENV"
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -288,7 +327,8 @@ jobs:
           composer require symfony/orm-pack --no-interaction
           composer require --dev symfony/test-pack --no-interaction
 
-          # The default .env points at Postgres; a project that tests on SQLite says so in .env.test
+          # The default .env points at Postgres; a project that tests on SQLite says so in .env.test (the servers set
+          # DATABASE_URL in the environment, which wins over it)
           echo 'DATABASE_URL="sqlite:///%kernel.project_dir%/var/data_%kernel.environment%.db"' >> .env.test
           sha256sum .env .env.test > "$RUNNER_TEMP/env.sha256"
 
@@ -300,13 +340,19 @@ jobs:
         shell: bash
         env:
           MCP_CONFIG: ${{ steps.setup.outputs.mcp-config }}
+          DATABASE: ${{ matrix.database }}
+          APP_ENV: test
         run: |
           set -x
           # Symfony's committed .env files are left as they were, and no Laravel .env or Boost config is written
           sha256sum -c "$RUNNER_TEMP/env.sha256"
           test ! -f database/database.sqlite
           test -z "$MCP_CONFIG"
-          test -f var/data_test.db
+          # The test database (Doctrine's _test suffix on the servers) exists and answers
+          php bin/console dbal:run-sql 'SELECT 1'
+          if [ "$DATABASE" = sqlite ]; then
+            test -f var/data_test.db
+          fi
 
       - name: Run tests
         shell: bash

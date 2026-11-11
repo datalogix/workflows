@@ -13,6 +13,7 @@ In apps. Packages get `@claude`, the labels, the code review and the security re
 | — (every pull request)                                  | Reviews its security and blocks it on high-severity findings                                                                                      |
 | — (every pull request)                                  | Labels it `risk:low`, `risk:medium` or `risk:high` and blocks it until it has the approvals that risk requires                                    |
 | — (tests fail on a `claude/*` branch)                   | Reads the log and pushes a fix, up to 2 attempts per pull request, then asks for human review                                                     |
+| Comment `@claude fix the CI` (any wording, in any language) on a pull request whose tests failed | Reads the log of the latest failed run and pushes a fix of what the pull request caused, or explains a failure it did not cause; once per comment |
 
 Only users with write access to the repository (write, maintain or admin) can trigger Claude, with `@claude`, a label (`claude-plan` included, also when an issue form adds it) or an assignment; for anyone else the run ends with a notice, and a `claude-plan` label they added is removed. On an issue, only the labels start Claude: mentioning `@claude` in its title or body does nothing, so an issue can talk about Claude without triggering it. `claude-plan` takes precedence over `claude`: an issue with both (or that gets `claude` while it is being planned) is only planned, and both labels are removed; add `claude` again after reading the plan to implement it. An implementation already started before `claude-plan` was added keeps running.
 
@@ -21,7 +22,7 @@ Only users with write access to the repository (write, maintain or admin) can tr
 1. Open an issue with **Planejar com o Claude**. Use the plan for anything larger than a small change.
 2. Read the plan, answer the open questions in the issue and adjust what you need.
 3. Add the `claude` label. Claude implements it and opens a pull request.
-4. The checks run. If the tests fail, Claude tries to fix them.
+4. The checks run. If the tests fail, Claude tries to fix them. On a pull request you opened yourself, Claude does not push to your branch on its own: comment `@claude fix the CI` to ask for a fix.
 5. Low-risk pull requests can be merged as soon as the checks pass. Medium and high risk ones wait for your approval: review, ask for changes with `@claude` if needed, approve and merge.
 6. The merge deploys to staging and then production. With a [production branch](deploy.md#production-branch), it deploys staging and adds the change to the release pull request; merging that pull request deploys production.
 

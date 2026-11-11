@@ -9,7 +9,7 @@ What each project gets:
 - **Safe deploys**: every merge goes to staging, then production, each watched after the deploy and rolled back automatically if it goes down.
 - **Production errors as issues**: problems detected by Nightwatch, Sentry or Inspector become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.
 
-Packages call a single `package` workflow, the test matrix and, when they turn them on, Claude on issues and pull requests, the code review and the security review: Laravel packages, PHP packages without Laravel (`stack: php`, also for Symfony and plain PHP apps, set up by hand for now; only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
+Packages call a single `package` workflow, the test matrix and, when they turn them on, Claude on issues and pull requests, the code review and the security review: Laravel packages, PHP packages without Laravel (`stack: php`, also for Symfony and plain PHP apps; only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
 
 ## Requirements
 
@@ -33,7 +33,7 @@ All commands run as `npx --allow-git=root github:datalogix/workflows#v2 <command
 | `check` | Any time | Nothing: it lists what is missing or different |
 | `protect` | After the first pull request shows its checks | The branch ruleset that requires those checks |
 
-A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md), [Adding a Laravel package](docs/laravel/package.md), [Adding a PHP package](docs/php/package.md), [Adding a JavaScript app](docs/js/app.md) or [Adding a JavaScript library](docs/js/package.md).
+A project set up before `org` ran misses only the relay: run `setup` again afterwards. The full walkthrough is in [Adding a Laravel app](docs/laravel/app.md), [Adding a Laravel package](docs/laravel/package.md), [Adding a PHP app](docs/php/app.md), [Adding a PHP package](docs/php/package.md), [Adding a JavaScript app](docs/js/app.md) or [Adding a JavaScript library](docs/js/package.md).
 
 > **GitHub Free:** private repositories have no rulesets, so `protect` changes nothing (the checks still run on every pull request, but do not block the merge), and they cannot read organization secrets, so `setup` asks for the Claude token in each project.
 

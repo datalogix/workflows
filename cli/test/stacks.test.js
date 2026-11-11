@@ -42,7 +42,7 @@ test('tells whether a stack recognized the folder or its workflow file', async (
   expect(await recognized({ [WORKFLOW_PATH]: await renderProjectWorkflow({ deploy: 'none' }) })).toBe(true);
   expect(await recognized({ 'package.json': '{}' })).toBe(true);
   expect(await recognized({ 'composer.json': '{}' })).toBe(true);
-  expect(await recognized({ 'composer.json': composer({ type: 'project' }) })).toBe(false);
+  expect(await recognized({ 'composer.json': composer({ type: 'project' }) })).toBe(true);
   expect(await recognized({ Gemfile: '' })).toBe(false);
   expect(await recognized({})).toBe(false);
 });
@@ -103,6 +103,7 @@ test('offers every stack and kind setup supports', () => {
   expect(setupChoices().map((choice) => choice.label)).toStrictEqual([
     'Laravel app',
     'Laravel package',
+    'PHP app',
     'PHP package',
     'JavaScript app',
     'JavaScript package',
@@ -129,24 +130,21 @@ test('tells a JavaScript library from a Next or Nuxt app, and a PHP project from
   expect(await detect(t, { 'package.json': '{ not json' })).toStrictEqual(APP);
 });
 
-test('tells a PHP package without Laravel from a PHP app, which is not supported yet', async (t) => {
+test('tells a PHP package without Laravel from a PHP app', async (t) => {
   // Composer's default type is library: any composer.json without Laravel is a PHP package
   expect(await detect(t, { 'composer.json': '{}' })).toStrictEqual(PHP_PACKAGE);
   expect(
     await detect(t, { 'composer.json': composer({ type: 'symfony-bundle', require: { 'symfony/console': '^7' } }) }),
   ).toStrictEqual(PHP_PACKAGE);
-  // A PHP app is not recognized: read as a Laravel app, which setup refuses without --stack or --kind
+  // A Symfony app (bin/console), a plain PHP app (public/index.php) or Composer's type project
   for (const files of [
     { 'composer.json': composer({ type: 'project' }) },
     { 'composer.json': '{}', 'bin/console': '' },
     { 'composer.json': '{}', 'public/index.php': '' },
   ]) {
-    const detected = await detectStack(await folder(t, files, 'stacks-'));
-    expect([detected.stack, detected.kind, detected.recognized]).toStrictEqual(['laravel', 'project', false]);
+    expect(await detect(t, files)).toStrictEqual(['php', 'project', 'PHP app']);
   }
-  expect(() => fromFlags({ stack: 'php', kind: 'app' }, { stack: 'laravel', kind: 'project' })).toThrow(
-    'PHP apps are not supported yet',
-  );
+  expect(fromFlags({ stack: 'php', kind: 'app' }, { stack: 'laravel', kind: 'project' }).label).toBe('PHP app');
 });
 
 test('keeps a package workflow file without a stack input on laravel, its default', async (t) => {

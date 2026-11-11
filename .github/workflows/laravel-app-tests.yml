@@ -42,6 +42,10 @@ on:
       timeout-minutes:
         type: number
         default: 30
+      database:
+        type: string
+        default: none
+        description: Database server for the tests of a Symfony app with Doctrine (stack php); postgres, mysql or mariadb starts it as a service and points DATABASE_URL at it; none (the default) uses the database of .env.test
 
 jobs:
   tests:
@@ -58,7 +62,45 @@ jobs:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+    # The database server of the database input; an empty image starts no service. The credentials are those of the
+    # DATABASE_URL below, root for MySQL and MariaDB so Doctrine can create the _test database of Symfony's test env
+    services:
+      database:
+        image: ${{ inputs.database == 'postgres' && 'postgres:17' || inputs.database == 'mysql' && 'mysql:8.4' || inputs.database == 'mariadb' && 'mariadb:11.4' || '' }}
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: app
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: app
+        ports:
+          - 5432:5432
+          - 3306:3306
+        options: >-
+          ${{ inputs.database == 'postgres' && '--health-cmd "pg_isready -U app" --health-interval 5s --health-timeout 5s --health-retries 20' || inputs.database == 'mariadb' && '--health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 20' || '--health-cmd "mysqladmin ping -h 127.0.0.1 -proot" --health-interval 5s --health-timeout 5s --health-retries 20' }}
+
     steps:
+      # Before setup-laravel, which migrates the test database. A real environment variable wins over Symfony's .env
+      # files; none sets nothing, so .env.test decides
+      - name: Point DATABASE_URL at the database service
+        if: inputs.database != 'none'
+        shell: bash
+        env:
+          DATABASE: ${{ inputs.database }}
+        run: |
+          case "$DATABASE" in
+            postgres) url='postgresql://app:app@127.0.0.1:5432/app?serverVersion=17&charset=utf8' ;;
+            mysql) url='mysql://root:root@127.0.0.1:3306/app?serverVersion=8.4.0&charset=utf8mb4' ;;
+            mariadb) url='mysql://root:root@127.0.0.1:3306/app?serverVersion=11.4.0-MariaDB&charset=utf8mb4' ;;
+            *)
+              echo "::error::database '$DATABASE' is not supported; use postgres, mysql, mariadb or none"
+              exit 1
+              ;;
+          esac
+          echo "DATABASE_URL=$url" >> "$GITHUB_ENV"
+
       - name: Checkout code
         uses: actions/checkout@v7
         with:
