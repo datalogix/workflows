@@ -19,6 +19,8 @@ It detects a JavaScript library (a `package.json`, and not an app: neither `next
 
 It ends with the commit to make and the `protect` command to run after the first pull request.
 
+Claude and the risk gate can be turned on as in a Laravel package, with the `js` plugin and the high-risk paths of a JavaScript library: see [Claude and the risk gate (optional)](../laravel/package.md#claude-and-the-risk-gate-optional).
+
 ### By hand
 
 Copy [`examples/package.yml`](../../examples/package.yml) to `.github/workflows/datalogix.yml` and add the stack:

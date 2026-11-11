@@ -1,17 +1,20 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { coverageItems } from '../../lib/coverage.js';
 import {
-  CLAUDE_INSTALL,
-  codeOwnerItems,
-  createReport,
-  ORG,
-  PROTECT,
-  rulesetItems,
-  SETUP,
-  workflowItems,
-} from '../../lib/evaluate.js';
+  CLAUDE_STATE,
+  claudeAppNextSteps,
+  claudeItems,
+  claudeTokenStep,
+  claudeTokenTasks,
+  labelItems,
+  labelsTask,
+  languageStep,
+  readClaude,
+  readLabels,
+} from '../../lib/claude.js';
+import { coverageItems } from '../../lib/coverage.js';
+import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
 import { driftPhrases, includedRefs, protectsBranch, rulesetDrift } from '../../lib/ruleset.js';
 import { checksOn, readOrFail } from '../../lib/state.js';
 import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
@@ -29,22 +32,8 @@ import {
   relaySupported,
   webhookUrl,
 } from './relay.js';
-import {
-  deployedProductionBranch,
-  hasReleaseApp,
-  labelDescription,
-  labelsFor,
-  NO_ENVIRONMENT,
-  textIn,
-} from './state.js';
-import {
-  DEFAULT_LANGUAGE,
-  LAYERS,
-  PROJECT_REF,
-  projectAnswers,
-  projectTemplate,
-  renderProjectWorkflow,
-} from './workflow.js';
+import { deployedProductionBranch, hasReleaseApp, labelsFor, NO_ENVIRONMENT, textIn } from './state.js';
+import { LAYERS, PROJECT_REF, projectAnswers, projectTemplate, renderProjectWorkflow } from './workflow.js';
 
 // What project.yml needs from a project, whatever its stack: the workflow file, labels, the Claude token, environments
 // with their deploy hook and health URL, the production branch and its release pull requests, the monitoring relay,
@@ -61,15 +50,11 @@ export const PROJECT_CHECKS = {
 
 // What the kind reads (readProject), before it is read
 const PROJECT_STATE = {
-  labels: [],
-  labelDescriptions: {},
+  ...CLAUDE_STATE,
   environments: { production: NO_ENVIRONMENT, staging: NO_ENVIRONMENT },
-  claudeToken: { repository: false, organization: false },
   releaseApp: false,
   actionsPullRequests: null,
   productionBranchStatus: null,
-  // How the Claude GitHub App reaches the owner's repositories (github.claudeApp); 'all' until it is read
-  claudeApp: 'all',
   // The app's locale (e.g. pt_BR), read by the stack's inspect: the suggested domain ends with .com.br for pt_BR
   locale: null,
 };
@@ -113,9 +98,6 @@ const validKey = (value) => {
     return 'Cannot read that file';
   }
 };
-// Goes into Claude's system prompt between double quotes: letters, digits, spaces, hyphens and underscores only
-const validLanguage = (value) =>
-  /^\p{L}[\p{L}\p{N} _-]*$/u.test(value?.trim() ?? '') ? undefined : 'Use a language name or code, e.g. pt-BR or en';
 // What an empty signing secret does: registered (true), not registered (false) or unknown (null, the relay was not read)
 const relayHint = (registered) =>
   registered === null
@@ -529,21 +511,7 @@ function setupSteps(stack) {
       when: (a) => markers(a) && a.monitoringMarkers && staging(a),
       exists: (ctx, a) => hasToken(ctx.state.environments.staging, serviceOf(stack, a)),
     }),
-    {
-      id: 'claudeToken',
-      when: (a, ctx) => !ctx.state.claudeToken.repository && !ctx.state.claudeToken.organization,
-      ask: async ({ header }) =>
-        orExit(
-          await clack.password({
-            message: question(
-              header,
-              `Claude token${dim('  from `claude setup-token`; stored as a repository secret')}`,
-              'Used by every Claude workflow: @claude, the reviews, Fix CI and the analysis of production problems',
-            ),
-            validate: notEmpty,
-          }),
-        ),
-    },
+    claudeTokenStep(),
     {
       id: 'releaseAppClientId',
       // Organization secrets reach private repositories only on paid plans: elsewhere, the repository stores its own
@@ -715,23 +683,7 @@ function setupSteps(stack) {
         for (const [answer, input] of Object.entries(LAYERS)) answers[answer] = answers.layers.includes(input);
       },
     },
-    {
-      id: 'language',
-      flag: 'language',
-      validate: validLanguage,
-      ask: async ({ header, ctx }) =>
-        orExit(
-          await clack.text({
-            message: question(
-              header,
-              `Language of what is written for the team${dim('  issues, pull requests, comments and commits')}`,
-            ),
-            initialValue: ctx.state.current?.language ?? DEFAULT_LANGUAGE,
-            placeholder: DEFAULT_LANGUAGE,
-            validate: validLanguage,
-          }),
-        ),
-    },
+    languageStep(),
     soloStep({ subject: 'project', initial: (ctx) => ctx.state.current?.solo ?? true }),
     // A team project: how many people approve each risk level (solo maintainers count as their own approval)
     ...[
@@ -911,52 +863,9 @@ function setupTasks(stack, answers, { github, root, state, relay, probe = health
     });
   }
 
-  tasks.push({
-    title: 'Labels',
-    run: async () => {
-      // Label names are case-insensitive on GitHub: "Rollback" is the rollback label
-      const existing = new Map(state.labels.map((name) => [name.toLowerCase(), name]));
-      const labels = labelsFor(environments);
-      const missing = labels.filter((label) => !existing.has(label.name.toLowerCase()));
-      // A description that is still the default text in another language follows the project's language; one written
-      // by hand is kept
-      const translations = labels
-        .map((label) => ({ name: existing.get(label.name.toLowerCase()), label }))
-        .filter(({ name, label }) => {
-          const current = state.labelDescriptions[name];
-          return (
-            name &&
-            current !== labelDescription(label, answers.language) &&
-            Object.values(label.description).includes(current)
-          );
-        });
-      // Each label is its own request, independent of the others
-      await Promise.all([
-        ...missing.map((label) =>
-          github.createLabel(label.name, label.color, labelDescription(label, answers.language)),
-        ),
-        ...translations.map(({ name, label }) =>
-          github.setLabelDescription(name, labelDescription(label, answers.language)),
-        ),
-      ]);
-      const translated = translations.map(({ name }) => name);
-      const changes = [
-        ...(missing.length ? [`created ${missing.map((label) => label.name).join(', ')}`] : []),
-        ...(translated.length ? [`translated ${translated.join(', ')}`] : []),
-      ];
-      return changes.length ? changes.join(', ') : 'unchanged';
-    },
-  });
+  tasks.push(labelsTask(labelsFor(environments), { github, state, language: answers.language }));
 
-  if (answers.claudeToken) {
-    tasks.push({
-      title: 'Claude token',
-      run: async () => {
-        await github.setSecret('CLAUDE_CODE_OAUTH_TOKEN', answers.claudeToken);
-        return 'stored as a repository secret';
-      },
-    });
-  }
+  tasks.push(...claudeTokenTasks(answers, github));
 
   const storesApp = twoBranches(answers) && Boolean(answers.releaseAppClientId?.trim() && answers.releaseAppKey);
   if (storesApp) {
@@ -1121,26 +1030,6 @@ function relayNextSteps(stack, answers, { relay, relayRegistered, results }) {
   ) {
     return [
       `Point the ${serviceOf(stack, answers).name} webhook to ${cyan(webhookUrl(relay, serviceOf(stack, answers).id, answers.repository))} and run setup again to store its ${secretName(serviceOf(stack, answers))}.`,
-    ];
-  }
-  return [];
-}
-
-/** What it takes for the Claude GitHub App to reach the repository. */
-function claudeAppNextSteps(answers, state) {
-  const owner = ownerOf(answers.repository);
-  const claudeInstall = cyan(CLAUDE_INSTALL);
-  if (state.claudeApp === 'none') {
-    return [
-      `Install the Claude GitHub App on ${bold(owner)}, or the Claude workflows (mentions, reviews, fix-ci, incidents) cannot act:\n  ${claudeInstall}`,
-    ];
-  } else if (state.claudeApp === 'selected') {
-    return [
-      `The Claude GitHub App reaches only selected repositories of ${bold(owner)}: add ${bold(answers.repository)} in its settings (${bold('Settings > GitHub Apps > Claude > Configure')}), or the Claude workflows cannot act on it.`,
-    ];
-  } else if (state.claudeApp === null) {
-    return [
-      `Could not see the GitHub Apps of ${bold(owner)} (it takes an organization admin and ${cyan('gh auth refresh -s admin:org')}): make sure the Claude GitHub App reaches ${bold(answers.repository)}:\n  ${claudeInstall}`,
     ];
   }
   return [];
@@ -1356,44 +1245,29 @@ async function readProject(stack, github, read, { current, release }) {
   };
   const releases = release || Boolean(current?.productionBranch);
 
-  const [
-    labels,
-    production,
-    staging,
-    repoToken,
-    orgToken,
-    releaseApp,
-    workflowPermissions,
-    productionBranchStatus,
-    claudeApp,
-  ] = await Promise.all([
-    read('labels', github.labels()),
-    read('production environment', environment('production')),
-    read('staging environment', environment('staging')),
-    read('secrets', github.hasRepositorySecret('CLAUDE_CODE_OAUTH_TOKEN')),
-    // Optional: without access to organization secrets, setup asks for the token
-    github.hasOrganizationSecret('CLAUDE_CODE_OAUTH_TOKEN').catch(() => false),
-    releases ? read('secrets', hasReleaseApp(github)) : false,
-    // Optional: reading it needs admin access
-    releases ? github.workflowPermissions().catch(() => null) : null,
-    current?.productionBranch
-      ? read('branches', github.branch(current.productionBranch)).then((branch) => ({
-          name: current.productionBranch,
-          exists: Boolean(branch),
-          // Its head, so setup can create a branch from it without reading it again
-          sha: branch?.commit?.sha ?? null,
-        }))
-      : null,
-    // Optional: null when gh cannot see the organization's GitHub Apps, or the read fails (check and nextSteps say so)
-    github.claudeApp().catch(() => null),
-  ]);
+  const [labels, production, staging, claude, releaseApp, workflowPermissions, productionBranchStatus] =
+    await Promise.all([
+      readLabels(github, read),
+      read('production environment', environment('production')),
+      read('staging environment', environment('staging')),
+      readClaude(github, read),
+      releases ? read('secrets', hasReleaseApp(github)) : false,
+      // Optional: reading it needs admin access
+      releases ? github.workflowPermissions().catch(() => null) : null,
+      current?.productionBranch
+        ? read('branches', github.branch(current.productionBranch)).then((branch) => ({
+            name: current.productionBranch,
+            exists: Boolean(branch),
+            // Its head, so setup can create a branch from it without reading it again
+            sha: branch?.commit?.sha ?? null,
+          }))
+        : null,
+    ]);
 
   return {
-    labels: labels.map((label) => label.name),
-    // By label name, as GitHub spells it
-    labelDescriptions: Object.fromEntries(labels.map((label) => [label.name, label.description ?? ''])),
+    ...labels,
+    ...claude,
     environments: { production, staging },
-    claudeToken: { repository: repoToken, organization: orgToken },
     releaseApp,
     actionsPullRequests: workflowPermissions
       ? {
@@ -1402,7 +1276,6 @@ async function readProject(stack, github, read, { current, release }) {
         }
       : null,
     productionBranchStatus,
-    claudeApp,
   };
 }
 
@@ -1513,32 +1386,8 @@ async function evaluate(
     coverageItems(report, state, { app: true });
   }
 
-  // Label names are case-insensitive on GitHub
-  const labels = new Set(state.labels.map((name) => name.toLowerCase()));
-  const missingLabels = labelsFor(environments).filter((label) => !labels.has(label.name.toLowerCase()));
-  const labelNames = (list) => list.map((label) => label.name).join(', ');
-  const needed = missingLabels.filter((label) => !label.optional);
-  const optional = missingLabels.filter((label) => label.optional);
-  if (needed.length) error(`Missing labels: ${labelNames(needed)}`, SETUP);
-  for (const label of optional) warn(`Missing label: ${label.name} (${label.optional})`, SETUP);
-  if (!missingLabels.length) ok('Labels');
-
-  if (state.claudeToken.repository) ok('CLAUDE_CODE_OAUTH_TOKEN (repository secret)');
-  else if (state.claudeToken.organization) ok('CLAUDE_CODE_OAUTH_TOKEN (organization secret)');
-  else error('CLAUDE_CODE_OAUTH_TOKEN is not available to this repository', SETUP);
-
-  if (state.claudeApp === 'all') ok('Claude GitHub App (every repository)');
-  else if (state.claudeApp === 'selected')
-    warn(
-      'The Claude GitHub App reaches only selected repositories: without this one, the Claude workflows cannot act',
-      'add it in Settings > GitHub Apps > Claude > Configure',
-    );
-  else if (state.claudeApp === 'none') error('The Claude GitHub App is not installed', CLAUDE_INSTALL);
-  else
-    warn(
-      'Could not see whether the Claude GitHub App reaches this repository',
-      'run check as an organization admin after gh auth refresh -s admin:org',
-    );
+  labelItems(report, state, labelsFor(environments));
+  claudeItems(report, state);
 
   if (deploy !== 'none') {
     for (const name of environments) {

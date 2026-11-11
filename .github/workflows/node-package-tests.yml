@@ -22,6 +22,10 @@ on:
         type: number
         default: 100
         description: Minimum coverage of the tests, in percent of statements, methods and conditionals, read from the Clover report they write (e.g. Vitest's clover reporter, in coverage/); 0 checks nothing, on the first runner of os
+      api-check:
+        type: boolean
+        default: false
+        description: Check what the library publishes after the build (publint, and the types of every entry point with @arethetypeswrong/cli)
       lint-command:
         type: string
         default: ""
@@ -192,6 +196,16 @@ jobs:
         env:
           RUN: ${{ steps.setup.outputs.run }}
         run: $RUN build
+
+      # After the build: what npm would publish (the files, exports and types of package.json)
+      - name: Published package
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.api-check }}
+        shell: bash
+        run: |
+          status=0
+          npx --yes publint || status=1
+          npx --yes @arethetypeswrong/cli --pack . || status=1
+          exit "$status"
 
       # After the build, so tools that read what is published (npx publint, npx attw --pack .) find it
       - name: Lint command

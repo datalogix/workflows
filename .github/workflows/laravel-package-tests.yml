@@ -54,6 +54,10 @@ on:
         type: boolean
         default: true
         description: Run PHPStan once, on the highest PHP version of the matrix, when composer.json requires it (phpstan/phpstan or Larastan)
+      api-check:
+        type: boolean
+        default: false
+        description: On pull requests, fail when the change breaks the public API of the package compared with the base branch (roave/backward-compatibility-check)
       lint-command:
         type: string
         default: ""
@@ -216,7 +220,7 @@ jobs:
 
   # Lint does not depend on the matrix, so it runs once, next to the tests
   lint:
-    if: (inputs.pint && github.event_name == 'pull_request') || inputs.phpstan || inputs.lint-command != ''
+    if: (inputs.pint && github.event_name == 'pull_request') || inputs.phpstan || inputs.lint-command != '' || (inputs.api-check && github.event_name == 'pull_request')
 
     runs-on: ubuntu-latest
 
@@ -245,6 +249,7 @@ jobs:
           PINT: ${{ inputs.pint && github.event_name == 'pull_request' }}
           PHPSTAN: ${{ inputs.phpstan }}
           LINT_COMMAND: ${{ inputs.lint-command }}
+          API_CHECK: ${{ inputs.api-check && github.event_name == 'pull_request' }}
         run: |
           requires() {
             jq -e --arg name "$1" '(.["require-dev"] // {}) + (.require // {}) | has($name)' composer.json >/dev/null
@@ -273,6 +278,8 @@ jobs:
             fi
           fi
           [ -n "$LINT_COMMAND" ] && enabled=true
+          # The public API check needs PHP and the dependencies too, even without a lint tool
+          [ "$API_CHECK" = true ] && enabled=true
 
           if [ -n "$enabled" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -366,6 +373,19 @@ jobs:
           # Composer stops scripts after 300 seconds by default
           COMPOSER_PROCESS_TIMEOUT: 0
         run: eval "$LINT_COMMAND"
+
+      # Against the base branch of the pull request, which the checkout fetched with the history. The tool goes to
+      # Composer's global folder, so it neither changes nor conflicts with the package's dependencies
+      - name: Public API compatibility
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.api-check && github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+          COMPOSER_PROCESS_TIMEOUT: 0
+        run: |
+          composer global require roave/backward-compatibility-check --no-interaction --quiet
+          "$(composer global config bin-dir --absolute --quiet)/roave-backward-compatibility-check" \
+            --from="origin/$BASE" --format=github-actions
 
   # Single status check for branch protection and merge queues, so it does not depend on the matrix job names
   all-checks:

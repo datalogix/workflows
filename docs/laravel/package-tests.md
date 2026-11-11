@@ -25,6 +25,12 @@ Setup asks for them like for an app, starting from what `composer.json` requires
 
 A new push to a pull request cancels the previous run; runs on `main` always finish. The `all-checks` job passes only when every other job passed (or was skipped), so the required check does not depend on the matrix job names.
 
+## Public API
+
+With `api-check: true` (setup asks; `--api-check`), the lint job also runs, on pull requests, [`roave/backward-compatibility-check`](https://github.com/Roave/BackwardCompatibilityCheck) against the base branch: a removed public method, class or constant, a new required argument or a narrower type fails the check, with each break annotated on its line. The tool is installed in Composer's global folder, so it neither changes nor conflicts with the package's dependencies. It checks the PHP code only, not config keys or behavior: Claude's review covers those (see [Claude and the risk gate](package.md#claude-and-the-risk-gate-optional)).
+
+A break that is meant to be (a major version) still fails it: merge it with the check overridden by an admin, or turn `api-check` off for that release.
+
 ## Customizing the matrix
 
 All matrix inputs are JSON strings. For example, a package that only supports Laravel 13 on PHP 8.3+:

@@ -39,7 +39,7 @@ jobs:
 
           # The project and package workflows call the other workflows: point them at the local ones too
           mkdir -p .lint/workflows
-          for f in project package; do
+          for f in project package package-claude; do
             sed 's|datalogix/workflows/\(\.github/workflows/[^@]*\)@v[0-9]*|./\1|' ".github/workflows/$f.yml" > ".lint/workflows/$f.yml"
           done
 

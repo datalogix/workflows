@@ -1,22 +1,16 @@
+import { CLAUDE_LABEL, labelDescription, NO_REVIEW_LABEL, PLAN_LABEL, textIn } from '../../lib/claude.js';
+
 // What project.yml needs from a project that only apps (cli/kinds/project) read: the labels of the Claude workflows,
 // the environments and the release GitHub App
 
+// Shared with packages (cli/lib/claude.js)
+export { labelDescription, textIn };
+
 // Shown in the target projects' GitHub, in the project's language (labelDescription)
 export const LABELS = [
-  {
-    name: 'claude',
-    color: '1d76db',
-    description: {
-      pt: 'Claude implementa e abre um pull request',
-      en: 'Claude implements it and opens a pull request',
-    },
-  },
-  {
-    name: 'claude-plan',
-    color: '0e8a16',
-    description: { pt: 'Claude publica um plano de implementação', en: 'Claude posts an implementation plan' },
-  },
-  { name: 'no-review', color: 'ededed', description: { pt: 'Pula a revisão do Claude', en: "Skips Claude's review" } },
+  CLAUDE_LABEL,
+  PLAN_LABEL,
+  NO_REVIEW_LABEL,
   // Issues the task manager follows (docs/task-manager.md): it creates them, or picks up the ones labeled task
   {
     name: 'task',
@@ -52,16 +46,6 @@ export function labelsFor(environments) {
       },
     })),
   ];
-}
-
-/** A fixed text ({ en, pt }) in the project's language: English or Portuguese, as in the workflows. */
-export function textIn(texts, language) {
-  return /^en/i.test(language?.trim() ?? '') ? texts.en : texts.pt;
-}
-
-/** A label's description in the project's language. */
-export function labelDescription(label, language) {
-  return textIn(label.description, language);
 }
 
 // Secrets of the GitHub App that opens the release pull requests (production-branch)

@@ -31,4 +31,4 @@ Each stack has the same four pages (plus a manual setup for apps): adding an app
 
 ## Adding a stack
 
-A stack adds a folder here with the same four pages (or the two of the kind it supports), `cli/stacks/<stack>/` for the setup command ([cli/README.md](../cli/README.md)), its jobs in `project.yml` and `package.yml` behind the `stack` input, and, when it has apps (the Claude jobs live in `project.yml`), its Claude plugin in `plugins/<stack>`.
+A stack adds a folder here with the same four pages (or the two of the kind it supports), `cli/stacks/<stack>/` for the setup command ([cli/README.md](../cli/README.md)), its jobs in `project.yml` and `package.yml` behind the `stack` input, and its Claude plugin in `plugins/<stack>`, which the Claude jobs of `project.yml` and the optional ones of `package.yml` install.

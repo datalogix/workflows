@@ -8,11 +8,12 @@ import {
   templateBase,
   withInputs,
 } from '../../lib/workflow-file.js';
+import { DEFAULT_LANGUAGE } from '../../lib/claude.js';
 import { TOOL_INPUTS, toolAnswers, toolInputs } from '../../lib/tools.js';
 
+export { DEFAULT_LANGUAGE };
+
 export const PROJECT_REF = 'datalogix/workflows/.github/workflows/project.yml@v2';
-// Default of the language input of project.yml
-export const DEFAULT_LANGUAGE = 'pt-BR';
 // Default of the monitoring input of project.yml
 const DEFAULT_MONITORING = 'nightwatch';
 

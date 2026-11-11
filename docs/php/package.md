@@ -33,6 +33,8 @@ jobs:
 
 The required check is the same, `pipeline / tests / all-checks`, and `protect` and `check` work as for a Laravel package.
 
+Claude and the risk gate can be turned on as in a Laravel package, with the `php` plugin and the high-risk paths of a PHP package: see [Claude and the risk gate (optional)](../laravel/package.md#claude-and-the-risk-gate-optional).
+
 Private Composer packages are not supported: the workflow passes no Composer credentials (`COMPOSER_AUTH`).
 
 What the tests run and how to change the matrix: [PHP package tests](package-tests.md).

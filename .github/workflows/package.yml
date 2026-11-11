@@ -5,6 +5,10 @@ name: package
 #
 # Required checks (branch ruleset): <calling job> / tests / all-checks. The tests job of each stack is named tests, so
 # the check is the same; the one of the other stack is skipped in the caller, so it never reports that check.
+#
+# Only jobs that need contents: read belong here: GitHub checks the permissions of every called workflow when the run
+# starts, even of a job that would be skipped, and a package file grants this workflow only contents: read. The Claude
+# layers and the risk gate, which need more, are package-claude.yml, called by a job of their own in the package's file.
 
 on:
   workflow_call:
@@ -75,6 +79,10 @@ on:
         type: boolean
         default: true
         description: Run PHPStan once, on the highest PHP version of the matrix, when composer.json requires it (phpstan/phpstan or Larastan)
+      api-check:
+        type: boolean
+        default: false
+        description: "Check the public API: on pull requests, fail on changes that break it (laravel and php, with roave/backward-compatibility-check against the base branch); for js, check what the library publishes (publint and @arethetypeswrong/cli)"
       lint-command:
         type: string
         default: ""
@@ -124,6 +132,7 @@ jobs:
       pint: ${{ inputs.pint }}
       phpstan: ${{ inputs.phpstan }}
       lint-command: ${{ inputs.lint-command }}
+      api-check: ${{ inputs.api-check }}
 
   js-tests:
     # Same name as the Laravel job: the required check is <calling job> / tests / all-checks for every stack
@@ -138,4 +147,5 @@ jobs:
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}
       lint-command: ${{ inputs.lint-command }}
+      api-check: ${{ inputs.api-check }}
       timeout-minutes: ${{ inputs.timeout-minutes }}

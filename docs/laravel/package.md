@@ -62,6 +62,27 @@ It ends with the commit to make and, without a ruleset, the `protect` command to
 
 To see what is missing, run `npx --allow-git=root github:datalogix/workflows#v2 check` from the package folder. In a package (its workflow file calls `package.yml`, or the folder looks like a Laravel package) it checks only the workflow file, the ruleset (as for an app: see [Checking the app](app.md#checking-the-app)), the Codecov token (unless `tests: false` or `coverage: false`) and the code owners of `.github/`.
 
+## Claude and the risk gate (optional)
+
+Packages can turn on three Claude layers and the risk gate, all off by default. They run in a job of their own, `claude`, which calls [`package-claude`](../reference.md#package-claude) after the tests with the permissions they need, while the tests keep `contents: read` (a file without that job is the one written before these layers, and keeps working as it was):
+
+- `claude: true`: Claude answers `@claude` on issues and pull requests, implements issues labeled `claude` and plans those labeled `claude-plan` (as in an app: see [Daily use](../daily-use.md#working-with-claude)), and fixes the tests of its own pull requests (`claude/` branches), like Fix CI in an app. It gets one PHP or Node version, not the matrix, so a failure only on the lowest dependencies or an older version is harder for it to reproduce.
+- `review: true`: Claude reviews each pull request once (opened, reopened or ready for review); the `no-review` label skips it.
+- `security-review: true`: Claude reviews the security of every push, and a finding of `security-fail-on` (`high` by default) or higher fails the required check `claude / security / security`.
+- `risk-gate: true`: labels each pull request `risk:low`, `risk:medium` or `risk:high` and requires `approvals-medium` and `approvals-high` human approvals (1 each by default) of its current changes, with the required check `claude / gate / gate`. It uses no Claude. High risk is what changes for the apps that install the next version: `composer.json` and `package.json`, service providers, `config/*`, `database/migrations/*` and `routes/*` (what the package registers or publishes in the app), `bin/*` and `.github/*`; tests and docs are low risk, the rest medium (see [`risk-gate`](../reference.md#risk-gate)). A solo maintainer cannot approve their own pull requests: setup writes `count-author: true`, so their own count as one approval.
+
+Claude, in the code review, `@claude` and Fix CI, is told that the package's public API (public classes, methods, functions, config keys and exports) is used by apps it cannot see: it reports, or avoids, changes that break it unless a major version is asked for. No path of the risk gate sees such a change; to fail the tests on it, turn on [`api-check`](package-tests.md#public-api).
+
+Setup asks which layers to turn on (`--layers claude,review,security-review,risk-gate`, or `none`). With one on, it writes the workflow file from [`examples/package-claude.yml`](../../examples/package-claude.yml): the events of the layers and the `claude` job with the layers that are on; with none, from [`examples/package.yml`](../../examples/package.yml), without that job. With a Claude layer, it also asks for the team language and the Claude token when the repository cannot read the organization's, and creates the labels they use. `check` then reports the labels, the token and the Claude GitHub App, and an error when a layer is on but the workflow file lacks its events or the `claude` job its permissions; `protect` requires `claude / security / security` and `claude / gate / gate` when their layers are on.
+
+Things to know before turning them on in a public package:
+
+- **Forks.** Most outside pull requests come from forks, which get no secrets: the code review and the security review skip them, and the security check passes without a review. Read those pull requests with security in mind before merging.
+- **Issues from anyone.** Anybody can open an issue in a public repository. Adding `claude` or `claude-plan`, or mentioning `@claude`, runs Claude with write access on that text: read the issue first (only users with write access can trigger Claude).
+- **Usage.** Each layer uses the Claude token's usage limits, shared by every project; `model` (`opus` by default) and `fix-ci-model` (`sonnet`) change the models.
+- **Older workflow files.** A workflow file written before these layers keeps working: it has no `claude` job. To turn a layer on, run setup again (it adds the job and the events) rather than editing the file by hand.
+- **The tests come first.** The `claude` job runs after the pipeline job, so the code review, the security review and the risk gate start once the tests finish (Fix CI needs their result).
+
 Private Composer packages are not supported: the workflow passes no Composer credentials (`COMPOSER_AUTH`).
 
 What the tests run and how to change the matrix: [Laravel package tests](package-tests.md).
