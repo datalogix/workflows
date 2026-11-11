@@ -230,6 +230,37 @@ test('tells a Vue or React app built with Vite from a component library', async 
   expect(await detect(t, { 'package.json': vite({}, { lit: '^3' }), 'index.html': '' })).toStrictEqual(JS_PACKAGE);
 });
 
+test('tells a SvelteKit app and a Svelte single-page app from a Svelte library', async (t) => {
+  const JS_APP = ['js', 'project', 'JavaScript app'];
+  const JS_PACKAGE = ['js', 'package', 'JavaScript package'];
+  const kit = (extra = {}, deps = {}) =>
+    JSON.stringify({
+      private: true,
+      devDependencies: { '@sveltejs/kit': '^2', svelte: '^5', vite: '^7', ...deps },
+      ...extra,
+    });
+  expect(await detect(t, { 'package.json': kit(), 'svelte.config.js': '' })).toStrictEqual(JS_APP);
+  // svelte.config.* alone is not an app: a plain Svelte setup has it too
+  expect(await detect(t, { 'package.json': kit() })).toStrictEqual(JS_APP);
+  expect(
+    await detect(t, {
+      'package.json': JSON.stringify({ devDependencies: { svelte: '^5' } }),
+      'svelte.config.js': '',
+    }),
+  ).toStrictEqual(JS_PACKAGE);
+  // A Svelte library built with svelte-package, or one that publishes its components
+  expect(await detect(t, { 'package.json': kit({}, { '@sveltejs/package': '^2' }) })).toStrictEqual(JS_PACKAGE);
+  expect(await detect(t, { 'package.json': kit({ svelte: './dist/index.js' }) })).toStrictEqual(JS_PACKAGE);
+  expect(await detect(t, { 'package.json': kit({ exports: { '.': './dist/index.js' } }) })).toStrictEqual(JS_PACKAGE);
+  // Svelte with Vite and an index.html, like Vue and React
+  const spa = JSON.stringify({ private: true, dependencies: { svelte: '^5' }, devDependencies: { vite: '^7' } });
+  expect(await detect(t, { 'package.json': spa, 'index.html': '' })).toStrictEqual(JS_APP);
+  // A tooling composer.json next to it, like Next and Nuxt
+  expect(
+    await detect(t, { 'package.json': kit(), 'composer.json': JSON.stringify({ autoload: { 'psr-4': {} } }) }),
+  ).toStrictEqual(JS_APP);
+});
+
 test('takes the stack and kind from the flags, app being the project kind', () => {
   const detected = { stack: 'laravel', kind: 'package' };
   expect(fromFlags({ kind: 'app' }, detected).kind).toBe('project');

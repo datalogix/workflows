@@ -49,7 +49,7 @@ In `vercel.json`, turn off Vercel's own deploys of the branches the workflows de
 }
 ```
 
-Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt). A Vue or React single-page app built with Vite, or a Nuxt app built with `nuxt generate`, has no server: add `public/health.json` with `{"status":"ok"}` and point `HEALTH_URL` to `/health.json`. With a router, also send every path to `index.html` in `vercel.json`: `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`.
+Add a route that answers `200` at `/api/health` (`app/api/health/route.ts` on Next, `server/api/health.get.ts` on Nuxt, `src/routes/api/health/+server.ts` on SvelteKit, with `export const prerender = false;`). A Vue, React or Svelte single-page app built with Vite, a Nuxt app built with `nuxt generate` or a SvelteKit app with `@sveltejs/adapter-static` has no server: add `public/health.json` (`static/health.json` on SvelteKit) with `{"status":"ok"}` and point `HEALTH_URL` to `/health.json`. With a router, also send every path to `index.html` in `vercel.json`: `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`; for SvelteKit's `fallback` page (`fallback: '200.html'`), send them to that page instead.
 
 ## Netlify
 
@@ -75,7 +75,7 @@ In each site, open **Deploys** and choose **Lock to stop auto publishing**, or e
 
 ## Sentry
 
-1. Install Sentry's SDK: `npx @sentry/wizard@latest -i nextjs` (or `-i nuxt`; `npm install @sentry/vue` or `@sentry/react` in a single-page app), with the Sentry environments named `production` and `staging`.
+1. Install Sentry's SDK: `npx @sentry/wizard@latest -i nextjs` (or `-i nuxt`, `-i sveltekit`; `npm install @sentry/vue`, `@sentry/react` or `@sentry/svelte` in a single-page app), with the Sentry environments named `production` and `staging`.
 2. Create the internal integration and its alert rules as [Production errors](../production-errors.md#sentry) says, with the webhook URL `https://<worker>/sentry/OWNER/REPO`.
 3. Store its Client Secret in the relay: see [the relay's README](../../relay/README.md).
 
