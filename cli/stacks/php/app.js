@@ -114,6 +114,39 @@ const databaseCheckStep = {
     ),
 };
 
+// The database servers laravel-app-tests can start for the tests (its database input)
+const DATABASES = [
+  { value: 'none', label: 'The database of .env.test', hint: 'SQLite or a server CI can reach; no service started' },
+  { value: 'postgres', label: 'PostgreSQL', hint: "Symfony's default" },
+  { value: 'mysql', label: 'MySQL' },
+  { value: 'mariadb', label: 'MariaDB' },
+];
+const validDatabase = (value) =>
+  DATABASES.some((database) => database.value === value?.trim().toLowerCase())
+    ? undefined
+    : `use ${DATABASES.map((database) => database.value).join(', ')}`;
+
+/** The database server of the tests, asked of a Symfony app with Doctrine. */
+const databaseStep = {
+  id: 'database',
+  flag: 'database',
+  validate: validDatabase,
+  parse: (value) => value.trim().toLowerCase(),
+  when: (a, ctx) => ctx.state.framework === 'symfony' && ctx.state.database,
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.select({
+        message: question(
+          header,
+          'Database for the tests',
+          'The tests create and migrate the test database; a server is started as a service, with DATABASE_URL',
+        ),
+        initialValue: ctx.state.current?.database ?? 'none',
+        options: DATABASES,
+      }),
+    ),
+};
+
 /** The Symfony health controller, with Doctrine's connection when it checks the database. */
 export function symfonyHealthController(databaseCheck) {
   const lines = [
@@ -235,7 +268,7 @@ export default projectKind({
   inspect: inspectApp,
   healthPath: (ctx) => ctx.state.healthRoutePath ?? SYMFONY_HEALTH.path,
   deploySteps: SITES.steps,
-  steps: () => [healthRouteStep, databaseCheckStep, ...toolSteps('project', { testFallback }), jsStep],
+  steps: () => [healthRouteStep, databaseCheckStep, databaseStep, ...toolSteps('project', { testFallback }), jsStep],
   tasks: (answers, { root, state }) => [
     ...SITES.tasks(answers, { state }),
     ...(answers.healthRoute && state.healthFile ? [healthRouteTask(root, answers, state)] : []),

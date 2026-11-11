@@ -14,7 +14,21 @@ The [`setup-laravel`](../../.github/actions/setup-laravel/action.yml) action fol
   DATABASE_URL="sqlite:///%kernel.project_dir%/var/data_%kernel.environment%.db"
   ```
 
-  A Postgres or MySQL service for the tests is not available yet.
+  Or set `database` to start a server for the tests: see [Test database](#test-database).
+
+## Test database
+
+With `database: postgres`, `mysql` or `mariadb`, the tests job starts that server as a service (PostgreSQL 17, MySQL 8.4 or MariaDB 11.4) and sets `DATABASE_URL` before the app is prepared, so the migrations and the tests use it:
+
+| `database` | `DATABASE_URL` |
+| --- | --- |
+| `postgres` | `postgresql://app:app@127.0.0.1:5432/app?serverVersion=17&charset=utf8` |
+| `mysql` | `mysql://root:root@127.0.0.1:3306/app?serverVersion=8.4.0&charset=utf8mb4` |
+| `mariadb` | `mysql://root:root@127.0.0.1:3306/app?serverVersion=11.4.0-MariaDB&charset=utf8mb4` |
+
+A real environment variable wins over Symfony's `.env` files, so `.env.test` needs no change; Doctrine's `dbname_suffix` of the test environment still applies (`app_test`), which is why MySQL and MariaDB connect as `root`, allowed to create it. With `none` (the default) nothing is started and `DATABASE_URL` is left to `.env.test`. Setup asks for it when a Symfony app uses Doctrine (`--database` answers it).
+
+The server is only for the tests job: Claude's sessions (`@claude`, Fix CI) prepare the app without it, so their migrations warn and the tests that need the database fail there.
 
 ## Test command
 
