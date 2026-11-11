@@ -5,6 +5,7 @@ updates:
     directories:
       - /
       - /.github/actions/setup-laravel
+      - /.github/actions/setup-js
     schedule:
       interval: weekly
     groups:
