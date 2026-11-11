@@ -150,6 +150,10 @@ jobs:
         migrations/*
         nuxt.config.*
         next.config.*
+        svelte.config.*
+        src/hooks.server.*
+        src/lib/server/*
+        src/routes/api/*
         package.json
         .github/*
 
