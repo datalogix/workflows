@@ -34,6 +34,10 @@ on:
         type: boolean
         default: false
         description: Claude reviews the security of each pull request and fails the check on findings of security-fail-on or higher (required check pipeline / security / security)
+      risk-gate:
+        type: boolean
+        default: false
+        description: Label pull requests by risk and require human approvals according to it (required check pipeline / gate / gate)
 
       # Passed to laravel-package-tests (and os, test-command, min-coverage, lint-command and timeout-minutes to
       # node-package-tests), with the same defaults
@@ -92,6 +96,10 @@ on:
         type: boolean
         default: true
         description: Run PHPStan once, on the highest PHP version of the matrix, when composer.json requires it (phpstan/phpstan or Larastan)
+      api-check:
+        type: boolean
+        default: false
+        description: "Check the public API: on pull requests, fail on changes that break it (laravel and php, with roave/backward-compatibility-check against the base branch); for js, check what the library publishes (publint and @arethetypeswrong/cli)"
       lint-command:
         type: string
         default: ""
@@ -118,6 +126,22 @@ on:
         type: string
         default: pt-BR
         description: Language of what is written for the team (issues, pull requests, comments, commits; no double quotes). Claude writes in any language; the fixed texts exist in pt-BR and en, and other languages get pt-BR
+      approvals-medium:
+        type: number
+        default: 1
+        description: Human approvals a medium-risk pull request needs of its current changes
+      approvals-high:
+        type: number
+        default: 1
+        description: Human approvals a high-risk pull request needs of its current changes
+      count-author:
+        type: boolean
+        default: false
+        description: Count a human pull request author with write access as one approval (for solo maintainers)
+      extra-high-risk-paths:
+        type: string
+        default: ""
+        description: More patterns (one per line, * also matches /) that make a pull request high risk, added to the package defaults of the stack
       security-fail-on:
         type: string
         default: high
@@ -170,6 +194,7 @@ jobs:
       pint: ${{ inputs.pint }}
       phpstan: ${{ inputs.phpstan }}
       lint-command: ${{ inputs.lint-command }}
+      api-check: ${{ inputs.api-check }}
 
   js-tests:
     # Same name as the Laravel job: the required check is <calling job> / tests / all-checks for every stack
@@ -184,9 +209,12 @@ jobs:
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}
       lint-command: ${{ inputs.lint-command }}
+      api-check: ${{ inputs.api-check }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
 
-  # The Claude jobs set no permissions: they take the caller's (see the top of this file)
+  # The Claude jobs set no permissions: they take the caller's (see the top of this file). Those that write or review
+  # code get the package rule (keep the public API compatible) in front of extra-instructions, without double quotes,
+  # as it ends up in --append-system-prompt
   claude:
     if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.claude && contains(fromJSON('["issues", "issue_comment", "pull_request_review_comment", "pull_request_review"]'), github.event_name)
     uses: datalogix/workflows/.github/workflows/claude.yml@v2
@@ -195,7 +223,7 @@ jobs:
       stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
       model: ${{ inputs.model }}
       plan-model: ${{ inputs.plan-model }}
-      extra-instructions: ${{ inputs.extra-instructions }}
+      extra-instructions: This repository is a published package, whose public API (public classes, methods, functions, config keys and exports) is used by apps you cannot see. Report, or in your own changes avoid, any change that breaks it (removed or renamed, a changed signature, return type or default behavior) unless the issue or pull request asks for a major version; prefer deprecating and adding. ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
   # Once per pull request (opened, reopened or ready for review), not on every push: ask @claude for another review
@@ -206,7 +234,7 @@ jobs:
     with:
       stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
       model: ${{ inputs.model }}
-      extra-instructions: ${{ inputs.extra-instructions }}
+      extra-instructions: This repository is a published package, whose public API (public classes, methods, functions, config keys and exports) is used by apps you cannot see. Report, or in your own changes avoid, any change that breaks it (removed or renamed, a changed signature, return type or default behavior) unless the issue or pull request asks for a major version; prefer deprecating and adding. ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
   # Pull requests from forks are skipped inside claude-security-review: the check passes without a review
@@ -221,6 +249,20 @@ jobs:
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
+  # The patterns of a package of the stack (kind package); like the Claude jobs, no job-level permissions, so an older
+  # package file that grants only contents: read declares no conflict
+  gate:
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.risk-gate && contains(fromJSON('["pull_request", "pull_request_review", "merge_group"]'), github.event_name)
+    uses: datalogix/workflows/.github/workflows/risk-gate.yml@v2
+    with:
+      stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
+      kind: package
+      approvals-medium: ${{ inputs.approvals-medium }}
+      approvals-high: ${{ inputs.approvals-high }}
+      count-author: ${{ inputs.count-author }}
+      extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
+      language: ${{ inputs.language }}
+
   # With claude: Claude's own pull requests (claude/ branches) only exist when it implements issues. In the same run as
   # the tests, so no separate workflow_run trigger is needed; Claude gets one PHP or Node version, not the matrix
   fix-ci:
@@ -231,5 +273,5 @@ jobs:
     with:
       stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
       model: ${{ inputs.fix-ci-model }}
-      extra-instructions: ${{ inputs.extra-instructions }}
+      extra-instructions: This repository is a published package, whose public API (public classes, methods, functions, config keys and exports) is used by apps you cannot see. Report, or in your own changes avoid, any change that breaks it (removed or renamed, a changed signature, return type or default behavior) unless the issue or pull request asks for a major version; prefer deprecating and adding. ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}

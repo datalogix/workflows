@@ -153,6 +153,51 @@ export function pushBranches(content) {
   return /^ {4}tags(-ignore)?:/m.test(block) ? [] : null;
 }
 
+/**
+ * The events that run the workflow (the keys of `on:`, in block, list or flow form), or null when it has no `on:` it
+ * can read.
+ */
+export function triggerEvents(content) {
+  const text = lf(content);
+  const on = /^(?:on|'on'|"on"):[ \t]*(.*)$/m.exec(text);
+  if (!on) return null;
+  const inline = on[1].replace(/\s+#.*$/, '').trim();
+  // on: push, on: [push, pull_request], on: { push: {...}, pull_request: {} }
+  if (inline.startsWith('{')) return [...inline.matchAll(/[{,]\s*['"]?([\w-]+)['"]?\s*:/g)].map((match) => match[1]);
+  if (inline)
+    return inline
+      .replace(/[[\]]/g, '')
+      .split(',')
+      .map((name) => scalar(name.trim()))
+      .filter(Boolean);
+  const triggers = text.slice(on.index + on[0].length + 1).split(/^[^\s#]/m)[0];
+  return [...triggers.matchAll(/^ {2}([\w-]+):/gm)].map((match) => match[1]);
+}
+
+/**
+ * The permissions the workflow grants its jobs (the top-level `permissions:`), as { scope: 'read' | 'write' | 'none' },
+ * { '*': level } for read-all or write-all, or null without one (the repository's default, which the file does not
+ * say).
+ */
+export function grantedPermissions(content) {
+  const text = lf(content);
+  const top = /^permissions:[ \t]*(.*)$/m.exec(text);
+  if (!top) return null;
+  const inline = top[1].replace(/\s+#.*$/, '').trim();
+  if (inline === 'read-all' || inline === 'write-all') return { '*': inline.slice(0, -4) };
+  if (inline === '{}') return {};
+  const block = text.slice(top.index + top[0].length + 1).split(/^[^\s#]/m)[0];
+  return Object.fromEntries([...block.matchAll(/^ {2}([\w-]+):[ \t]*(\w+)/gm)].map((match) => [match[1], match[2]]));
+}
+
+/** Whether the granted permissions (grantedPermissions) give at least that level of the scope. */
+export function grants(granted, scope, level) {
+  if (!granted) return true;
+  const given = granted[scope] ?? granted['*'] ?? 'none';
+  const rank = { none: 0, read: 1, write: 2 };
+  return rank[given] >= rank[level];
+}
+
 /** pushBranches for a flow mapping on one line: `{ push: { branches: [main] }, pull_request: {} }`. */
 function inlinePushBranches(inline) {
   if (!/[{,]\s*['"]?push['"]?\s*:/.test(inline)) return [];

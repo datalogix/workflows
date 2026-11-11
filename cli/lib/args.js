@@ -1,7 +1,17 @@
 import { isRepository } from './project.js';
 
 // The options it accepts, each listed in HELP
-export const BOOLEAN = ['staging', 'branches', 'github-deployments', 'incidents', 'js', 'solo', 'yes', 'help'];
+export const BOOLEAN = [
+  'staging',
+  'branches',
+  'github-deployments',
+  'incidents',
+  'js',
+  'api-check',
+  'solo',
+  'yes',
+  'help',
+];
 export const VALUE = [
   'repo',
   'deploy',
@@ -121,6 +131,7 @@ Options (each one skips its question in setup)
   --lint-command "<command>"  Lint command, with --lint command
   --test-command "<command>"  Test command (none turns the test suite off)
   --js / --no-js              Run the typecheck, lint and test scripts of package.json
+  --api-check / --no-api-check  Packages: check the public API on pull requests (js: what the library publishes)
   --database <server>         Database server of the tests of a Symfony app (postgres, mysql, mariadb or none)
   --yes                       Do not ask for confirmation before applying
   --help                      Show this help

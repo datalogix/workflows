@@ -2,7 +2,7 @@
 
 ## Working with Claude
 
-In apps. Packages get `@claude`, the labels, the code review and the security review only when they turn them on, and no risk gate: see [Claude (optional)](laravel/package.md#claude-optional).
+In apps. Packages get `@claude`, the labels, the code review, the security review and the risk gate only when they turn them on: see [Claude and the risk gate (optional)](laravel/package.md#claude-and-the-risk-gate-optional).
 
 | You do                                                  | Claude does                                                                                                                                       |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |

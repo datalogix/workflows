@@ -7,6 +7,10 @@ on:
         type: string
         default: laravel
         description: Stack of the project (laravel, php or js), whose patterns are the default high-risk-paths
+      kind:
+        type: string
+        default: project
+        description: project (an app) or package, whose patterns of the stack are the default high-risk-paths
       high-risk-paths:
         type: string
         default: ""
@@ -123,6 +127,35 @@ jobs:
         composer.json
         package.json
         .github/*
+      # Packages: what changes for the apps that install the next version (dependencies and autoload, what the package
+      # registers or publishes in the app, the build of what is published, executables) and the workflows. A break of
+      # the public API has no path of its own: the review checks it
+      LARAVEL_PACKAGE_HIGH_RISK_PATHS: |
+        composer.json
+        package.json
+        src/*ServiceProvider.php
+        config/*
+        database/migrations/*
+        routes/*
+        bin/*
+        .github/*
+      PHP_PACKAGE_HIGH_RISK_PATHS: |
+        composer.json
+        package.json
+        src/*Bundle.php
+        config/*
+        bin/*
+        .github/*
+      JS_PACKAGE_HIGH_RISK_PATHS: |
+        package.json
+        .npmignore
+        vite.config.*
+        tsup.config.*
+        tsdown.config.*
+        rollup.config.*
+        tsconfig*.json
+        bin/*
+        .github/*
       JS_HIGH_RISK_PATHS: |
         middleware.ts
         middleware.js
@@ -158,7 +191,7 @@ jobs:
         uses: datalogix/workflows/.github/actions/risk-gate@v2
         with:
           pull-request: ${{ github.event.pull_request.number }}
-          high-risk-paths: ${{ inputs.high-risk-paths || (inputs.stack == 'js' && env.JS_HIGH_RISK_PATHS || inputs.stack == 'php' && env.PHP_HIGH_RISK_PATHS || env.LARAVEL_HIGH_RISK_PATHS) }}
+          high-risk-paths: ${{ inputs.high-risk-paths || (inputs.kind == 'package' && (inputs.stack == 'js' && env.JS_PACKAGE_HIGH_RISK_PATHS || inputs.stack == 'php' && env.PHP_PACKAGE_HIGH_RISK_PATHS || env.LARAVEL_PACKAGE_HIGH_RISK_PATHS) || (inputs.stack == 'js' && env.JS_HIGH_RISK_PATHS || inputs.stack == 'php' && env.PHP_HIGH_RISK_PATHS || env.LARAVEL_HIGH_RISK_PATHS)) }}
           extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
           low-risk-paths: ${{ inputs.low-risk-paths }}
           ignored-paths: ${{ inputs.ignored-paths }}

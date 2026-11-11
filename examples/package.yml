@@ -2,7 +2,8 @@ name: datalogix
 
 # The only workflow file a package needs, as .github/workflows/datalogix.yml. Every event below is handled by
 # datalogix/workflows; jobs that do not apply to an event are skipped (the issue, comment and review events, and the
-# permissions beyond contents: read, are for the Claude layers, off by default: claude, review and security-review).
+# permissions beyond contents: read, are for the Claude layers and the risk gate, off by default: claude, review,
+# security-review and risk-gate).
 on:
   issues:
     types: [assigned, labeled]
@@ -11,7 +12,7 @@ on:
   pull_request_review_comment:
     types: [created]
   pull_request_review:
-    types: [submitted]
+    types: [submitted, dismissed]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   push:

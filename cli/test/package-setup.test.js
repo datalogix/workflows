@@ -238,7 +238,16 @@ test('writes stack: js for a JavaScript library, and asks for no Codecov token',
 
   // Its questions: no Codecov token and no Laravel lint or test tools
   const ids = jsPackage.setup.steps().map((step) => step.id);
-  expect(ids).toStrictEqual(['repository', 'codecovToken', 'layers', 'language', 'claudeToken', 'solo', 'codeOwners']);
+  expect(ids).toStrictEqual([
+    'repository',
+    'apiCheck',
+    'codecovToken',
+    'layers',
+    'language',
+    'claudeToken',
+    'solo',
+    'codeOwners',
+  ]);
   const codecov = jsPackage.setup.steps().find((step) => step.id === 'codecovToken');
   expect(codecov.when({}, { state: { codecovToken: false } })).toBe(false);
   const items = await jsPackage.evaluate({
@@ -369,4 +378,81 @@ test('creates the labels of the layers that are on, stores the token and checks 
     expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN is not available'),
   );
   expect(await titles(packageAnswers({}))).not.toContainEqual(expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN'));
+});
+
+test('turns the risk gate on as a layer that needs no Claude, counting a solo author as one approval', async () => {
+  const gate = await renderPackageWorkflow('', 'main', { riskGate: true, solo: true });
+  expect(parseInputs(gate)).toStrictEqual({ 'risk-gate': 'true', 'count-author': 'true' });
+  // A team: the author does not count
+  expect(parseInputs(await renderPackageWorkflow('', 'main', { riskGate: true, solo: false }))).toStrictEqual({
+    'risk-gate': 'true',
+  });
+  // Turned off: count-author goes with it
+  expect(parseInputs(await renderPackageWorkflow(gate, 'main', { riskGate: false, solo: true }))).toStrictEqual({});
+
+  const current = packageAnswers(parseInputs(gate));
+  expect(current.riskGate).toBe(true);
+  expect(laravelPackage.requiredChecks({ current })).toStrictEqual([
+    'pipeline / tests / all-checks',
+    'pipeline / gate / gate',
+  ]);
+  // No Claude token or language for the risk gate alone
+  const steps = setup.steps();
+  const state = { ...PACKAGE_STATE };
+  expect(steps.find((step) => step.id === 'claudeToken').when({ riskGate: true }, { state })).toBe(false);
+  expect(steps.find((step) => step.id === 'language').when({ riskGate: true }, { state })).toBe(false);
+});
+
+test('writes api-check only when on, and keeps it when the question is not asked', async () => {
+  const on = await renderPackageWorkflow('', 'main', { apiCheck: true });
+  expect(parseInputs(on)).toStrictEqual({ 'api-check': 'true' });
+  expect(packageAnswers(parseInputs(on)).apiCheck).toBe(true);
+  expect(parseInputs(await renderPackageWorkflow(on, 'main', {}))).toStrictEqual({ 'api-check': 'true' });
+  expect(parseInputs(await renderPackageWorkflow(on, 'main', { apiCheck: false }))).toStrictEqual({});
+  // The question says what each stack checks
+  const step = (kind) => kind.setup.steps().find((candidate) => candidate.id === 'apiCheck');
+  expect(step(laravelPackage).flag).toBe('api-check');
+  expect(step(jsPackage).flag).toBe('api-check');
+});
+
+test('reports a layer that is on when the workflow file lacks its events or permissions', async () => {
+  const errors = async (workflow) =>
+    (await laravelPackage.evaluate({ ...PACKAGE_STATE, workflow, current: packageAnswers(parseInputs(workflow)) }))
+      .filter((item) => item.level === 'error')
+      .map((item) => item.title);
+  // The file setup writes has what every layer needs
+  const full = await renderPackageWorkflow('', 'main', {
+    claude: true,
+    review: true,
+    securityReview: true,
+    riskGate: true,
+  });
+  expect(await errors(full)).not.toContainEqual(expect.stringContaining('lacks'));
+
+  // An older file: only pushes and pull requests, and contents: read
+  const old = [
+    'name: datalogix',
+    'on:',
+    '  push:',
+    '    branches: [main]',
+    '  pull_request:',
+    'permissions:',
+    '  contents: read',
+    'jobs:',
+    '  pipeline:',
+    '    uses: datalogix/workflows/.github/workflows/package.yml@v2',
+    '    secrets: inherit',
+    '    with:',
+    '      risk-gate: true',
+    '      claude: true',
+    '',
+  ].join('\n');
+  const found = await errors(old);
+  expect(found).toContainEqual(
+    expect.stringContaining(
+      'turns on the risk gate but lacks the pull_request_review event, pull-requests: write, issues: write',
+    ),
+  );
+  expect(found).toContainEqual(expect.stringContaining('turns on @claude but lacks the issues event'));
+  expect(found).toContainEqual(expect.stringContaining('contents: write'));
 });

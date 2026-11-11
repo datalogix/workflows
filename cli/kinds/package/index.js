@@ -21,6 +21,7 @@ import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { NO_TESTS } from '../../lib/tools.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
+import { grantedPermissions, grants, triggerEvents } from '../../lib/workflow-file.js';
 import {
   claudeOn,
   PACKAGE_LAYERS,
@@ -39,13 +40,61 @@ import {
 export const PACKAGE_CHECKS = {
   tests: 'pipeline / tests / all-checks',
   securityReview: 'pipeline / security / security',
+  riskGate: 'pipeline / gate / gate',
 };
 
 /**
  * The checks the answers require: checksOn counts a layer as on unless its answer is false, as project.yml's layers
- * are, but the security review of a package is off unless the workflow file turns it on.
+ * are, but the security review and the risk gate of a package are off unless the workflow file turns them on.
  */
-const checksOfPackage = (checks, a) => checksOn(checks, { ...a, securityReview: a?.securityReview === true });
+const checksOfPackage = (checks, a) =>
+  checksOn(checks, { ...a, securityReview: a?.securityReview === true, riskGate: a?.riskGate === true });
+
+// What each layer needs of the workflow file: the events that run it and the permissions its jobs use (setup writes
+// them from examples/package.yml; a file written before, or by hand, may lack them)
+const LAYER_NEEDS = {
+  claude: {
+    name: '@claude',
+    events: ['issues', 'issue_comment', 'pull_request_review_comment', 'pull_request_review'],
+    permissions: { contents: 'write', 'pull-requests': 'write', issues: 'write', actions: 'read', 'id-token': 'write' },
+  },
+  review: {
+    name: 'the code review',
+    events: ['pull_request'],
+    permissions: { 'pull-requests': 'read', issues: 'read', 'id-token': 'write' },
+  },
+  securityReview: {
+    name: 'the security review',
+    events: ['pull_request'],
+    permissions: { 'pull-requests': 'write', issues: 'write', 'id-token': 'write' },
+  },
+  riskGate: {
+    name: 'the risk gate',
+    events: ['pull_request', 'pull_request_review'],
+    permissions: { 'pull-requests': 'write', issues: 'write' },
+  },
+};
+
+/** The events and permissions the layers that are on need and the workflow file lacks, as an error each. */
+function layerNeedItems(report, state) {
+  if (!state.workflow) return;
+  const events = triggerEvents(state.workflow);
+  const granted = grantedPermissions(state.workflow);
+  for (const [answer, needs] of Object.entries(LAYER_NEEDS)) {
+    if (state.current?.[answer] !== true) continue;
+    const missing = [
+      ...(events ? needs.events.filter((event) => !events.includes(event)).map((event) => `the ${event} event`) : []),
+      ...Object.entries(needs.permissions)
+        .filter(([scope, level]) => !grants(granted, scope, level))
+        .map(([scope, level]) => `${scope}: ${level}`),
+    ];
+    if (missing.length)
+      report.error(
+        `The workflow file turns on ${needs.name} but lacks ${missing.join(', ')}, so its jobs do not run or fail`,
+        SETUP,
+      );
+  }
+}
 
 // What the kind reads (read), before it is read
 const PACKAGE_STATE = { codecovToken: false, ...CLAUDE_STATE };
@@ -73,12 +122,14 @@ const layersStep = {
           '@claude: Claude answers @claude, implements issues labeled claude, plans those labeled claude-plan, and fixes the tests of its own pull requests',
           'Code review: Claude reviews the changes once per pull request and comments',
           'Security review: Claude looks for vulnerabilities on every push; a finding from high up fails the required check (pull requests from forks are not reviewed)',
+          'Risk gate: labels each pull request by risk (dependencies, what the package installs in the app, its build and CI are high) and requires a human approval from medium up; no Claude',
           "Each Claude workflow uses the Claude token's usage limits, shared by every project",
         ]),
         options: [
           { value: 'claude', label: '@claude', hint: 'issues and comments, and fixes of its failed tests' },
           { value: 'review', label: 'Code review', hint: 'once per pull request' },
           { value: 'security-review', label: 'Security review', hint: 'on every push; a required check' },
+          { value: 'risk-gate', label: 'Risk gate', hint: 'approvals by risk; a required check' },
         ],
         initialValues: Object.entries(PACKAGE_LAYERS)
           .filter(([answer]) => ctx.state.current?.[answer] === true)
@@ -98,11 +149,34 @@ const layersStep = {
 const uploadsCoverage = ({ current }, answers = {}) =>
   current?.tests !== false && current?.coverage !== false && (answers.testRun ?? current?.testCommand) !== NO_TESTS;
 
+/** Whether the tests check the public API: what breaks it (PHP), or what the library publishes (JavaScript). */
+function apiCheckStep(stack) {
+  const js = stack.id === 'js';
+  return {
+    id: 'apiCheck',
+    flag: 'api-check',
+    ask: async ({ header, ctx }) =>
+      orExit(
+        await clack.confirm({
+          message: question(
+            header,
+            js ? 'Check what the library publishes?' : 'Check the public API on pull requests?',
+            js
+              ? 'publint and @arethetypeswrong/cli after the build: exports, files and the types of every entry point'
+              : 'roave/backward-compatibility-check against the base branch: a removed method or a new required argument fails the tests',
+          ),
+          initialValue: ctx.state.current?.apiCheck ?? false,
+        }),
+      ),
+  };
+}
+
 function setupSteps(stack) {
   return [
     // Setup reads what the Claude layers need, as it may turn them on
     repositoryStep({ readOptions: { claude: true } }),
     ...(stack.steps?.() ?? []),
+    apiCheckStep(stack),
     {
       id: 'codecovToken',
       // After the stack's questions, which may turn the test suite off
@@ -221,6 +295,7 @@ async function evaluate(stack, checks, state) {
     labelItems(report, state, labelsOf(state.current));
     claudeItems(report, state);
   }
+  layerNeedItems(report, state);
   // The workflow file does not say whether one person maintains the package (protect asks): a missing approval rule
   // is not reported, only one that keeps older approvals, and a missing CODEOWNERS only when the ruleset requires it
   codeOwnerItems(report, state, { requireApproval: false, hint: SETUP, drift });

@@ -19,7 +19,7 @@ It detects a JavaScript library (a `package.json`, no `composer.json`, and not a
 
 It ends with the commit to make and the `protect` command to run after the first pull request.
 
-Claude can be turned on as in a Laravel package, with the `js` plugin: see [Claude (optional)](../laravel/package.md#claude-optional).
+Claude and the risk gate can be turned on as in a Laravel package, with the `js` plugin and the high-risk paths of a JavaScript library: see [Claude and the risk gate (optional)](../laravel/package.md#claude-and-the-risk-gate-optional).
 
 ### By hand
 

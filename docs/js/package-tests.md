@@ -25,3 +25,7 @@ Passed to `package` with `stack: js`:
 | `tests` | `true` | `false` turns the layer off, and its required check with it: run `protect` again |
 
 The Laravel inputs (`php`, `laravel`, `stability`, `pint`, `phpstan`, `coverage`…) are ignored.
+
+## Published package
+
+With `api-check: true` (setup asks; `--api-check`), the lint job runs [`publint`](https://publint.dev) and [`@arethetypeswrong/cli`](https://github.com/arethetypeswrong/arethetypeswrong.github.io) after the build: `exports`, `files`, `main` and `types` that point to missing files, entry points whose types do not resolve in every module system, and a package that would publish without what it builds. They check what is published, not whether the API changed: Claude's review covers that.
