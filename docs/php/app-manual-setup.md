@@ -1,6 +1,6 @@
 # Manual setup of a PHP app
 
-PHP apps without Laravel (Symfony, and plain PHP apps) call `project`, the same entry point as Laravel apps, with `stack: php`. The setup command does not set them up yet: this page is what it would do. Replace `OWNER/REPO` with the project's repository.
+What [the setup command](app.md#step-1-run-setup) does for a PHP app without Laravel (Symfony, or plain PHP), for when you cannot run it. Replace `OWNER/REPO` with the project's repository.
 
 What a PHP app gets is what a Laravel app gets (see [Verification layers](../verification-layers.md)), with these differences:
 
@@ -53,11 +53,15 @@ The deploy watches `HEALTH_URL` and rolls back when it stops answering `200`. Sy
 
   final class HealthController
   {
+      public function __construct(private readonly Connection $connection)
+      {
+      }
+
       #[Route('/health', name: 'health', methods: ['GET'])]
-      public function __invoke(Connection $connection): JsonResponse
+      public function __invoke(): JsonResponse
       {
           // Fails (500) when the database is unreachable; remove it, and the Connection, to check only the app
-          $connection->executeQuery('SELECT 1');
+          $this->connection->executeQuery('SELECT 1');
 
           return new JsonResponse(['status' => 'ok'], headers: ['Cache-Control' => 'no-store']);
       }

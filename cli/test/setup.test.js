@@ -2045,6 +2045,19 @@ test('sets a Next app up with stack js and Sentry, not deployed by the workflows
   expect(inputs.deploy).toBe(undefined);
 });
 
+test('sets a Symfony app up with stack php and Sentry, detected from the folder', async (t) => {
+  const composer = { type: 'project', require: { 'symfony/framework-bundle': '^8.0' } };
+  const root = await folder(
+    t,
+    { 'composer.json': JSON.stringify(composer), 'bin/console': '', 'config/routes.yaml': 'controllers: {}\n' },
+    'setup-',
+  );
+  expect(await setup(setupContext(root, setupGitHub(), { ...setupFlags, monitoring: 'sentry' }))).toBe(0);
+  const inputs = parseInputs(await readFile(join(root, '.github/workflows/datalogix.yml'), 'utf8'));
+  expect(inputs).toMatchObject({ stack: 'php', monitoring: 'sentry', incidents: 'false' });
+  expect(inputs.deploy).toBe(undefined);
+});
+
 test("tells to install Sentry's SDK of the framework, and checks for it", async () => {
   const jsApp = (await import('../stacks/js/app.js')).default;
   const state = { ...APP_STATE, framework: 'nuxt', sentry: false };

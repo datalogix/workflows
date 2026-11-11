@@ -1,9 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { answeredEnvironments, deploys, projectKind, twoBranches } from '../../kinds/project/index.js';
+import { answeredEnvironments, deploys, projectKind } from '../../kinds/project/index.js';
 import { SETUP } from '../../lib/evaluate.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { deployProviders } from '../../providers/deploy/index.js';
+import { deploySites } from '../../providers/deploy/sites.js';
 import { MONITORING_SERVICES, monitoringServices } from '../../providers/monitoring/index.js';
 import { addDatabaseCheck, inspectHealth, PROVIDER_PATH } from './health.js';
 import { inspectTools, NO_TOOLS, toolSteps } from './tools.js';
@@ -30,7 +31,7 @@ async function readLocale(root) {
 const NODE_SCRIPTS = [['typecheck', 'types:check', 'type-check'], ['lint', 'check'], ['test']];
 
 /** The scripts of package.json the tests would run. */
-async function nodeScripts(root) {
+export async function nodeScripts(root) {
   try {
     const { scripts = {} } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
     const defined = (name) => scripts[name] && !String(scripts[name]).includes('no test specified');
@@ -41,7 +42,7 @@ async function nodeScripts(root) {
 }
 
 /** Whether the tests run the package.json scripts, asked when it has some. */
-const jsStep = {
+export const jsStep = {
   id: 'js',
   flag: 'js',
   when: (a, ctx) => Boolean(ctx.state.nodeScripts?.length),
@@ -67,7 +68,7 @@ const AGENTS = {
 const monitoringOf = (a) => a?.monitoring ?? 'nightwatch';
 
 /** Whether composer.json requires the package, e.g. Nightwatch's agent. */
-async function requiresPackage(root, name) {
+export async function requiresPackage(root, name) {
   try {
     return name in (JSON.parse(await readFile(join(root, 'composer.json'), 'utf8')).require ?? {});
   } catch {
@@ -119,139 +120,18 @@ function healthCheckTask(root) {
   };
 }
 
-// The deploy targets of a Laravel app (cli/providers/deploy)
+// The deploy targets of a Laravel app (cli/providers/deploy), with Nightwatch's token in each chosen site
 const PROVIDERS = deployProviders(['forge', 'cloud']);
-
-const withToken = (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]) && Boolean(a.deployToken?.trim());
-
-/**
- * The branch an environment deploys: with two branches, the development one to staging and the production one to
- * production; otherwise the default branch (null: whatever the site has).
- */
-function branchOf(a, environment, state) {
-  if (twoBranches(a)) return environment === 'staging' ? a.developmentBranch : a.productionBranch;
-  return state.defaultBranch ?? null;
-}
-
-/** The API token of the deploy target, then the sites (or environments) it finds for the repository. */
-const deployTokenStep = {
-  id: 'deployToken',
-  when: (a) => deploys(a) && Boolean(PROVIDERS[a.deploy]),
-  ask: async ({ header, answers }) => {
-    const provider = PROVIDERS[answers.deploy];
-    return orExit(
-      await clack.password({
-        message: question(
-          header,
-          `${provider.name} API token${dim(`  optional: ${provider.tokenHint}`)}`,
-          'Empty: setup lists what to do by hand at the end',
-        ),
-      }),
-    );
-  },
-  then: async (answers, ctx) => {
-    ctx.deployTargets = [];
-    if (!withToken(answers)) return;
-    const provider = PROVIDERS[answers.deploy];
-    const spinner = clack.spinner();
-    spinner.start(`Looking for the ${provider.name} ${provider.kind}s of ${answers.repository}`);
-    try {
-      ctx.deployTargets = await provider.find(provider.api(answers.deployToken.trim()), answers.repository);
-    } catch (error) {
-      // Setup goes on: what the token would do is left to do by hand, with the reason (deployNextSteps)
-      spinner.error(error.message);
-      answers.deployToken = '';
-      answers.deployProblem = error.message;
-      return;
-    }
-    if (ctx.deployTargets.length) {
-      spinner.stop(`Found ${ctx.deployTargets.length} ${provider.name} ${provider.kind}(s) of ${answers.repository}`);
-    } else {
-      answers.deployProblem = `no ${provider.name} ${provider.kind} deploys ${answers.repository}`;
-      spinner.error(`${answers.deployProblem}: set it up by hand`);
-      answers.deployToken = '';
-    }
-  },
-};
-
-/**
- * The site (or environment) suggested for an environment: one on its branch named after it, else one on its branch not
- * named after the other environment (without two branches both deploy the same branch), else one named after it.
- */
-export function suggestedTarget(targets, environment, branch) {
-  const other = environment === 'staging' ? 'production' : 'staging';
-  const named = (target, name) => target.name.toLowerCase().includes(name);
-  return (
-    targets.find((target) => target.branch === branch && named(target, environment)) ??
-    targets.find((target) => target.branch === branch && !named(target, other)) ??
-    targets.find((target) => named(target, environment))
-  );
-}
-
-/** Which site (or environment) of the target an environment deploys to; with Forge, its deploy hook comes along. */
-function deploySiteStep(environment) {
-  return {
-    id: `${environment}Site`,
-    when: (a, ctx) =>
-      withToken(a) && answeredEnvironments(a).includes(environment) && Boolean(ctx.deployTargets?.length),
-    ask: async ({ header, answers, ctx }) => {
-      const provider = PROVIDERS[answers.deploy];
-      const taken = environment === 'staging' ? answers.productionSite : null;
-      const targets = ctx.deployTargets.filter((target) => target !== taken);
-      const initial = suggestedTarget(targets, environment, branchOf(answers, environment, ctx.state));
-      const index = orExit(
-        await clack.select({
-          message: question(header, `${provider.name} ${provider.kind} of ${environment}`),
-          initialValue: initial ? targets.indexOf(initial) : -1,
-          options: [
-            ...targets.map((target, i) => ({
-              value: i,
-              label: provider.targetLabel(target),
-              hint: target.branch ? `branch ${target.branch}` : undefined,
-            })),
-            { value: -1, label: 'None of these', hint: 'setup lists what to do by hand at the end' },
-          ],
-        }),
-      );
-      return index === -1 ? null : targets[index];
-    },
-    then: async (answers) => {
-      const provider = PROVIDERS[answers.deploy];
-      const site = answers[`${environment}Site`];
-      if (!site || !provider.hook) return;
-      try {
-        answers.deployHooks = {
-          ...answers.deployHooks,
-          [environment]: await provider.hook(provider.api(answers.deployToken.trim()), site),
-        };
-      } catch (error) {
-        // The hook question asks for it instead
-        clack.log.warn(`Could not read the deploy hook of ${site.name}: ${error.message}`);
-      }
-    },
-  };
-}
-
-/** The changes in the deploy target the chosen sites (or environments) need. */
-function deploySiteTasks(answers, { state }) {
-  if (!withToken(answers)) return [];
-  const provider = PROVIDERS[answers.deploy];
-  const api = provider.api(answers.deployToken.trim());
-  return answeredEnvironments(answers)
-    .filter((environment) => answers[`${environment}Site`])
-    .flatMap((environment) => {
-      const site = answers[`${environment}Site`];
-      return [
-        provider.task(api, site, environment, cloudBranch(answers, environment, state)),
-        ...(usesNightwatch(answers) && provider.nightwatchTask
-          ? [provider.nightwatchTask(api, site, environment, answers[`${environment}MonitoringToken`]?.trim())]
-          : []),
-      ];
-    });
-}
 
 // Problems become issues, or deploys are marked: both need Nightwatch's agent in the app, with its token
 const usesNightwatch = (a) => monitoringOf(a) === 'nightwatch' && Boolean(a.incidents || a.monitoringMarkers);
+
+const SITES = deploySites(PROVIDERS, {
+  siteTasks: (provider, api, site, environment, answers) =>
+    usesNightwatch(answers) && provider.nightwatchTask
+      ? [provider.nightwatchTask(api, site, environment, answers[`${environment}MonitoringToken`]?.trim())]
+      : [],
+});
 
 /** The SDK of Sentry or Inspector, when its problems become issues and the app does not require it yet. */
 function sdkNextSteps(answers, { state }) {
@@ -290,38 +170,6 @@ function nightwatchNextSteps(answers, { state, results = [] }) {
     );
   }
   return steps;
-}
-
-/** The branch a Cloud environment must track: both with two branches, staging otherwise (Forge gets it in the hook). */
-function cloudBranch(answers, environment, state) {
-  if (twoBranches(answers)) return branchOf(answers, environment, state);
-  return environment === 'staging' ? branchOf(answers, environment, state) : null;
-}
-
-/** What Forge or Laravel Cloud need by hand, so they deploy only what the workflows ask for: what setup did not do. */
-function deployNextSteps(answers, { twoBranches, results = [] }) {
-  if (!PROVIDERS[answers.deploy]) return [];
-  const resultOf = (environment) => results.find((result) => result.id === `deploySite:${environment}`);
-  const left = answeredEnvironments(answers).filter((environment) => !resultOf(environment)?.ok);
-  if (!left.length) return [];
-  // Why the API did not do it: the token or the search failed, or the task of that environment did
-  const problems = [
-    answers.deployProblem,
-    ...left
-      .filter((environment) => resultOf(environment))
-      .map((environment) => `${environment}: ${resultOf(environment).detail}`),
-  ].filter(Boolean);
-  const why = problems.length ? [dim(`  Setup could not do it through the API (${problems.join('; ')}).`)] : [];
-  // Staging first, each with the branch it deploys; only read with two branches
-  const branchesOf = (phrase) =>
-    ['staging', 'production']
-      .filter((environment) => left.includes(environment))
-      .map((environment) =>
-        phrase(environment, bold(environment === 'staging' ? answers.developmentBranch : answers.productionBranch)),
-      );
-  const which = (kind) =>
-    left.length === 2 ? `both ${kind}s` : answers.staging ? `the ${left[0]} ${kind}` : `the ${kind}`;
-  return PROVIDERS[answers.deploy]?.manualSteps({ which, branchesOf, twoBranches, left, why }) ?? [];
 }
 
 /** The health check items of check, for an app that deploys. */
@@ -376,14 +224,14 @@ export default projectKind({
     tools: await inspectTools(root),
   }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
-  deploySteps: () => [deployTokenStep, deploySiteStep('production'), deploySiteStep('staging')],
+  deploySteps: SITES.steps,
   steps: () => [databaseCheckStep, ...toolSteps('project'), jsStep],
   tasks: (answers, { root, state }) => [
-    ...deploySiteTasks(answers, { state }),
+    ...SITES.tasks(answers, { state }),
     ...(answers.databaseCheck ? [healthCheckTask(root)] : []),
   ],
   files: { healthCheck: PROVIDER_PATH },
-  deployNextSteps,
+  deployNextSteps: SITES.nextSteps,
   nextSteps: (answers, { state, results }) => [
     ...(deploys(answers) && !state.health.laravel
       ? [`Make ${answers.healthPath} answer 200 only when the app works (${BY_HAND}).`]

@@ -97,7 +97,7 @@ Options (each one skips its question in setup)
   --kind app|package          An app or a package (default: detected)
   --org <organization>        Organization of org (default: the owner of the git remote)
   --repo owner/repo           Repository (default: from the git remote)
-  --deploy <target>           Where the app is deployed (laravel: forge, cloud or none; js: vercel, netlify or none)
+  --deploy <target>           Where the app is deployed (laravel: forge, cloud or none; php: forge or none; js: vercel, netlify or none)
   --domain app.example.com    Production domain
   --staging / --no-staging    Deploy to staging before production
   --staging-domain <domain>   Staging domain
@@ -107,7 +107,7 @@ Options (each one skips its question in setup)
   --health-path /up           Health check path
   --production auto|manual    Deploy production automatically, or only from Run workflow
   --github-deployments / --no-github-deployments  Record each deploy in the repository's Deployments
-  --monitoring <service>      The app's monitoring service (laravel: nightwatch, sentry, inspector or none)
+  --monitoring <service>      The app's monitoring service (laravel: nightwatch, sentry, inspector or none; php: sentry, inspector or none)
   --incidents / --no-incidents  Turn problems of the monitoring service (see --monitoring) into GitHub issues
   --solo / --no-solo          You work alone on the project (protect: packages only; apps read the workflow file)
   --approvals-medium 1        Human approvals a medium-risk pull request needs (team projects)
