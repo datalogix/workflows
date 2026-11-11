@@ -23,6 +23,7 @@ jobs:
       stack: php
       deploy: forge        # remove the line to disable deploys
       monitoring: sentry   # or inspector; without either: incidents: false
+      database: postgres   # Symfony with Doctrine: mysql, mariadb, or none for the database of .env.test
       pint: false          # Pint and PHPStan run when installed; false turns each off
       lint-command: vendor/bin/php-cs-fixer fix --dry-run --diff   # PHP-CS-Fixer, ECS, Psalm or Rector
 ```

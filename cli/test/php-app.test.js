@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, test, vi } from 'vitest';
+import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
+import { parseInputs } from '../lib/workflow-file.js';
 import { suggestedTests } from '../stacks/laravel/tools.js';
 import phpApp, { symfonyHealthController } from '../stacks/php/app.js';
 import { APP_STATE, fakeGitHub, folder, RELAY as relay } from './helpers.js';
@@ -139,4 +141,25 @@ test('suggests the test command laravel-app-tests runs for a PHP app', () => {
   expect(suggestedTests(tools, 'project', fallback).label).toBe('vendor/bin/phpunit');
   // A Laravel app keeps php artisan test
   expect(suggestedTests(tools, 'project').label).toBe('php artisan test');
+});
+
+test('asks for the database server of the tests of a Symfony app with Doctrine, and writes it', async (t) => {
+  const symfony = await stateOf(await folder(t, SYMFONY, 'php-app-'));
+  const plain = await stateOf(await folder(t, PLAIN, 'php-app-'));
+  const step = stepOf('database');
+  expect(step.when({}, { state: symfony })).toBe(true);
+  expect(step.when({}, { state: { ...symfony, database: false } })).toBe(false);
+  expect(step.when({}, { state: plain })).toBe(false);
+  expect(step.validate('MariaDB')).toBe(undefined);
+  expect(step.validate('sqlite')).toBe('use none, postgres, mysql, mariadb');
+  expect(step.parse(' Postgres ')).toBe('postgres');
+
+  const written = await renderProjectWorkflow({ stack: 'php', deploy: 'none', database: 'postgres' });
+  expect(parseInputs(written)).toMatchObject({ stack: 'php', database: 'postgres' });
+  expect(projectAnswers(parseInputs(written)).database).toBe('postgres');
+  // none is the default, so it is not written; an unanswered question keeps what the file has
+  expect(parseInputs(await renderProjectWorkflow({ deploy: 'none', database: 'none' }, written)).database).toBe(
+    undefined,
+  );
+  expect(parseInputs(await renderProjectWorkflow({ deploy: 'none' }, written)).database).toBe('postgres');
 });

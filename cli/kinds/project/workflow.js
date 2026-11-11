@@ -38,6 +38,7 @@ const MANAGED = [
   'language',
   'js',
   'e2e',
+  'database',
   ...TOOL_INPUTS,
 ];
 
@@ -68,6 +69,7 @@ export function projectAnswers(inputs) {
     approvalsHigh: scalar(inputs['approvals-high']) || null,
     js: flagOf(inputs.js),
     e2e: flagOf(inputs.e2e),
+    database: scalar(inputs.database)?.toLowerCase() || 'none',
     language: scalar(inputs.language) || DEFAULT_LANGUAGE,
     ...toolAnswers(inputs),
   };
@@ -131,6 +133,8 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
   else if (answers.js === false) managed.js = 'false';
   if (answers.e2e === undefined) keep('e2e');
   else if (answers.e2e === false) managed.e2e = 'false';
+  if (answers.database === undefined) keep('database');
+  else if (answers.database !== 'none') managed.database = answers.database;
   Object.assign(managed, toolInputs(answers, current));
 
   const kept = Object.entries(current).filter(([key]) => !MANAGED.includes(key));
