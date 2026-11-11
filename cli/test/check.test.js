@@ -880,6 +880,36 @@ test('warns about a SvelteKit adapter that does not build for the deploy target'
   }
 });
 
+test('warns about an Astro adapter that does not build for the deploy target', async () => {
+  const workflow = await renderProjectWorkflow({
+    stack: 'js',
+    deploy: 'vercel',
+    monitoring: 'none',
+    incidents: false,
+  });
+  const state = {
+    ...APP_STATE,
+    stack: 'js',
+    workflow,
+    current: projectAnswers(parseInputs(workflow)),
+    framework: 'astro',
+    healthFile: 'src/pages/api/health.ts',
+    healthRoute: true,
+  };
+  const warnings = async (astroAdapter) =>
+    titles(await run({ ...state, astroAdapter }, { repository: 'datalogix/app', probe: async () => 200 }), 'warn');
+  expect(await warnings('node')).toContainEqual(
+    'The app renders on demand with @astrojs/node, which does not build for Vercel',
+  );
+  expect(await warnings('netlify')).toContainEqual(
+    'The app renders on demand with @astrojs/netlify, which does not build for Vercel',
+  );
+  // Its own target's adapter, or none (static files)
+  for (const adapter of ['vercel', null]) {
+    expect((await warnings(adapter)).join('\n')).not.toContain('@astrojs/');
+  }
+});
+
 test('takes a protected health URL as passing only with the bypass secret of the environment', async () => {
   const workflow = await renderProjectWorkflow({
     stack: 'js',

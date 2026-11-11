@@ -4,13 +4,15 @@ import { APP_FILES } from '../php/index.js';
 import app from './app.js';
 import pkg from './package.js';
 
-// JavaScript and TypeScript: a folder with package.json, an app (Next, Nuxt, SvelteKit, or a Vue, React or Svelte
-// single-page app built with Vite) or else a library. A composer.json at the root makes it a PHP project, except for a
-// Next, Nuxt or SvelteKit app without a PHP entry point, or a composer.json only there for tooling (see detect)
+// JavaScript and TypeScript: a folder with package.json, an app (Next, Nuxt, SvelteKit, Astro, or a Vue, React or
+// Svelte single-page app built with Vite) or else a library. A composer.json at the root makes it a PHP project, except
+// for a Next, Nuxt, SvelteKit or Astro app without a PHP entry point, or a composer.json only there for tooling (see
+// detect)
 const APP_PACKAGES = ['next', 'nuxt'];
 const APP_CONFIG = /^(next|nuxt)\.config\.(js|cjs|mjs|ts|mts)$/;
 const SPA_PACKAGES = ['vue', 'react', 'svelte'];
-// What a library publishes; a component library built with Vite or SvelteKit has them, an app does not
+// What a library publishes; a component library built with Vite or SvelteKit, or an Astro integration, has them, an
+// app does not
 const PUBLISHED = ['exports', 'main', 'module', 'svelte'];
 // What builds a Svelte library (svelte-package); a SvelteKit app does not have it
 const SVELTE_LIBRARY = '@sveltejs/package';
@@ -51,13 +53,18 @@ const exists = (path) =>
 
 /**
  * Whether the folder has an app of a framework with a server: Next or Nuxt (the package among the dependencies, or its
- * config file), or SvelteKit (@sveltejs/kit, without what a Svelte library publishes: svelte.config.* alone is also a
- * plain Svelte app's).
+ * config file), SvelteKit (@sveltejs/kit, without what a Svelte library publishes: svelte.config.* alone is also a
+ * plain Svelte app's) or Astro (astro, without what an integration publishes).
  */
-const isFrameworkApp = (manifest, names, files) =>
-  names.some((name) => APP_PACKAGES.includes(name)) ||
-  files.some((file) => APP_CONFIG.test(file)) ||
-  (names.includes('@sveltejs/kit') && !names.includes(SVELTE_LIBRARY) && !PUBLISHED.some((field) => field in manifest));
+const isFrameworkApp = (manifest, names, files) => {
+  const published = PUBLISHED.some((field) => field in manifest);
+  return (
+    names.some((name) => APP_PACKAGES.includes(name)) ||
+    files.some((file) => APP_CONFIG.test(file)) ||
+    (names.includes('@sveltejs/kit') && !names.includes(SVELTE_LIBRARY) && !published) ||
+    (names.includes('astro') && !published)
+  );
+};
 
 /**
  * The kind of a JavaScript folder from package.json alone, whatever composer.json says: 'project' for a Next, Nuxt or
@@ -109,8 +116,8 @@ export default {
     const files = await readdir(root).catch(() => []);
     // A PHP app with frontend scripts (Symfony, Craft, WordPress) is a PHP project
     if (await hasPhpEntryPoint(root, files)) return null;
-    // Next, Nuxt and SvelteKit are never the frontend of a PHP app in the same root: a PHP tool inside one does not make
-    // it PHP
+    // Next, Nuxt, SvelteKit and Astro are never the frontend of a PHP app in the same root: a PHP tool inside one does
+    // not make it PHP
     const manifest = await readJson(join(root, 'package.json'));
     const names = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
     if (isFrameworkApp(manifest, names, files)) return 'project';

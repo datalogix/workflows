@@ -187,6 +187,8 @@ jobs:
         src/hooks.server.*
         src/lib/server/*
         src/routes/api/*
+        astro.config.*
+        src/actions/*
         package.json
         .github/*
 
