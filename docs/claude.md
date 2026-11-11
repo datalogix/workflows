@@ -22,7 +22,7 @@ To use the same conventions in your local Claude Code:
 /plugin install laravel@datalogix
 ```
 
-Locally, Claude follows the same rules but does not push or open pull requests on its own: pushing the branch, opening the pull request and commenting on the issue live in [`plugins/core/skills/ci/SKILL.md`](../plugins/core/skills/ci/SKILL.md), which only the `claude` workflow loads. The stack's `fix-ci` command does commit and push, because it is meant for the `claude-fix-ci` workflow; run it locally only if that is what you want.
+Locally, Claude follows the same rules but does not push or open pull requests on its own: pushing the branch, opening the pull request and commenting on the issue live in [`plugins/core/skills/ci/SKILL.md`](../plugins/core/skills/ci/SKILL.md), which only the `claude` workflow loads. The stack's `fix-ci` command does commit and push, because it is meant for the `claude-fix-ci` workflow and for `@claude` asked to fix the CI of a pull request; run it locally only if that is what you want.
 
 ## Environment
 
