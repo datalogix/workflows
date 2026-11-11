@@ -249,6 +249,7 @@ jobs:
           PINT: ${{ inputs.pint && github.event_name == 'pull_request' }}
           PHPSTAN: ${{ inputs.phpstan }}
           LINT_COMMAND: ${{ inputs.lint-command }}
+          API_CHECK: ${{ inputs.api-check && github.event_name == 'pull_request' }}
         run: |
           requires() {
             jq -e --arg name "$1" '(.["require-dev"] // {}) + (.require // {}) | has($name)' composer.json >/dev/null
@@ -277,6 +278,8 @@ jobs:
             fi
           fi
           [ -n "$LINT_COMMAND" ] && enabled=true
+          # The public API check needs PHP and the dependencies too, even without a lint tool
+          [ "$API_CHECK" = true ] && enabled=true
 
           if [ -n "$enabled" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
