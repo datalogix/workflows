@@ -4,12 +4,12 @@ Start with the [organization setup](organization-setup.md), done once: the Claud
 
 ## By stack
 
-Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages, PHP packages without Laravel, and JavaScript apps (Next, Nuxt, Vue and React built with Vite) and libraries are supported; the `setup` command detects the stack and kind of the folder.
+Each stack has the same four pages (plus a manual setup for apps): adding an app, its tests, adding a package, its tests. Laravel apps and packages, PHP apps (Symfony and plain PHP, set up by hand for now) and packages without Laravel, and JavaScript apps (Next, Nuxt, Vue and React built with Vite) and libraries are supported; the `setup` command detects the stack and kind of the folder.
 
 | Stack | App | App tests | Package | Package tests |
 | --- | --- | --- | --- | --- |
 | Laravel | [Adding a Laravel app](laravel/app.md) ([by hand](laravel/app-manual-setup.md)) | [Laravel app tests](laravel/app-tests.md) | [Adding a Laravel package](laravel/package.md) | [Laravel package tests](laravel/package-tests.md) |
-| PHP without Laravel (`php`) | — | — | [Adding a PHP package](php/package.md) | [PHP package tests](php/package-tests.md) |
+| PHP without Laravel (`php`) | [By hand](php/app-manual-setup.md) (the setup command does not support it yet) | [PHP app tests](php/app-tests.md) | [Adding a PHP package](php/package.md) | [PHP package tests](php/package-tests.md) |
 | JavaScript (`js`) | [Adding a JavaScript app](js/app.md) ([by hand](js/app-manual-setup.md)) | [JavaScript app tests](js/app-tests.md) | [Adding a JavaScript library](js/package.md) | [JavaScript library tests](js/package-tests.md) |
 
 ## Common to every stack

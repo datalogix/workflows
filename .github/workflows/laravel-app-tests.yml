@@ -30,7 +30,7 @@ on:
       test-command:
         type: string
         default: ""
-        description: Empty runs composer test when composer.json defines it, otherwise php artisan test; none skips the test suite
+        description: Empty runs composer test when composer.json defines it, otherwise php artisan test with artisan, php bin/phpunit with bin/phpunit, vendor/bin/pest with Pest, else vendor/bin/phpunit; none skips the test suite
       min-coverage:
         type: number
         default: 0
@@ -139,11 +139,18 @@ jobs:
           # Composer stops scripts after 300 seconds by default
           COMPOSER_PROCESS_TIMEOUT: 0
         run: |
+          # A PHP app without Laravel (stack php) has no artisan: Symfony's recipe writes bin/phpunit
           if [ -z "$TEST_COMMAND" ]; then
             if jq -e '.scripts.test' composer.json >/dev/null 2>&1; then
               TEST_COMMAND="composer test"
-            else
+            elif [ -f artisan ]; then
               TEST_COMMAND="php artisan test"
+            elif [ -f bin/phpunit ]; then
+              TEST_COMMAND="php bin/phpunit"
+            elif [ -f vendor/bin/pest ]; then
+              TEST_COMMAND="vendor/bin/pest"
+            else
+              TEST_COMMAND="vendor/bin/phpunit"
             fi
           fi
 

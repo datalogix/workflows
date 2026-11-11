@@ -18,6 +18,11 @@
       "description": "Datalogix conventions and commands for Laravel projects"
     },
     {
+      "name": "php",
+      "source": "./plugins/php",
+      "description": "Datalogix conventions and commands for PHP projects without Laravel (Symfony and plain PHP)"
+    },
+    {
       "name": "js",
       "source": "./plugins/js",
       "description": "Datalogix conventions and commands for JavaScript and TypeScript projects"

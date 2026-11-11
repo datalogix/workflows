@@ -3,7 +3,7 @@ description: Path of this repository's Claude Code plugin marketplace, at the sa
 
 inputs:
   stack:
-    description: Stack of the project, whose plugin is always installed (laravel or js)
+    description: Stack of the project, whose plugin is always installed (laravel, php or js)
     required: false
     default: laravel
   plugins:

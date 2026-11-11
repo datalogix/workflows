@@ -6,7 +6,7 @@ on:
       stack:
         type: string
         default: laravel
-        description: Stack of the project (laravel or js), which picks the environment prepared for Claude and the commands and conventions skill of its plugin (<stack>@datalogix, listed in plugins)
+        description: Stack of the project (laravel, php or js), which picks the environment prepared for Claude and the commands and conventions skill of its plugin (<stack>@datalogix, listed in plugins)
       php-version:
         type: string
         default: ""
@@ -162,7 +162,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Laravel
-        if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true' && inputs.stack == 'laravel'
+        if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true' && contains(fromJSON('["laravel", "php"]'), inputs.stack)
         id: setup
         uses: datalogix/workflows/.github/actions/setup-laravel@v2
         with:
@@ -187,7 +187,8 @@ jobs:
         if: steps.access.outputs.skip != 'true' && steps.fork.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         env:
-          APP_ENV: testing
+          # Symfony's test environment is test; Laravel's is testing
+          APP_ENV: ${{ inputs.stack == 'php' && 'test' || 'testing' }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 

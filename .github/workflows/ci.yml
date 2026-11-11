@@ -83,6 +83,7 @@ jobs:
           npx -y @anthropic-ai/claude-code plugin validate plugins/core
           npx -y @anthropic-ai/claude-code plugin validate plugins/laravel
           npx -y @anthropic-ai/claude-code plugin validate plugins/js
+          npx -y @anthropic-ai/claude-code plugin validate plugins/php
 
       - name: Locate the plugins
         id: plugins
@@ -262,11 +263,60 @@ jobs:
         shell: bash
         run: php artisan test
 
+  # setup-laravel on a Symfony app (stack php): no Laravel environment or Boost, the test database of .env.test migrated
+  setup-symfony:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          path: .central
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          coverage: none
+
+      - name: Create Symfony app
+        shell: bash
+        run: |
+          composer create-project symfony/skeleton "$RUNNER_TEMP/app" --no-interaction --prefer-dist
+          cp -a "$RUNNER_TEMP/app/." .
+          composer require symfony/orm-pack --no-interaction
+          composer require --dev symfony/test-pack --no-interaction
+
+          # The default .env points at Postgres; a project that tests on SQLite says so in .env.test
+          echo 'DATABASE_URL="sqlite:///%kernel.project_dir%/var/data_%kernel.environment%.db"' >> .env.test
+          sha256sum .env .env.test > "$RUNNER_TEMP/env.sha256"
+
+      - name: Run setup-laravel
+        id: setup
+        uses: ./.central/.github/actions/setup-laravel
+
+      - name: Check environment
+        shell: bash
+        env:
+          MCP_CONFIG: ${{ steps.setup.outputs.mcp-config }}
+        run: |
+          set -x
+          # Symfony's committed .env files are left as they were, and no Laravel .env or Boost config is written
+          sha256sum -c "$RUNNER_TEMP/env.sha256"
+          test ! -f database/database.sqlite
+          test -z "$MCP_CONFIG"
+          test -f var/data_test.db
+
+      - name: Run tests
+        shell: bash
+        run: php bin/phpunit
+
   # Single status check for branch protection, so it does not depend on the matrix job names
   all-checks:
     if: always()
 
-    needs: [lint, minimum-node, setup-laravel]
+    needs: [lint, minimum-node, setup-laravel, setup-symfony]
 
     runs-on: ubuntu-latest
 

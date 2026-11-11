@@ -1,0 +1,7 @@
+{
+  "name": "php",
+  "description": "Datalogix conventions and commands for PHP projects without Laravel (Symfony and plain PHP)",
+  "author": {
+    "name": "Datalogix"
+  }
+}

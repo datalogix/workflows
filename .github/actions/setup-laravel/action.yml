@@ -1,5 +1,5 @@
 name: Setup Laravel
-description: Prepares a Laravel app with PHP, Node, dependencies, a migrated SQLite database, built frontend assets and the Laravel Boost MCP config
+description: Prepares a Laravel or PHP app with PHP, Node, dependencies, a migrated database (SQLite for Laravel, the one .env.test points at for Symfony with Doctrine), built frontend assets and the Laravel Boost MCP config
 
 inputs:
   php-version:
@@ -134,6 +134,39 @@ runs:
 
         if ! php artisan migrate --force --no-interaction; then
           echo "::warning::Migrations failed on SQLite; database tools and commands that read data may not work"
+        fi
+
+    # Symfony commits .env and keeps the test settings in .env.test (APP_SECRET, Doctrine's _test database suffix), so
+    # nothing is written: the database is the one .env.test points at. Doctrine migrations are SQL for one platform, so
+    # SQLite is not forced; without that database the migration only warns
+    - name: Prepare Symfony database
+      if: hashFiles('artisan') == '' && hashFiles('bin/console') != '' && hashFiles('composer.lock') != ''
+      shell: bash
+      env:
+        APP_ENV: test
+      run: |
+        installed() {
+          jq -e --arg name "$1" '[.packages[]?, .["packages-dev"][]?] | any(.name == $name)' composer.lock >/dev/null
+        }
+
+        if ! installed doctrine/doctrine-bundle; then
+          echo "No Doctrine, skipping"
+          exit 0
+        fi
+
+        # SQLite needs no database to be created (and does not support --if-not-exists): the migrations below create its
+        # file, and they fail anyway when the database is unreachable
+        if ! php bin/console doctrine:database:create --if-not-exists --no-interaction; then
+          echo "Could not create the test database; trying the migrations"
+        fi
+
+        if installed doctrine/doctrine-migrations-bundle; then
+          migrate=(php bin/console doctrine:migrations:migrate --allow-no-migration --no-interaction)
+        else
+          migrate=(php bin/console doctrine:schema:create --no-interaction)
+        fi
+        if ! "${migrate[@]}"; then
+          echo "::warning::Migrations failed on the test database of .env.test; database tools and tests that read data may not work"
         fi
 
     - name: Build frontend assets
