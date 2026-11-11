@@ -2,7 +2,7 @@
 
 ## Conventions
 
-Claude follows the rules of two plugins, loaded by every Claude workflow: `core` ([`plugins/core`](../plugins/core)), common to every project, and the plugin of the project's stack (`laravel`, [`plugins/laravel`](../plugins/laravel)), with its practices, tools and commands:
+Apps run the Claude workflows by default; packages only those they turn on ([Claude (optional)](laravel/package.md#claude-optional)). Claude follows the rules of two plugins, loaded by every Claude workflow: `core` ([`plugins/core`](../plugins/core)), common to every project, and the plugin of the project's stack (`laravel`, [`plugins/laravel`](../plugins/laravel)), with its practices, tools and commands:
 
 - Everything Claude writes for the team (commits, pull requests, comments) is in the project's `language` input, Brazilian Portuguese (`pt-BR`) by default; commits and pull request titles use Conventional Commits with English types, e.g. `feat: adiciona autenticação via OAuth`, unless the project's `CLAUDE.md` has a `- Commits: no type prefix` line, which drops the type (`Adiciona autenticação via OAuth`). The fixed texts of the workflows (deploy, incident and release issues and pull requests, security review summary, labels) exist in `pt-BR` and `en` only: any value starting with `en` gets English, any other language gets Portuguese.
 - Implements only what is needed and reuses the existing architecture.

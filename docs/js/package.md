@@ -19,6 +19,8 @@ It detects a JavaScript library (a `package.json`, no `composer.json`, and not a
 
 It ends with the commit to make and the `protect` command to run after the first pull request.
 
+Claude can be turned on as in a Laravel package, with the `js` plugin: see [Claude (optional)](../laravel/package.md#claude-optional).
+
 ### By hand
 
 Copy [`examples/package.yml`](../../examples/package.yml) to `.github/workflows/datalogix.yml` and add the stack:

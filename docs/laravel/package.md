@@ -62,6 +62,23 @@ It ends with the commit to make and, without a ruleset, the `protect` command to
 
 To see what is missing, run `npx --allow-git=root github:datalogix/workflows#v2 check` from the package folder. In a package (its workflow file calls `package.yml`, or the folder looks like a Laravel package) it checks only the workflow file, the ruleset (as for an app: see [Checking the app](app.md#checking-the-app)), the Codecov token (unless `tests: false` or `coverage: false`) and the code owners of `.github/`.
 
+## Claude (optional)
+
+Packages can turn on three Claude layers, all off by default (`package` inputs, see [`package`](../reference.md#package)):
+
+- `claude: true`: Claude answers `@claude` on issues and pull requests, implements issues labeled `claude` and plans those labeled `claude-plan` (as in an app: see [Daily use](../daily-use.md#working-with-claude)), and fixes the tests of its own pull requests (`claude/` branches), like Fix CI in an app. It gets one PHP or Node version, not the matrix, so a failure only on the lowest dependencies or an older version is harder for it to reproduce.
+- `review: true`: Claude reviews each pull request once (opened, reopened or ready for review); the `no-review` label skips it.
+- `security-review: true`: Claude reviews the security of every push, and a finding of `security-fail-on` (`high` by default) or higher fails the required check `pipeline / security / security`.
+
+There is no risk gate in packages. Setup asks which layers to turn on (`--layers claude,review,security-review`, or `none`) and, with any of them, the team language, the Claude token when the repository cannot read the organization's, and creates the labels they use. `check` then reports the labels, the token and the Claude GitHub App, and `protect` requires `pipeline / security / security` when the security review is on.
+
+Things to know before turning them on in a public package:
+
+- **Forks.** Most outside pull requests come from forks, which get no secrets: the code review and the security review skip them, and the security check passes without a review. Read those pull requests with security in mind before merging.
+- **Issues from anyone.** Anybody can open an issue in a public repository. Adding `claude` or `claude-plan`, or mentioning `@claude`, runs Claude with write access on that text: read the issue first (only users with write access can trigger Claude).
+- **Usage.** Each layer uses the Claude token's usage limits, shared by every project; `model` (`opus` by default) and `fix-ci-model` (`sonnet`) change the models.
+- **Older workflow files.** A workflow file written before these layers grants only `contents: read` and has none of their events. Run setup again (it rewrites the file from [`examples/package.yml`](../../examples/package.yml)) rather than adding the inputs by hand.
+
 Private Composer packages are not supported: the workflow passes no Composer credentials (`COMPOSER_AUTH`).
 
 What the tests run and how to change the matrix: [Laravel package tests](package-tests.md).

@@ -1,25 +1,43 @@
 name: datalogix
 
 # The only workflow file a package needs, as .github/workflows/datalogix.yml. Every event below is handled by
-# datalogix/workflows; jobs that do not apply to an event are skipped.
+# datalogix/workflows; jobs that do not apply to an event are skipped (the issue, comment and review events, and the
+# permissions beyond contents: read, are for the Claude layers, off by default: claude, review and security-review).
 on:
+  issues:
+    types: [assigned, labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
-  pull_request:
   # Required when the repository uses a merge queue
   merge_group:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
 
 jobs:
   pipeline:
     uses: datalogix/workflows/.github/workflows/package.yml@v2
-    # Only CODECOV_TOKEN is used, for coverage reports
+    # CODECOV_TOKEN for coverage reports, and CLAUDE_CODE_OAUTH_TOKEN for the Claude layers
     secrets: inherit
     # All inputs are optional:
     # with:
+    #   claude: true            # @claude, issues labeled claude or claude-plan, and fixes of Claude's failed tests
+    #   review: true            # Claude reviews each pull request
+    #   security-review: true   # required check pipeline / security / security
+    #   language: en            # pt-BR by default
     #   laravel: '["^11.0", "^12.0", "^13.0"]'
     #   php: '["8.3", "8.4", "8.5"]'
     #   pint: false

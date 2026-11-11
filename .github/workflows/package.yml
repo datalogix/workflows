@@ -3,8 +3,13 @@ name: package
 # Every workflow a Laravel package, a PHP package or a JavaScript library needs, behind a single file in the package
 # (examples/package.yml). New layers are added here, so packages get them without changing their file.
 #
-# Required checks (branch ruleset): <calling job> / tests / all-checks. The tests job of each stack is named tests, so
-# the check is the same; the one of the other stack is skipped in the caller, so it never reports that check.
+# Required checks (branch ruleset): <calling job> / tests / all-checks, and <calling job> / security / security with the
+# security review. The tests job of each stack is named tests, so the check is the same; the one of the other stack is
+# skipped in the caller, so it never reports that check.
+#
+# The Claude layers (claude, review, security-review) are off by default: a package file written before them grants
+# only contents: read and none of their events. Their jobs set no permissions of their own, so they take the caller's,
+# and the called workflows ask for theirs; turning a layer on needs the events and permissions of examples/package.yml.
 
 on:
   workflow_call:
@@ -17,6 +22,18 @@ on:
         type: boolean
         default: true
         description: Run the test suite across the matrix and the lint checks (laravel-package-tests, without the Laravel axis for php, or node-package-tests for js)
+      claude:
+        type: boolean
+        default: false
+        description: Let Claude answer @claude on issues and pull requests, implement issues labeled claude, plan issues labeled claude-plan, and fix failed tests on its own pull requests
+      review:
+        type: boolean
+        default: false
+        description: Claude reviews each pull request once (opened, reopened or ready for review)
+      security-review:
+        type: boolean
+        default: false
+        description: Claude reviews the security of each pull request and fails the check on findings of security-fail-on or higher (required check pipeline / security / security)
 
       # Passed to laravel-package-tests (and os, test-command, min-coverage, lint-command and timeout-minutes to
       # node-package-tests), with the same defaults
@@ -79,8 +96,37 @@ on:
         type: string
         default: ""
         description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check), or for js after the build (e.g. npx publint); empty runs none
+
+      # Claude (with claude, review or security-review)
+      model:
+        type: string
+        default: opus
+        description: Model for replies, implementation and reviews
+      plan-model:
+        type: string
+        default: best
+        description: Model for plans
+      fix-ci-model:
+        type: string
+        default: sonnet
+        description: Model for CI fixes
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this package, given to every Claude workflow (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what is written for the team (issues, pull requests, comments, commits; no double quotes). Claude writes in any language; the fixed texts exist in pt-BR and en, and other languages get pt-BR
+      security-fail-on:
+        type: string
+        default: high
+        description: Lowest security finding severity that fails the check (high, medium, low or none)
     secrets:
       CODECOV_TOKEN:
+        required: false
+      # Only the Claude layers use it, and they are off by default
+      CLAUDE_CODE_OAUTH_TOKEN:
         required: false
 
 jobs:
@@ -139,3 +185,51 @@ jobs:
       min-coverage: ${{ inputs.min-coverage }}
       lint-command: ${{ inputs.lint-command }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
+
+  # The Claude jobs set no permissions: they take the caller's (see the top of this file)
+  claude:
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.claude && contains(fromJSON('["issues", "issue_comment", "pull_request_review_comment", "pull_request_review"]'), github.event_name)
+    uses: datalogix/workflows/.github/workflows/claude.yml@v2
+    secrets: inherit
+    with:
+      stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
+      model: ${{ inputs.model }}
+      plan-model: ${{ inputs.plan-model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  # Once per pull request (opened, reopened or ready for review), not on every push: ask @claude for another review
+  review:
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.review && github.event_name == 'pull_request' && github.event.action != 'synchronize'
+    uses: datalogix/workflows/.github/workflows/claude-review.yml@v2
+    secrets: inherit
+    with:
+      stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
+      model: ${{ inputs.model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  # Pull requests from forks are skipped inside claude-security-review: the check passes without a review
+  security:
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.security-review && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    uses: datalogix/workflows/.github/workflows/claude-security-review.yml@v2
+    secrets: inherit
+    with:
+      stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
+      model: ${{ inputs.model }}
+      fail-on: ${{ inputs.security-fail-on }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  # With claude: Claude's own pull requests (claude/ branches) only exist when it implements issues. In the same run as
+  # the tests, so no separate workflow_run trigger is needed; Claude gets one PHP or Node version, not the matrix
+  fix-ci:
+    needs: [tests, js-tests]
+    if: ${{ !cancelled() && contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.claude && github.event_name == 'pull_request' && (needs.tests.result == 'failure' || needs.js-tests.result == 'failure') }}
+    uses: datalogix/workflows/.github/workflows/claude-fix-ci.yml@v2
+    secrets: inherit
+    with:
+      stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
+      model: ${{ inputs.fix-ci-model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}

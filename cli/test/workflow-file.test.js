@@ -363,6 +363,11 @@ test('reads only what a package workflow file can say', () => {
     stack: 'laravel',
     tests: undefined,
     coverage: false,
+    // The Claude layers are off unless the file turns them on
+    claude: false,
+    review: false,
+    securityReview: false,
+    language: 'pt-BR',
     pint: undefined,
     phpstan: undefined,
     lintCommand: null,

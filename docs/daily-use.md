@@ -2,6 +2,8 @@
 
 ## Working with Claude
 
+In apps. Packages get `@claude`, the labels, the code review and the security review only when they turn them on, and no risk gate: see [Claude (optional)](laravel/package.md#claude-optional).
+
 | You do                                                  | Claude does                                                                                                                                       |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Open an issue with the **Tarefa para o Claude** form, or add the `claude` label | Creates a `claude/<number>-<title>-<date>` branch, implements the issue and opens a pull request                         |

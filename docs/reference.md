@@ -61,8 +61,17 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
 | `stack` | `laravel` | Stack of the package, which picks its tests: `laravel`, `php` (a [PHP package without Laravel](php/package.md)) or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite (`laravel` and `php`: across the matrix, Pint, PHPStan and the lint command); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
+| `claude` | `false` | [`claude`](#claude) on issues and pull requests (`@claude`, the `claude` and `claude-plan` labels), and [`claude-fix-ci`](#claude-fix-ci) on Claude's own pull requests when the tests fail |
+| `review` | `false` | [`claude-review`](#claude-review) once per pull request |
+| `security-review` | `false` | [`claude-security-review`](#claude-security-review) on every push, with the required check `pipeline / security / security`; run `protect` again after changing it |
+| `model` / `plan-model` / `fix-ci-model` | `opus` / `best` / `sonnet` | Models of the Claude layers, as for apps |
+| `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes) |
+| `language` | `pt-BR` | Language of what Claude writes for the team |
+| `security-fail-on` | `high` | Lowest security finding severity that fails the check (`high`, `medium`, `low` or `none`) |
 
-Secrets: `CODECOV_TOKEN` (optional, passed with `secrets: inherit`).
+The Claude layers are off by default: see [Claude (optional)](laravel/package.md#claude-optional). With any of them on, the workflow file needs the events and permissions of [`examples/package.yml`](../examples/package.yml): `issues` (`assigned`, `labeled`), `issue_comment`, `pull_request_review_comment`, `pull_request_review` and `pull_request` with `ready_for_review`, and `contents`, `pull-requests` and `issues` write, `actions` read and `id-token` write. Their jobs in `package` set no permissions, so a file written before them (with `contents: read` only) keeps running its tests while they are off.
+
+Secrets: `CODECOV_TOKEN` (optional) and `CLAUDE_CODE_OAUTH_TOKEN` (only with a Claude layer on), passed with `secrets: inherit`.
 
 
 ## `laravel-app-tests`

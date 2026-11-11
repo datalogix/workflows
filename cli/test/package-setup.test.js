@@ -193,7 +193,8 @@ test('reads only what a package needs from GitHub', async (t) => {
       { detected },
     );
 
-  // The fake fails on anything else: the labels, environments and Claude token of an app are not read
+  // The fake fails on anything else: the labels, environments and Claude token of an app are not read, nor those of
+  // the Claude layers when they are off and setup does not ask (their empty values stay)
   // The organization's secret is read only when the repository has none
   const organizationReads = [];
   const organizationSecret = async (name) => (organizationReads.push(name), false);
@@ -202,7 +203,8 @@ test('reads only what a package needs from GitHub', async (t) => {
     hasOrganizationSecret: organizationSecret,
   });
   expect(state.codecovToken).toBe(true);
-  expect(state.labels).toBe(undefined);
+  expect(state.labels).toStrictEqual([]);
+  expect(state.claudeToken).toStrictEqual({ repository: false, organization: false });
   expect(organizationReads).toStrictEqual([]);
   const neither = await read({ hasRepositorySecret: async () => false, hasOrganizationSecret: organizationSecret });
   expect(neither.codecovToken).toBe(false);
@@ -236,7 +238,7 @@ test('writes stack: js for a JavaScript library, and asks for no Codecov token',
 
   // Its questions: no Codecov token and no Laravel lint or test tools
   const ids = jsPackage.setup.steps().map((step) => step.id);
-  expect(ids).toStrictEqual(['repository', 'codecovToken', 'solo', 'codeOwners']);
+  expect(ids).toStrictEqual(['repository', 'codecovToken', 'layers', 'language', 'claudeToken', 'solo', 'codeOwners']);
   const codecov = jsPackage.setup.steps().find((step) => step.id === 'codecovToken');
   expect(codecov.when({}, { state: { codecovToken: false } })).toBe(false);
   const items = await jsPackage.evaluate({
@@ -271,4 +273,100 @@ test('writes no stack input for a Laravel package, and keeps the one of the file
   expect(parseInputs(await renderPackageWorkflow(js, 'main', {})).stack).toBe('js');
   // Written once, in front of the other inputs
   expect(parseInputs(await renderPackageWorkflow(js, 'main', { stack: 'js' })).stack).toBe('js');
+});
+
+test('turns the Claude layers on only when asked, writing true, and reads what they need', async () => {
+  // Off by default: nothing is written, and the questions of the layers are not asked
+  const off = await renderPackageWorkflow('', 'main', { claude: false, review: false, securityReview: false });
+  expect(parseInputs(off)).toStrictEqual({});
+  const steps = setup.steps();
+  const language = steps.find((step) => step.id === 'language');
+  const token = steps.find((step) => step.id === 'claudeToken');
+  const state = { ...PACKAGE_STATE };
+  expect(language.when({ claude: false, review: false, securityReview: false }, { state })).toBe(false);
+  expect(token.when({ review: true }, { state })).toBe(true);
+  // The organization's token is enough
+  expect(
+    token.when({ review: true }, { state: { ...state, claudeToken: { repository: false, organization: true } } }),
+  ).toBe(false);
+
+  const on = await renderPackageWorkflow('', 'main', {
+    stack: 'php',
+    claude: true,
+    review: false,
+    securityReview: true,
+    language: 'en',
+  });
+  expect(parseInputs(on)).toStrictEqual({ stack: 'php', claude: 'true', 'security-review': 'true', language: 'en' });
+  expect(packageAnswers(parseInputs(on))).toMatchObject({
+    claude: true,
+    review: false,
+    securityReview: true,
+    language: 'en',
+  });
+  // Turned off again: the input goes away; not asked (no layer answer): kept
+  expect(parseInputs(await renderPackageWorkflow(on, 'main', { claude: false, securityReview: true }))).toStrictEqual({
+    stack: 'php',
+    'security-review': 'true',
+  });
+  expect(parseInputs(await renderPackageWorkflow(on, 'main', {}))).toMatchObject({ claude: 'true', language: 'en' });
+
+  // The security review is a required check only when it is on
+  expect(laravelPackage.requiredChecks({ current: packageAnswers({}) })).toStrictEqual([
+    'pipeline / tests / all-checks',
+  ]);
+  expect(laravelPackage.requiredChecks({ current: packageAnswers(parseInputs(on)) })).toStrictEqual([
+    'pipeline / tests / all-checks',
+    'pipeline / security / security',
+  ]);
+
+  // Setup reads the labels, the Claude token and the App; so does check when a layer is on
+  const github = fakeGitHub({
+    hasRepositorySecret: async () => false,
+    hasOrganizationSecret: async (name) => name === 'CLAUDE_CODE_OAUTH_TOKEN',
+    labels: async () => [{ name: 'claude', description: 'Claude implementa e abre um pull request' }],
+    claudeApp: async () => 'selected',
+  });
+  const read = (github_, options) => laravelPackage.read(github_, (_what, promise) => promise, options);
+  expect(await read(github, { claude: true })).toMatchObject({
+    labels: ['claude'],
+    claudeToken: { repository: false, organization: true },
+    claudeApp: 'selected',
+  });
+  expect(await read(github, { current: packageAnswers({ review: 'true' }) })).toMatchObject({ labels: ['claude'] });
+});
+
+test('creates the labels of the layers that are on, stores the token and checks them', async (t) => {
+  const root = await tempRoot(t, 'package-');
+  const created = [];
+  const github = fakeGitHub({
+    createLabel: async (name) => created.push(name),
+    setSecret: async () => {},
+  });
+  const answers = { repository: 'datalogix/lib', solo: true, claude: true, review: true, claudeToken: 'token' };
+  const results = await runResults(laravelPackage.setup.tasks(answers, { github, root, state: PACKAGE_STATE }));
+  expect(results.every((result) => result.ok)).toBe(true);
+  expect(created.sort()).toStrictEqual(['claude', 'claude-plan', 'no-review']);
+  expect(byTitle(results)['Claude token']).toBe('stored as a repository secret');
+
+  // Off: no labels, no token
+  const off = laravelPackage.setup.tasks(
+    { repository: 'datalogix/lib', solo: true },
+    { github, root, state: PACKAGE_STATE },
+  );
+  expect(off.map((task) => task.title)).not.toContain('Labels');
+
+  // check: the token and the App are errors only with a layer on
+  const workflow = await readFile(join(root, WORKFLOW_PATH), 'utf8');
+  const titles = async (current, extra = {}) =>
+    (await laravelPackage.evaluate({ ...PACKAGE_STATE, workflow, current, ...extra })).map(
+      (item) => `${item.status} ${item.title}`,
+    );
+  expect(await titles(packageAnswers(parseInputs(workflow)))).toContainEqual(
+    expect.stringContaining('Missing labels: claude, claude-plan, no-review'),
+  );
+  expect(await titles(packageAnswers(parseInputs(workflow)))).toContainEqual(
+    expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN is not available'),
+  );
+  expect(await titles(packageAnswers({}))).not.toContainEqual(expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN'));
 });

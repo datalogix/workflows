@@ -9,7 +9,7 @@ What each project gets:
 - **Safe deploys**: every merge goes to staging, then production, each watched after the deploy and rolled back automatically if it goes down.
 - **Production errors as issues**: problems detected by Nightwatch, Sentry or Inspector become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.
 
-Packages call a single `package` workflow, today the test matrix: Laravel packages, PHP packages without Laravel (`stack: php`, also for Symfony and plain PHP apps, set up by hand for now; only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
+Packages call a single `package` workflow, the test matrix and, when they turn them on, Claude on issues and pull requests, the code review and the security review: Laravel packages, PHP packages without Laravel (`stack: php`, also for Symfony and plain PHP apps, set up by hand for now; only public Composer packages: the workflows pass no Composer credentials) and JavaScript or TypeScript libraries (`stack: js`).
 
 ## Requirements
 

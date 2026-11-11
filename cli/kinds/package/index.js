@@ -1,3 +1,18 @@
+import {
+  CLAUDE_LABEL,
+  CLAUDE_STATE,
+  claudeAppNextSteps,
+  claudeItems,
+  claudeTokenStep,
+  claudeTokenTasks,
+  labelItems,
+  labelsTask,
+  languageStep,
+  NO_REVIEW_LABEL,
+  PLAN_LABEL,
+  readClaude,
+  readLabels,
+} from '../../lib/claude.js';
 import { coverageItems } from '../../lib/coverage.js';
 import { codeOwnerItems, createReport, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
 import { driftPhrases, requiresCodeOwners, rulesetDrift } from '../../lib/ruleset.js';
@@ -6,19 +21,75 @@ import { codeOwnersStep, repositoryStep, soloStep } from '../../lib/steps.js';
 import { NO_TESTS } from '../../lib/tools.js';
 import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWarnings } from '../../lib/tasks.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
-import { PACKAGE_REF, packageAnswers, packageTemplate, renderPackageWorkflow } from './workflow.js';
+import {
+  claudeOn,
+  PACKAGE_LAYERS,
+  PACKAGE_REF,
+  packageAnswers,
+  packageTemplate,
+  renderPackageWorkflow,
+} from './workflow.js';
 
 // What package.yml needs from a package, whatever its stack: the workflow file, the Codecov token, the ruleset and the
-// code owners. A stack's package module (cli/stacks/<stack>/package.js) calls packageKind with what only it knows.
+// code owners, and with a Claude layer on, the Claude token, the Claude GitHub App and the labels. A stack's package
+// module (cli/stacks/<stack>/package.js) calls packageKind with what only it knows.
 
 // Check of each layer that can be required (package.yml), keyed by its answer in packageAnswers; the tests end in
-// the all-checks job of the stack's package tests
+// the all-checks job of the stack's package tests. The security review is off unless the workflow file turns it on
 export const PACKAGE_CHECKS = {
   tests: 'pipeline / tests / all-checks',
+  securityReview: 'pipeline / security / security',
 };
 
-// What the kind reads (readPackage), before it is read
-const PACKAGE_STATE = { codecovToken: false };
+/**
+ * The checks the answers require: checksOn counts a layer as on unless its answer is false, as project.yml's layers
+ * are, but the security review of a package is off unless the workflow file turns it on.
+ */
+const checksOfPackage = (checks, a) => checksOn(checks, { ...a, securityReview: a?.securityReview === true });
+
+// What the kind reads (read), before it is read
+const PACKAGE_STATE = { codecovToken: false, ...CLAUDE_STATE };
+
+// --layers claude,review,security-review, or none
+const layerChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
+const validLayers = (value) =>
+  layerChoices(value ?? '').every((choice) => Object.values(PACKAGE_LAYERS).includes(choice))
+    ? undefined
+    : `use ${Object.values(PACKAGE_LAYERS).join(', ')} separated by commas, or none`;
+
+/** The labels the Claude layers of a package start or skip with: claude and claude-plan, no-review. */
+const labelsOf = (a) => [...(a.claude ? [CLAUDE_LABEL, PLAN_LABEL] : []), ...(a.review ? [NO_REVIEW_LABEL] : [])];
+
+/** The Claude layers of a package, all off unless the workflow file turns them on. */
+const layersStep = {
+  id: 'layers',
+  flag: 'layers',
+  validate: validLayers,
+  parse: layerChoices,
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.multiselect({
+        message: question(header, 'Claude on issues and pull requests', [
+          '@claude: Claude answers @claude, implements issues labeled claude, plans those labeled claude-plan, and fixes the tests of its own pull requests',
+          'Code review: Claude reviews the changes once per pull request and comments',
+          'Security review: Claude looks for vulnerabilities on every push; a finding from high up fails the required check (pull requests from forks are not reviewed)',
+          "Each Claude workflow uses the Claude token's usage limits, shared by every project",
+        ]),
+        options: [
+          { value: 'claude', label: '@claude', hint: 'issues and comments, and fixes of its failed tests' },
+          { value: 'review', label: 'Code review', hint: 'once per pull request' },
+          { value: 'security-review', label: 'Security review', hint: 'on every push; a required check' },
+        ],
+        initialValues: Object.entries(PACKAGE_LAYERS)
+          .filter(([answer]) => ctx.state.current?.[answer] === true)
+          .map(([, input]) => input),
+        required: false,
+      }),
+    ),
+  then: (answers) => {
+    for (const [answer, input] of Object.entries(PACKAGE_LAYERS)) answers[answer] = answers.layers.includes(input);
+  },
+};
 
 /**
  * Whether the package uploads a coverage report, so it needs a Codecov token: tests and coverage on. A test suite
@@ -29,7 +100,8 @@ const uploadsCoverage = ({ current }, answers = {}) =>
 
 function setupSteps(stack) {
   return [
-    repositoryStep(),
+    // Setup reads what the Claude layers need, as it may turn them on
+    repositoryStep({ readOptions: { claude: true } }),
     ...(stack.steps?.() ?? []),
     {
       id: 'codecovToken',
@@ -46,6 +118,12 @@ function setupSteps(stack) {
           }),
         ),
     },
+    layersStep,
+    languageStep({ when: claudeOn }),
+    claudeTokenStep({
+      when: claudeOn,
+      about: 'Used by the Claude layers you turned on: @claude, the code review and the security review',
+    }),
     // A ruleset that requires code owners tells a team; the question explains what a package changes
     soloStep({
       subject: 'package',
@@ -62,6 +140,10 @@ function setupTasks(answers, { github, root, state }) {
     workflowFileTask(() => renderPackageWorkflow(state.workflow ?? '', state.defaultBranch, answers), { root, state }),
   ];
   if (answers.codeOwners) tasks.push(codeOwnersTask(answers, { root, state }));
+  if (claudeOn(answers)) {
+    tasks.push(labelsTask(labelsOf(answers), { github, state, language: answers.language }));
+    tasks.push(...claudeTokenTasks(answers, github));
+  }
   if (answers.codecovToken?.trim()) {
     tasks.push({
       title: 'Codecov token',
@@ -97,6 +179,7 @@ function nextSteps(checks, answers, { results, state }) {
         : `Commit and push:\n  ${cyan(`${commit} && git push`)}`,
     );
   }
+  if (claudeOn(answers)) steps.push(...claudeAppNextSteps(answers, state));
   const protect = cyan(`${PROTECT} ${answers.solo ? '--solo' : '--no-solo'}`);
   if (!state.ruleset) {
     steps.push(`After the first pull request shows its checks, protect the default branch:\n  ${protect}`);
@@ -106,7 +189,7 @@ function nextSteps(checks, answers, { results, state }) {
   // gets as --solo or --no-solo
   const phrases = driftPhrases(
     rulesetDrift(state.ruleset, {
-      expected: checksOn(checks, { ...state.current, ...answers }),
+      expected: checksOfPackage(checks, { ...state.current, ...answers }),
       known: Object.values(checks),
       codeOwners: !answers.solo,
       defaultBranch: state.defaultBranch,
@@ -117,18 +200,26 @@ function nextSteps(checks, answers, { results, state }) {
   return steps;
 }
 
-/** A package needs only its workflow file, the Clover report, the ruleset, the Codecov token and the code owners. */
+/**
+ * A package needs its workflow file, the Clover report, the ruleset, the Codecov token and the code owners, and with a
+ * Claude layer on, the labels, the Claude token and the Claude GitHub App.
+ */
 async function evaluate(stack, checks, state) {
   const report = createReport();
   if (workflowItems(report, state, { ref: PACKAGE_REF, kind: 'package', fix: SETUP })) coverageItems(report, state);
   const drift = rulesetItems(report, state, {
-    expected: checksOn(checks, state.current),
+    expected: checksOfPackage(checks, state.current),
     known: Object.values(checks),
   });
   // Optional: without it the tests run, only no coverage report is uploaded
   if (stack.coverage !== false && uploadsCoverage(state)) {
     if (state.codecovToken) report.ok('CODECOV_TOKEN (coverage reports)');
     else report.warn('No CODECOV_TOKEN: the coverage report is not uploaded', `${SETUP}, or coverage: false`);
+  }
+  // Without them the Claude jobs that are on fail
+  if (claudeOn(state.current)) {
+    labelItems(report, state, labelsOf(state.current));
+    claudeItems(report, state);
   }
   // The workflow file does not say whether one person maintains the package (protect asks): a missing approval rule
   // is not reported, only one that keeps older approvals, and a missing CODEOWNERS only when the ruleset requires it
@@ -152,12 +243,23 @@ export function packageKind(stack) {
     empty: { ...PACKAGE_STATE, ...stack.empty },
     inspect: stack.inspect,
     answers: packageAnswers,
-    /** What collectState reads from GitHub for a package: whether it can read a Codecov token. */
-    read: async (github, read) => {
-      // The organization's only when the repository has none: one that cannot be read counts as missing
-      const repository = await read('secrets', github.hasRepositorySecret('CODECOV_TOKEN'));
-      const organization = repository || (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false));
-      return { codecovToken: repository || organization };
+    /**
+     * What collectState reads from GitHub for a package: whether it can read a Codecov token and, in setup (claude) or
+     * with a Claude layer on, its labels, the Claude token and the Claude GitHub App.
+     */
+    read: async (github, read, { current, claude = false } = {}) => {
+      const codecov = async () => {
+        // The organization's only when the repository has none: one that cannot be read counts as missing
+        const repository = await read('secrets', github.hasRepositorySecret('CODECOV_TOKEN'));
+        return repository || (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false));
+      };
+      const withClaude = claude || claudeOn(current);
+      const [codecovToken, labels, claudeState] = await Promise.all([
+        codecov(),
+        withClaude ? readLabels(github, read) : {},
+        withClaude ? readClaude(github, read) : {},
+      ]);
+      return { codecovToken, ...labels, ...claudeState };
     },
     setup: {
       steps: () => setupSteps(stack),
@@ -167,7 +269,7 @@ export function packageKind(stack) {
     },
     evaluate: (state) => evaluate(stack, checks, state),
     /** Checks to require, from the workflow answers (state.current). */
-    requiredChecks: (state) => checksOn(checks, state.current),
+    requiredChecks: (state) => checksOfPackage(checks, state.current),
     /**
      * Whether code owners must approve changes to .github/: a package's workflow file does not say whether one person
      * maintains it, so --solo or a question does.

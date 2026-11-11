@@ -14,6 +14,8 @@ It checks the Claude GitHub App, creates the public `datalogix/.github` reposito
 
 Install the [Claude GitHub App](https://github.com/apps/claude) on the organization, with access to all repositories (or to every project that uses these workflows). `org` tells whether it is installed; that takes the `admin:org` scope (`gh auth refresh -s admin:org`).
 
+Packages that turn on a Claude layer ([Claude (optional)](laravel/package.md#claude-optional)) need it too: with access to all repositories, they get it.
+
 **Why:** the workflows act as `claude[bot]` through this App. Its commits, comments and pull requests trigger the other workflows (tests, reviews) normally, which commits made with the default `GITHUB_TOKEN` would not.
 
 ## 2. Generate the Claude token
