@@ -23,6 +23,15 @@ import { changedFiles, codeOwnersTask, TASK_FILES, workflowFileTask, workflowWar
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
 import { grantedPermissions, grants, jobPermissions, triggerEvents } from '../../lib/workflow-file.js';
 import {
+  inspectRelease,
+  readRelease,
+  RELEASE_STATE,
+  releaseItems,
+  releaseNextSteps,
+  releaseSteps,
+  releaseTasks,
+} from './release.js';
+import {
   CLAUDE_JOB,
   claudeOn,
   layersOn,
@@ -101,7 +110,7 @@ function layerNeedItems(report, state) {
 }
 
 // What the kind reads (read), before it is read
-const PACKAGE_STATE = { codecovToken: false, ...CLAUDE_STATE };
+const PACKAGE_STATE = { codecovToken: false, ...CLAUDE_STATE, ...RELEASE_STATE };
 
 // --layers claude,review,security-review, or none
 const layerChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
@@ -197,7 +206,9 @@ function setupSteps(stack) {
         ),
     },
     layersStep,
-    languageStep({ when: claudeOn }),
+    ...releaseSteps(stack),
+    // The language of what Claude writes and of the release pull request and changelog
+    languageStep({ when: (a) => claudeOn(a) || a.release === true }),
     claudeTokenStep({
       when: claudeOn,
       about: 'Used by the Claude layers you turned on: @claude, the code review and the security review',
@@ -222,6 +233,7 @@ function setupTasks(answers, { github, root, state }) {
     tasks.push(labelsTask(labelsOf(answers), { github, state, language: answers.language }));
     tasks.push(...claudeTokenTasks(answers, github));
   }
+  tasks.push(...releaseTasks(answers, github));
   if (answers.codecovToken?.trim()) {
     tasks.push({
       title: 'Codecov token',
@@ -245,7 +257,7 @@ async function setupWarnings(answers, ctx) {
 }
 
 /** What is left to do by hand after the tasks ran: commit, then protect. */
-function nextSteps(checks, answers, { results, state }) {
+function nextSteps(stack, checks, answers, { results, state }) {
   const steps = [];
   const changed = changedFiles(results, TASK_FILES);
   if (changed.length) {
@@ -258,6 +270,7 @@ function nextSteps(checks, answers, { results, state }) {
     );
   }
   if (claudeOn(answers)) steps.push(...claudeAppNextSteps(answers, state));
+  steps.push(...releaseNextSteps(answers, { results, state, stack }));
   const protect = cyan(`${PROTECT} ${answers.solo ? '--solo' : '--no-solo'}`);
   if (!state.ruleset) {
     steps.push(`After the first pull request shows its checks, protect the default branch:\n  ${protect}`);
@@ -300,6 +313,7 @@ async function evaluate(stack, checks, state) {
     claudeItems(report, state);
   }
   layerNeedItems(report, state);
+  releaseItems(report, state, stack);
   // The workflow file does not say whether one person maintains the package (protect asks): a missing approval rule
   // is not reported, only one that keeps older approvals, and a missing CODEOWNERS only when the ruleset requires it
   codeOwnerItems(report, state, { requireApproval: false, hint: SETUP, drift });
@@ -320,11 +334,13 @@ export function packageKind(stack) {
     ref: PACKAGE_REF,
     checks,
     empty: { ...PACKAGE_STATE, ...stack.empty },
-    inspect: stack.inspect,
+    // What the stack reads from the folder, and what releases need from it
+    inspect: async (root) => ({ ...(await stack.inspect?.(root)), ...(await inspectRelease(root)) }),
     answers: workflowAnswers,
     /**
      * What collectState reads from GitHub for a package: whether it can read a Codecov token and, in setup (claude) or
-     * with a Claude layer on, its labels, the Claude token and the Claude GitHub App.
+     * with a Claude layer on, its labels, the Claude token and the Claude GitHub App; in setup or with releases on, the
+     * release GitHub App and the npm token.
      */
     read: async (github, read, { current, claude = false } = {}) => {
       const codecov = async () => {
@@ -333,18 +349,19 @@ export function packageKind(stack) {
         return repository || (await github.hasOrganizationSecret('CODECOV_TOKEN').catch(() => false));
       };
       const withClaude = claude || claudeOn(current);
-      const [codecovToken, labels, claudeState] = await Promise.all([
+      const [codecovToken, labels, claudeState, release] = await Promise.all([
         codecov(),
         withClaude ? readLabels(github, read) : {},
         withClaude ? readClaude(github, read) : {},
+        readRelease(github, read, { current, claude }),
       ]);
-      return { codecovToken, ...labels, ...claudeState };
+      return { codecovToken, ...labels, ...claudeState, ...release };
     },
     setup: {
       steps: () => setupSteps(stack),
       tasks: (answers, ctx) => setupTasks(withStack(answers), ctx),
       warnings: (answers, ctx) => setupWarnings(withStack(answers), ctx),
-      nextSteps: (answers, ctx) => nextSteps(checks, answers, ctx),
+      nextSteps: (answers, ctx) => nextSteps(stack, checks, answers, ctx),
     },
     evaluate: (state) => evaluate(stack, checks, state),
     /** Checks to require, from the workflow answers (state.current). */

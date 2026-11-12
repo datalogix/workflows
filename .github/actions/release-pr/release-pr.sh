@@ -5,12 +5,8 @@ set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/language.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/language.sh"
-
-owner=${GITHUB_REPOSITORY%%/*}
-
-uri() {
-  jq -rn --arg value "$1" '$value | @uri'
-}
+# shellcheck source=SCRIPTDIR/../lib/pulls.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/pulls.sh"
 
 # Commits of head that base lacks and the files head changed since their merge base. A branch merged both ways shows no
 # files even when it has merge commits the other lacks, so files tell whether anything is pending.
@@ -21,11 +17,6 @@ compare() {
 cannot_compare() {
   echo "::error::Cannot compare $1 with $2: check that both branches exist"
   exit 1
-}
-
-# Number of the open pull request from head to base, or nothing
-open_pull() {
-  gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$(uri "$2")&head=$(uri "$owner:$1")" --jq '.[0].number // empty'
 }
 
 # The comparison's commits as a list, without merge commits (the syncs between the branches)
@@ -42,22 +33,6 @@ commit_list() {
 
 nothing_pending() {
   t "Nothing pending: \`$1\` already has every change of \`$2\`." "Nada pendente: a \`$1\` já tem todas as mudanças da \`$2\`."
-}
-
-set_body() {
-  gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$1" -f "body=$2" >/dev/null
-}
-
-open_or_update() {
-  local head=$1 base=$2 title=$3 body=$4 number
-  number=$(open_pull "$head" "$base")
-  if [ -n "$number" ]; then
-    set_body "$number" "$body"
-    echo "Updated pull request #$number"
-  else
-    number=$(gh api "repos/$GITHUB_REPOSITORY/pulls" -f "head=$head" -f "base=$base" -f "title=$title" -f "body=$body" --jq .number)
-    echo "Opened pull request #$number"
-  fi
 }
 
 # Opens or updates the pull request from head to base with the commits base lacks, between an intro and an outro; with

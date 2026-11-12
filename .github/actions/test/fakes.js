@@ -14,7 +14,17 @@ const { appendFileSync, readFileSync, writeFileSync } = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const dir = process.env.FAKE_DIR;
 let args = process.argv.slice(2);
-appendFileSync(dir + '/calls.jsonl', JSON.stringify(['gh', ...args]) + '\\n');
+// The content of a file given as a field value (-F key=@path) is recorded after the arguments, as curl's stdin is
+const files = args.flatMap((arg) => {
+  const path = /^[^=]+=@(.+)$/.exec(arg)?.[1];
+  if (!path || path === '-') return [];
+  try {
+    return ['<file ' + path + '>', readFileSync(path, 'utf8')];
+  } catch {
+    return [];
+  }
+});
+appendFileSync(dir + '/calls.jsonl', JSON.stringify(['gh', ...args, ...files]) + '\\n');
 let jq = null;
 const at = args.indexOf('--jq');
 if (at !== -1) {

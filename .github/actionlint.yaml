@@ -4,3 +4,7 @@ paths:
     ignore:
       - 'missing input "app-id"'
       - 'input "client-id" is not defined'
+  .github/workflows/package-release.yml:
+    ignore:
+      - 'missing input "app-id"'
+      - 'input "client-id" is not defined'
