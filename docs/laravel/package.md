@@ -27,7 +27,8 @@ It ends with the commit to make and, without a ruleset, the `protect` command to
    name: datalogix
 
    # The only workflow file a package needs, as .github/workflows/datalogix.yml. Every event below is handled by
-   # datalogix/workflows; jobs that do not apply to an event are skipped.
+   # datalogix/workflows; jobs that do not apply to an event are skipped. With the Claude layers or the risk gate, the
+   # file is examples/package-claude.yml instead (setup writes it).
    on:
      push:
        branches: [main]
@@ -50,6 +51,7 @@ It ends with the commit to make and, without a ruleset, the `protect` command to
        #   php: '["8.3", "8.4", "8.5"]'
        #   pint: false
        #   min-coverage: 90   # 100 by default; 0 turns the coverage check off
+       #   api-check: true    # fail on pull requests that break the public API (js: check what is published)
    ```
 
 3. After the first pull request shows its checks, protect the default branch from the package folder:
