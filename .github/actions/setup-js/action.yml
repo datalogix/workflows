@@ -72,5 +72,6 @@ runs:
         elif [ -f package-lock.json ]; then
           npm ci --min-release-age=0
         else
+          echo "::warning file=package.json::No lockfile is committed, so npm install resolves unpinned versions. Commit the lockfile of the project's package manager."
           npm install --min-release-age=0
         fi
