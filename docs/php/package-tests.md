@@ -6,7 +6,8 @@ Everything else is what [Laravel package tests](../laravel/package-tests.md) des
 
 - `pint --test` on the files a pull request changes, when the package requires `laravel/pint`, which works on any PHP code;
 - PHPStan, when the package requires `phpstan/phpstan`;
-- `lint-command` for any other tool, e.g. `composer cs:check` for php-cs-fixer or ECS, or Psalm and Rector in a dry run. See [Lint](../lint.md#laravel-and-php-packages).
+- Rector in a dry run (`rector process --dry-run`), when the package requires `rector/rector` and has `rector.php` (`rector: false` turns it off);
+- `lint-command` for any other tool, e.g. `composer cs:check` for php-cs-fixer or ECS, or Psalm. See [Lint](../lint.md#laravel-and-php-packages).
 
 The matrix job names leave Laravel out (`P8.5 - prefer-stable - ubuntu-latest`).
 

@@ -1,16 +1,16 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { NO_TESTS, validCommand } from '../../lib/tools.js';
 import { clack, dim, orExit, question } from '../../lib/ui.js';
 
 // The lint and test tools of a Laravel app or package, read from composer.json, and the setup questions that choose
-// the pint, phpstan, lint-command and test-command inputs (cli/lib/tools.js)
+// the pint, phpstan, rector, lint-command and test-command inputs (cli/lib/tools.js)
 
-export const NO_TOOLS = { pint: false, phpstan: false, pest: false, phpunit: false, scripts: {} };
+export const NO_TOOLS = { pint: false, phpstan: false, rector: false, pest: false, phpunit: false, scripts: {} };
 
 const PHPSTAN = ['phpstan/phpstan', 'larastan/larastan', 'nunomaduro/larastan'];
-const LINT_CHOICES = ['pint', 'phpstan', 'command'];
-// --lint pint,phpstan,command, or none
+const LINT_CHOICES = ['pint', 'phpstan', 'rector', 'command'];
+// --lint pint,phpstan,rector,command, or none
 const lintChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
 const validLint = (value) =>
   lintChoices(value ?? '').every((choice) => LINT_CHOICES.includes(choice))
@@ -42,6 +42,13 @@ export async function inspectTools(root) {
   return {
     pint: names.has('laravel/pint'),
     phpstan: PHPSTAN.some((name) => names.has(name)),
+    // The workflows run Rector only with its config, as it stops without one
+    rector:
+      names.has('rector/rector') &&
+      (await access(join(root, 'rector.php')).then(
+        () => true,
+        () => false,
+      )),
     pest: names.has('pestphp/pest'),
     phpunit: names.has('phpunit/phpunit') || names.has('pestphp/pest'),
     scripts,
@@ -79,7 +86,8 @@ export function suggestedTests(tools, kind, testFallback = null) {
 export function suggestedLint(tools, chosen = []) {
   const covered = (command) =>
     (chosen.includes('pint') && /\bpint\b/.test(command)) ||
-    (chosen.includes('phpstan') && /\b(phpstan|larastan)\b/.test(command));
+    (chosen.includes('phpstan') && /\b(phpstan|larastan)\b/.test(command)) ||
+    (chosen.includes('rector') && /\brector\b/.test(command));
   return Object.keys(tools.scripts)
     .filter((name) => CHECK_SCRIPT.test(name))
     .filter((name) => {
@@ -91,7 +99,7 @@ export function suggestedLint(tools, chosen = []) {
 }
 
 // The tools the lint question offers, those installed
-const offered = (tools) => ['pint', 'phpstan'].filter((tool) => tools[tool]);
+const offered = (tools) => ['pint', 'phpstan', 'rector'].filter((tool) => tools[tool]);
 
 /**
  * The lint and test questions of a Laravel app (kind 'project') or package ('package'); testFallback(tools) names the
@@ -116,6 +124,9 @@ export function toolSteps(kind, { testFallback = null } = {}) {
                 ? [{ value: 'pint', label: 'Laravel Pint', hint: 'only the files changed by the pull request' }]
                 : []),
               ...(installed.includes('phpstan') ? [{ value: 'phpstan', label: 'PHPStan', hint: 'phpstan.neon' }] : []),
+              ...(installed.includes('rector')
+                ? [{ value: 'rector', label: 'Rector', hint: 'rector.php, dry run' }]
+                : []),
               { value: 'command', label: 'Another command…', hint: 'e.g. composer lint:check' },
             ],
             initialValues: [

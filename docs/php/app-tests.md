@@ -46,4 +46,4 @@ Without `test-command`, the job runs the first of:
 
 ## Lint
 
-Pint and PHPStan run when `composer.json` requires them, as in a Laravel app (Pint works on any PHP code; PHPStan without Larastan). PHP-CS-Fixer, ECS, Psalm and Rector run through `lint-command`, e.g. `vendor/bin/php-cs-fixer fix --dry-run --diff` or a `composer cs:check` script. See [Lint](../lint.md).
+Pint, PHPStan and Rector (with `rector.php`) run when `composer.json` requires them, as in a Laravel app (Pint works on any PHP code; PHPStan without Larastan). PHP-CS-Fixer, ECS and Psalm run through `lint-command`, e.g. `vendor/bin/php-cs-fixer fix --dry-run --diff` or a `composer cs:check` script. See [Lint](../lint.md).

@@ -19,10 +19,14 @@ on:
         type: boolean
         default: true
         description: Run PHPStan when it is installed
+      rector:
+        type: boolean
+        default: true
+        description: Run Rector in dry-run mode when it is installed and rector.php exists
       lint-command:
         type: string
         default: ""
-        description: Extra lint command run after Pint and PHPStan (e.g. composer lint:check); empty runs none
+        description: Extra lint command run after Pint, PHPStan and Rector (e.g. composer lint:check); empty runs none
       audit:
         type: boolean
         default: true
@@ -162,6 +166,12 @@ jobs:
         with:
           path: /tmp/phpstan
           key: phpstan-${{ runner.os }}-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+
+      # Checks only: the changes Rector would make fail the step, and are applied locally (vendor/bin/rector)
+      - name: Rector
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.rector && hashFiles('vendor/bin/rector') != '' && hashFiles('rector.php') != '' }}
+        shell: bash
+        run: vendor/bin/rector process --dry-run --no-progress-bar
 
       - name: Lint command
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.lint-command != '' }}

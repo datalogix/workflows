@@ -19,7 +19,7 @@ The Node audit fails only on high and critical advisories, as npm publishes many
 
 Setup reads `composer.json` and asks two questions, starting from what is installed:
 
-- **Lint checks**: Laravel Pint (on pull requests, only the files they change), PHPStan, and another command. The installed tools come checked; unchecking one writes `pint: false` or `phpstan: false`, and unchecking everything turns lint off. Another command (`lint-command`) runs after them, on every event; setup suggests the `composer.json` scripts that only check (e.g. `composer lint:check && composer types:check`), leaving out what Pint and PHPStan already cover.
+- **Lint checks**: Laravel Pint (on pull requests, only the files they change), PHPStan, Rector (in a dry run, when `rector.php` exists), and another command. The installed tools come checked; unchecking one writes `pint: false`, `phpstan: false` or `rector: false`, and unchecking everything turns lint off. Another command (`lint-command`) runs after them, on every event; setup suggests the `composer.json` scripts that only check (e.g. `composer lint:check && composer types:check`), leaving out what Pint, PHPStan and Rector already cover.
 - **Test suite**: the suggested command, another command (`test-command`) or off (`test-command: none`). The suggestion is `composer test` when that script only runs tests, and `php artisan test` when it also runs Pint or PHPStan (as in the Laravel starter kits), so lint does not run twice, nor Pint on every file. Without Pest, PHPUnit or a `test` script, the question starts at off.
 
 Each check runs even when an earlier one failed (a Pint failure still runs PHPStan, the suite and the rest), so one run reports every failure; none runs when the project could not be prepared.
@@ -67,7 +67,7 @@ For example:
 - An explicit `test-command` replaces `composer test`; `none` skips the test suite.
 - Scripts must check, not fix, and exit when done: `eslint .`, not `eslint . --fix`; `vitest run`, not `vitest`. The job fails when the typecheck or lint script changes a tracked file. Recommended setup: [Lint](../lint.md).
 - CI turns off Composer's 300-second script timeout. For long suites locally, start the script with `Composer\\Config::disableProcessTimeout`.
-- Pint and PHPStan stay in the workflow (Pint checks only the files changed by the pull request), so CI does not run `composer lint` or similar scripts unless `lint-command` names them.
+- Pint, PHPStan and Rector stay in the workflow (Pint checks only the files changed by the pull request), so CI does not run `composer lint` or similar scripts unless `lint-command` names them.
 - Pint also checks Blade views (`--blade`) when `package.json` declares `prettier-plugin-blade` and Pint is 1.30+: Pint formats them with Prettier from `node_modules`, so the project needs `prettier`, `prettier-plugin-blade` and `prettier-plugin-tailwindcss` in its `devDependencies` (Pint names the versions it needs).
 
 ## Inputs
@@ -78,7 +78,8 @@ For example:
 | `node-version`    | detected           | Override the Node version                                                                 |
 | `pint`            | `true`             | Run `pint --test` on the files changed by the pull request (Pint 1.20+), Blade views included when `package.json` declares `prettier-plugin-blade` (Pint 1.30+) |
 | `phpstan`         | `true`             | Run PHPStan when installed                                                                |
-| `lint-command`    | empty              | Extra lint command run after Pint and PHPStan, e.g. `composer lint:check`                 |
+| `rector`          | `true`             | Run Rector in a dry run when installed and `rector.php` exists                            |
+| `lint-command`    | empty              | Extra lint command run after Pint, PHPStan and Rector, e.g. `composer lint:check`         |
 | `audit`           | `true`             | Run `composer audit` and the Node audit on scheduled and manual runs, and on PRs that change their lockfile |
 | `test-command`    | detected           | Test command: `composer test` when defined, otherwise `php artisan test`; `none` skips it |
 | `min-coverage`    | `0`                | Minimum coverage of the test suite, with `pcov`; the coverage is shown either way, and `0` never fails. See [Minimum coverage](../coverage.md) |

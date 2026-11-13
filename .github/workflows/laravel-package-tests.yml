@@ -54,6 +54,10 @@ on:
         type: boolean
         default: true
         description: Run PHPStan once, on the highest PHP version of the matrix, when composer.json requires it (phpstan/phpstan or Larastan)
+      rector:
+        type: boolean
+        default: true
+        description: Run Rector in dry-run mode once, on the highest PHP version of the matrix, when composer.json requires rector/rector and rector.php exists
       api-check:
         type: boolean
         default: false
@@ -61,7 +65,7 @@ on:
       lint-command:
         type: string
         default: ""
-        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check); empty runs none
+        description: Extra lint command run once after Pint, PHPStan and Rector (e.g. composer lint:check); empty runs none
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -220,7 +224,7 @@ jobs:
 
   # Lint does not depend on the matrix, so it runs once, next to the tests
   lint:
-    if: (inputs.pint && github.event_name == 'pull_request') || inputs.phpstan || inputs.lint-command != '' || (inputs.api-check && github.event_name == 'pull_request')
+    if: (inputs.pint && github.event_name == 'pull_request') || inputs.phpstan || inputs.rector || inputs.lint-command != '' || (inputs.api-check && github.event_name == 'pull_request')
 
     runs-on: ubuntu-latest
 
@@ -248,6 +252,7 @@ jobs:
           PHP: ${{ inputs.php }}
           PINT: ${{ inputs.pint && github.event_name == 'pull_request' }}
           PHPSTAN: ${{ inputs.phpstan }}
+          RECTOR: ${{ inputs.rector }}
           LINT_COMMAND: ${{ inputs.lint-command }}
           API_CHECK: ${{ inputs.api-check && github.event_name == 'pull_request' }}
         run: |
@@ -275,6 +280,14 @@ jobs:
               enabled=true
             else
               echo "PHPStan is not required by composer.json, skipping PHPStan"
+            fi
+          fi
+          if [ "$RECTOR" = true ]; then
+            if requires rector/rector && [ -f rector.php ]; then
+              echo "rector=true" >> "$GITHUB_OUTPUT"
+              enabled=true
+            else
+              echo "Rector is not required by composer.json or rector.php is missing, skipping Rector"
             fi
           fi
           [ -n "$LINT_COMMAND" ] && enabled=true
@@ -364,6 +377,12 @@ jobs:
         with:
           path: /tmp/phpstan
           key: phpstan-${{ runner.os }}-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+
+      # Checks only: the changes Rector would make fail the step, and are applied locally (vendor/bin/rector)
+      - name: Rector
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.lint.outputs.rector }}
+        shell: bash
+        run: vendor/bin/rector process --dry-run --no-progress-bar
 
       - name: Lint command
         if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint-command != '' }}

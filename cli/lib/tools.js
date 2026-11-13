@@ -1,10 +1,10 @@
 import { flagOf, scalar } from './workflow-file.js';
 
-// The lint and test inputs every entry point takes (project.yml, package.yml): pint, phpstan, lint-command and
-// test-command. The stack's questions (lint, lintCommand, testRun, testCommand) choose them; min-coverage is read, not
+// The lint and test inputs every entry point takes (project.yml, package.yml): pint, phpstan, rector, lint-command
+// and test-command. The stack's questions (lint, lintCommand, testRun, testCommand) choose them; min-coverage is read, not
 // asked (cli/lib/coverage.js)
 
-export const TOOL_INPUTS = ['pint', 'phpstan', 'lint-command', 'test-command'];
+export const TOOL_INPUTS = ['pint', 'phpstan', 'rector', 'lint-command', 'test-command'];
 
 // Turns the test suite off (test-command: none)
 export const NO_TESTS = 'none';
@@ -26,6 +26,7 @@ export function toolAnswers(inputs) {
   return {
     pint: flagOf(inputs.pint),
     phpstan: flagOf(inputs.phpstan),
+    rector: flagOf(inputs.rector),
     lintCommand: scalar(inputs['lint-command']) || null,
     testCommand: scalar(inputs['test-command']) || null,
     minCoverage: scalar(inputs['min-coverage']) || null,
@@ -41,10 +42,11 @@ export function toolInputs(answers, current) {
   const keep = (...names) => {
     for (const name of names) if (current[name] !== undefined) inputs[name] = current[name];
   };
-  if (answers.lint === undefined) keep('pint', 'phpstan', 'lint-command');
+  if (answers.lint === undefined) keep('pint', 'phpstan', 'rector', 'lint-command');
   else {
     if (answers.pint === false) inputs.pint = 'false';
     if (answers.phpstan === false) inputs.phpstan = 'false';
+    if (answers.rector === false) inputs.rector = 'false';
     if (answers.lint.includes('command') && answers.lintCommand?.trim()) {
       inputs['lint-command'] = commandValue(answers.lintCommand.trim());
     }
