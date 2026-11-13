@@ -4,6 +4,7 @@ import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow
 import { commandValue, inspectJsLint, NO_JS_LINT, toolInputs, validCommand } from '../lib/tools.js';
 import { askSteps } from '../lib/ui.js';
 import { parseInputs } from '../lib/workflow-file.js';
+import { jsLintStep } from '../stacks/js/lint.js';
 import {
   inspectTools,
   NO_TOOLS,
@@ -382,4 +383,32 @@ test('offers the JS style tools in the lint question and turns off the unchecked
   // Not installed: left at its default
   expect(flagged.stylelint).toBeUndefined();
   expect(prompts.asked).toHaveLength(2);
+});
+
+test('asks the JS stack only for the ESLint, Prettier and Stylelint it runs, and keeps the other inputs', async () => {
+  const ctx = (jsLint, current = null, flags = {}) => ({ state: { ...APP_STATE, jsLint, current }, flags });
+  // Nothing the style check would run: not asked
+  expect(await askSteps([jsLintStep], ctx(NO_JS_LINT))).toStrictEqual({});
+  expect(prompts.asked).toStrictEqual([]);
+
+  const jsLint = { eslint: true, prettier: true, stylelint: false };
+  prompts.answers = [['eslint']];
+  const answers = await askSteps([jsLintStep], ctx(jsLint, { eslint: false }));
+  expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual(['eslint', 'prettier']);
+  expect(prompts.asked[0].initialValues).toStrictEqual(['prettier']);
+  expect(answers).toMatchObject({ jsLint: ['eslint'], eslint: undefined, prettier: false });
+
+  // A lint command and a PHP tool written by hand stay; ESLint, turned on again, goes away
+  const current = { eslint: 'false', pint: 'false', 'lint-command': "'composer lint'" };
+  expect(toolInputs(answers, current)).toStrictEqual({
+    prettier: 'false',
+    pint: 'false',
+    'lint-command': "'composer lint'",
+  });
+
+  const flagged = await askSteps([jsLintStep], ctx(jsLint, null, { lint: 'none' }));
+  expect(flagged).toMatchObject({ jsLint: [], eslint: false, prettier: false });
+  await expect(askSteps([jsLintStep], ctx(jsLint, null, { lint: 'pint' }))).rejects.toThrow(
+    '--lint: use eslint, prettier, stylelint separated by commas, or none',
+  );
 });

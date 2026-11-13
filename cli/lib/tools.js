@@ -7,7 +7,9 @@ import { flagOf, scalar } from './workflow-file.js';
 // min-coverage is read, not asked (cli/lib/coverage.js)
 
 // The lint tools turned off by an input of their name (default on)
-export const LINT_TOOLS = ['pint', 'phpstan', 'rector', 'eslint', 'prettier', 'stylelint'];
+const PHP_LINT_TOOLS = ['pint', 'phpstan', 'rector'];
+const JS_LINT_TOOLS = ['eslint', 'prettier', 'stylelint'];
+export const LINT_TOOLS = [...PHP_LINT_TOOLS, ...JS_LINT_TOOLS];
 export const TOOL_INPUTS = [...LINT_TOOLS, 'lint-command', 'test-command'];
 
 // What the js-lint action runs (.github/actions/js-lint/js-lint.sh), and the configs that make it run each tool
@@ -101,7 +103,10 @@ export function toolInputs(answers, current) {
   const keep = (...names) => {
     for (const name of names) if (current[name] !== undefined) inputs[name] = current[name];
   };
-  if (answers.lint === undefined) keep(...LINT_TOOLS, 'lint-command');
+  // The JS stack asks only ESLint, Prettier and Stylelint (jsLint), and keeps the rest
+  const jsAsked = answers.jsLint !== undefined;
+  if (jsAsked) for (const tool of JS_LINT_TOOLS) if (answers[tool] === false) inputs[tool] = 'false';
+  if (answers.lint === undefined) keep(...(jsAsked ? PHP_LINT_TOOLS : LINT_TOOLS), 'lint-command');
   else {
     for (const tool of LINT_TOOLS) if (answers[tool] === false) inputs[tool] = 'false';
     if (answers.lint.includes('command') && answers.lintCommand?.trim()) {

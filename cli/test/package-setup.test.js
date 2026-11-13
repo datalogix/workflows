@@ -237,10 +237,11 @@ test('writes stack: js for a JavaScript library, and asks for no Codecov token',
   expect(parseInputs(workflow)).toMatchObject({ stack: 'js' });
   expect(packageAnswers(parseInputs(workflow)).stack).toBe('js');
 
-  // Its questions: no Codecov token and no Laravel lint or test tools
+  // Its questions: no Codecov token and no Laravel lint or test tools, only ESLint, Prettier and Stylelint
   const ids = jsPackage.setup.steps().map((step) => step.id);
   expect(ids).toStrictEqual([
     'repository',
+    'jsLint',
     'apiCheck',
     'codecovToken',
     'layers',
