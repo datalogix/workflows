@@ -453,6 +453,29 @@ test('writes api-check only when on, and keeps it when the question is not asked
   expect(step(jsPackage).flag).toBe('api-check');
 });
 
+test('writes js: false only when the package.json scripts are declined, and keeps it when not asked', async () => {
+  const off = await renderPackageWorkflow('', 'main', { js: false });
+  expect(parseInputs(off)).toStrictEqual({ js: 'false' });
+  expect(packageAnswers(parseInputs(off)).js).toBe(false);
+  expect(parseInputs(await renderPackageWorkflow(off, 'main', {}))).toStrictEqual({ js: 'false' });
+  expect(parseInputs(await renderPackageWorkflow(off, 'main', { js: true }))).toStrictEqual({});
+  expect(packageAnswers({}).js).toBeUndefined();
+});
+
+test('asks whether to run the package.json scripts of a PHP package that has some', async (t) => {
+  const scripts = { test: 'vitest run', lint: 'eslint .', 'lint:fix': 'eslint . --fix' };
+  const root = await folder(t, { 'package.json': JSON.stringify({ scripts }), 'composer.json': '{}' }, 'package-');
+  for (const kind of [laravelPackage, phpPackage]) {
+    expect((await kind.inspect(root)).nodeScripts).toStrictEqual(['lint', 'test']);
+    const step = kind.setup.steps().find((candidate) => candidate.id === 'js');
+    expect(step.flag).toBe('js');
+    expect(step.when({}, { state: { ...PACKAGE_STATE, nodeScripts: ['lint', 'test'] } })).toBe(true);
+    expect(step.when({}, { state: { ...PACKAGE_STATE, nodeScripts: [] } })).toBe(false);
+  }
+  // A JavaScript library runs its scripts anyway
+  expect(jsPackage.setup.steps().map((candidate) => candidate.id)).not.toContain('js');
+});
+
 test('reports a layer that is on when the workflow file lacks its events or permissions', async () => {
   const errors = async (workflow) =>
     (await laravelPackage.evaluate({ ...PACKAGE_STATE, workflow, current: answersOf(workflow) }))

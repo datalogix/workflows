@@ -19,6 +19,18 @@ on:
         type: number
         default: 0
         description: Minimum coverage of the unit tests, in percent of statements, methods and conditionals, read from the Clover report they write (e.g. Vitest's clover reporter, in coverage/); the coverage is shown in the job summary, and 0 (the default) never fails
+      eslint:
+        type: boolean
+        default: true
+        description: Run ESLint, when package.json declares it, it has a config and there is no lint (or check) script
+      prettier:
+        type: boolean
+        default: true
+        description: Run Prettier (or the format:check script), when package.json declares it, it has a config and the lint script does not run it
+      stylelint:
+        type: boolean
+        default: true
+        description: Run Stylelint (or the lint:css script), when package.json declares it, it has a config and the lint script does not run it
       lint-command:
         type: string
         default: ""
@@ -98,7 +110,7 @@ jobs:
       # The typecheck and lint scripts must check, not fix: the step after them fails when they changed a tracked file
       - name: Snapshot the working tree
         id: snapshot
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (steps.scripts.outputs.typecheck || steps.scripts.outputs.lint) }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         shell: bash
         env:
           GIT_AUTHOR_NAME: ci
@@ -125,6 +137,16 @@ jobs:
           RUN: ${{ steps.setup.outputs.run }}
           SCRIPT: ${{ steps.scripts.outputs.lint }}
         run: $RUN "$SCRIPT"
+
+      # ESLint, Prettier and Stylelint, each one the lint script does not run already: on the files the pull request or
+      # the merge queue group changes, on every tracked file on other events
+      - name: JS style
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        uses: datalogix/workflows/.github/actions/js-lint@v2
+        with:
+          eslint: ${{ inputs.eslint }}
+          prettier: ${{ inputs.prettier }}
+          stylelint: ${{ inputs.stylelint }}
 
       - name: Check that lint changed no files
         if: ${{ !cancelled() && steps.snapshot.outputs.ref }}

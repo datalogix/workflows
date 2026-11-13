@@ -19,6 +19,7 @@
 | `composer install` fails on a private package | Not supported: the workflows pass no Composer credentials (`COMPOSER_AUTH`), so only public packages can be installed |
 | Views fail with "Vite manifest not found"  | Check the warning of the _Build frontend assets_ step in `setup-laravel`                                                                     |
 | Pint fails with an unknown `--diff` option | Update `laravel/pint` to 1.20+, or turn it off with `pint: false` (setup: uncheck Laravel Pint)                    |
+| Pint fails on a push, scheduled or manual run, on files no pull request changed | Outside pull requests and the merge queue Pint checks every file: run `vendor/bin/pint` (with `--blade` when CI checks views) once and commit the result ([Lint](lint.md#laravel-app)) |
 | Pint stops asking to install Prettier dependencies | Blade views are checked because `package.json` declares `prettier-plugin-blade`: add the packages and versions Pint names (`prettier`, `prettier-plugin-blade`, `prettier-plugin-tailwindcss`) to `devDependencies` and commit the lockfile |
 | The tests fail with "The typecheck or lint script changed tracked files" | The script fixes instead of checking (`eslint . --fix`, `prettier --write`, `oxlint --fix`): drop the fix option and keep a `lint:fix` script for local use ([Lint](lint.md#rules-for-every-project)) |
 | The lint script fails with an unknown `next lint` command | Next 16 removed `next lint`: use `"lint": "eslint ."` with `eslint-config-next` ([Lint](lint.md#next)) |

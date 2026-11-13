@@ -1,6 +1,6 @@
 # Adding a PHP package
 
-PHP packages without Laravel (framework-agnostic libraries, Symfony bundles, Composer plugins) call `package`, the same entry point as Laravel packages, with `stack: php`. Today it runs the same tests as a [Laravel package](../laravel/package.md), without the Laravel axis of the matrix: the test suite across PHP versions and dependency stability (`prefer-lowest` / `prefer-stable`), with coverage uploaded to Codecov, and the lint checks once. New layers are added to `package`, so packages get them without changing their workflow file.
+PHP packages without Laravel (framework-agnostic libraries, Symfony bundles, Composer plugins) call `package`, the same entry point as Laravel packages, with `stack: php`. Today it runs the same tests as a [Laravel package](../laravel/package.md), without the Laravel axis of the matrix: the test suite across PHP versions and dependency stability (`prefer-lowest` / `prefer-stable`), with coverage uploaded to Codecov, and the lint checks and the `typecheck`, `lint` and `test` scripts of `package.json` once. New layers are added to `package`, so packages get them without changing their workflow file.
 
 PHP apps without Laravel (Symfony, plain PHP) call `project` instead: see [Adding a PHP app](app.md).
 
@@ -14,7 +14,7 @@ npx --allow-git=root github:datalogix/workflows#v2 setup
 
 It detects a PHP package (a `composer.json` without `artisan` and without Laravel, that is not a [JavaScript project with a tooling `composer.json`](../js/package.md#setup): no `laravel/framework`, `illuminate/*` or `orchestra/testbench` requirement and no `extra.laravel`) and asks you to confirm (`--stack php --kind package` answers it; `--yes` takes what it detected). Any `type` but `project` counts as a package, Composer's default being `library`; a `composer.json` with `type: project`, `bin/console`, `public/index.php`, `web/index.php` or `craft` is a [PHP app](app.md). A folder with both `composer.json` and `package.json` is a PHP project, not a JavaScript one.
 
-The questions and what setup writes are those of a Laravel package (see [Adding a Laravel package](../laravel/package.md#setup)): the lint checks and the test suite, the Codecov token, whether you work alone on the package and, with a team, who must approve changes to `.github/`. The workflow file gets `stack: php`.
+The questions and what setup writes are those of a Laravel package (see [Adding a Laravel package](../laravel/package.md#setup)): the lint checks and the test suite, whether the tests run the `package.json` scripts (`js`), the Codecov token, whether you work alone on the package and, with a team, who must approve changes to `.github/`. The workflow file gets `stack: php`.
 
 A package workflow file without a `stack` input runs the Laravel package tests, the default: setup and check keep reading it as a Laravel package, even when `composer.json` does not name Laravel. Run setup with `--stack php` to switch it.
 

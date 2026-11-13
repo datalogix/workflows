@@ -14,7 +14,7 @@ on:
       pint:
         type: boolean
         default: true
-        description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+)
+        description: Run Laravel Pint in test mode when it is installed, on the files changed by the PR (requires Pint 1.20+) or the merge queue group, and on every file on other events
       phpstan:
         type: boolean
         default: true
@@ -23,6 +23,18 @@ on:
         type: boolean
         default: true
         description: Run Rector in dry-run mode when it is installed and rector.php exists
+      eslint:
+        type: boolean
+        default: true
+        description: Run ESLint, when package.json declares it, it has a config and there is no lint (or check) script
+      prettier:
+        type: boolean
+        default: true
+        description: Run Prettier (or the format:check script), when package.json declares it, it has a config and the lint script does not run it
+      stylelint:
+        type: boolean
+        default: true
+        description: Run Stylelint (or the lint:css script), when package.json declares it, it has a config and the lint script does not run it
       lint-command:
         type: string
         default: ""
@@ -42,7 +54,7 @@ on:
       js:
         type: boolean
         default: true
-        description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json when they are defined
+        description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them
       timeout-minutes:
         type: number
         default: 30
@@ -108,9 +120,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          # Pint compares with the base branch, which needs the history; it only runs on pull requests. 0 is falsy in
-          # expressions, so it goes last
-          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
+          # Pint and the JS style check compare with the base of the pull request or the merge queue group, and
+          # the audits with the base of the pull request, which needs the history; on other events they check every
+          # file. 0 is falsy in expressions, so it goes last
+          fetch-depth: ${{ !contains(fromJSON('["pull_request", "merge_group"]'), github.event_name) && 1 || 0 }}
 
       # Each check below runs even when an earlier one failed, so a run reports every failure at once; none runs
       # without the dependencies
@@ -123,16 +136,23 @@ jobs:
           # PHPUnit collects coverage only when phpunit.xml or the test command asks for a report
           coverage: ${{ inputs.test-command != 'none' && 'pcov' || 'none' }}
 
-      # Only the files changed by the PR, so existing style issues do not fail the build. Blade views too when the
+      # On a pull request only the files it changes, so existing style issues do not block it, and in the merge queue
+      # only those of the group, so they do not block the queue; every file on other events. Blade views too when the
       # project declares prettier-plugin-blade (Pint formats them with Prettier from node_modules, and stops when it is
       # missing) and Pint has --blade (1.30+)
       - name: Laravel Pint
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.pint && github.event_name == 'pull_request' && hashFiles('vendor/bin/pint') != '' }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.pint && hashFiles('vendor/bin/pint') != '' }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
-          args=(--test --diff="origin/$BASE")
+          args=(--test)
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            args+=(--diff="origin/$BASE")
+          elif [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+            args+=(--diff="$MERGE_GROUP_BASE")
+          fi
           if [ -f package.json ] \
             && jq -e '(.devDependencies // {}) + (.dependencies // {}) | has("prettier-plugin-blade")' package.json >/dev/null \
             && grep -q -- '--blade' <<< "$(vendor/bin/pint --help)"; then
@@ -253,7 +273,7 @@ jobs:
       # The typecheck and lint scripts must check, not fix: the step after them fails when they changed a tracked file
       - name: Snapshot the working tree
         id: snapshot
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (steps.js.outputs.typecheck || steps.js.outputs.lint) }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outcome == 'success' }}
         shell: bash
         env:
           GIT_AUTHOR_NAME: ci
@@ -281,6 +301,16 @@ jobs:
           RUN: ${{ steps.js.outputs.run }}
           SCRIPT: ${{ steps.js.outputs.lint }}
         run: $RUN "$SCRIPT"
+
+      # ESLint, Prettier and Stylelint, each one the lint script does not run already: on the files the pull request or
+      # the merge queue group changes, on every tracked file on other events
+      - name: JS style
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outcome == 'success' }}
+        uses: datalogix/workflows/.github/actions/js-lint@v2
+        with:
+          eslint: ${{ inputs.eslint }}
+          prettier: ${{ inputs.prettier }}
+          stylelint: ${{ inputs.stylelint }}
 
       - name: Check that lint changed no files
         if: ${{ !cancelled() && steps.snapshot.outputs.ref }}

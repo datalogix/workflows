@@ -4,18 +4,32 @@ The tests workflows run the project's own lint tools, so CI, your machine and Cl
 
 | Project | Workflow | Lint it runs |
 | --- | --- | --- |
-| Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request (Blade views too, see [Blade views](#blade-views)), PHPStan, Rector, `lint-command`; with `js`, the typecheck and lint scripts of `package.json` |
-| Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files (Blade views too), PHPStan, Rector, `lint-command`, once outside the matrix |
-| PHP package | [`laravel-package-tests`](php/package-tests.md), without Laravel | Pint on the changed files, PHPStan, Rector, `lint-command` (php-cs-fixer, ECS, Psalm), once outside the matrix |
-| Next, Nuxt, SvelteKit, Astro, React Router, Remix, and Vue, React and Svelte built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
-| JavaScript or TypeScript library | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, the build, then `lint-command` |
+| Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request, every file outside pull requests and the merge queue (Blade views too, see [Blade views](#blade-views)), PHPStan, Rector, `lint-command`; with `js`, the typecheck and lint scripts of `package.json`, and [ESLint, Prettier and Stylelint](#eslint-prettier-and-stylelint) |
+| Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files, every file outside pull requests and the merge queue (Blade views too), PHPStan, Rector, `lint-command`, once outside the matrix; with `js`, the typecheck and lint scripts of `package.json`, and [ESLint, Prettier and Stylelint](#eslint-prettier-and-stylelint), once in a job of their own |
+| PHP package | [`laravel-package-tests`](php/package-tests.md), without Laravel | Pint on the changed files (every file outside pull requests and the merge queue), PHPStan, Rector, `lint-command` (php-cs-fixer, ECS, Psalm), once outside the matrix; with `js`, the typecheck and lint scripts of `package.json`, and [ESLint, Prettier and Stylelint](#eslint-prettier-and-stylelint), once |
+| Next, Nuxt, SvelteKit, Astro, React Router, Remix, and Vue, React and Svelte built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, [ESLint, Prettier and Stylelint](#eslint-prettier-and-stylelint), `lint-command`, then the build |
+| JavaScript or TypeScript library | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, [ESLint, Prettier and Stylelint](#eslint-prettier-and-stylelint), the build, then `lint-command` |
 
 ## Rules for every project
 
 - **Scripts check, they do not fix.** CI runs `typecheck` and `lint` and then fails when they changed a tracked file ("The typecheck or lint script changed tracked files"), as a fixer would pass with the error silently fixed on the runner. Keep the fixing versions under other names, for local use: `lint:fix`, `format`, `check:fix`.
 - **Script names.** For the typecheck CI runs the first of `typecheck`, `types:check` (the Laravel starter kits) and `type-check` (create-vue); for lint, `lint`, otherwise `check` (Vite+'s `vp check`, in the Laravel starter kits). A script with another name runs only through `lint-command`.
-- **Formatting** is checked only when a script checks it: put `prettier --check` (or `biome check`, `vp check`) in `lint`.
+- **ESLint, Prettier and Stylelint** run even without a script, when the project installed them and no script runs them already: see [below](#eslint-prettier-and-stylelint).
 - **No loosening to pass.** Claude never lowers a PHPStan level, loosens `tsconfig.json` or adds `@ts-ignore`, `eslint-disable` or a baseline entry to make a check pass ([Claude's conventions](claude.md)); fix the code, or change the rule in its own pull request.
+
+## ESLint, Prettier and Stylelint
+
+After the typecheck and lint scripts, CI checks the code with each of these tools that the project installed and no script runs already. It uses the tool from `node_modules` through the package manager of the lockfile (`pnpm exec`, `yarn`, otherwise `npx --no-install`), never downloads it and never fixes; the log says why each one runs or not. Each runs even when an earlier one failed.
+
+| Tool | Runs when | Skipped when | Command |
+| --- | --- | --- | --- |
+| ESLint | `package.json` declares `eslint` (in `dependencies` or `devDependencies`) and a config exists: `eslint.config.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`, or a legacy `.eslintrc*` | There is a `lint` or `check` script (it may run another linter: oxlint, Biome, `vp check`) | `eslint --no-warn-ignored <files>`, only the `.js`, `.jsx`, `.ts`, `.tsx`, `.vue`, `.svelte`, `.astro` (and `.mjs`, `.cjs`, `.mts`, `.cts`) ones; a legacy config runs `eslint .` on the whole project, with `ESLINT_USE_FLAT_CONFIG=false` |
+| Prettier | A `format:check` (or `prettier:check`) script exists, or `package.json` declares `prettier` and a config exists: `.prettierrc*`, `prettier.config.*` or a `prettier` key in `package.json` | The `lint` (or `check`) script names `prettier`, or the `format:check` script | The script, as written; otherwise `prettier --check --ignore-unknown <files>` |
+| Stylelint | A `lint:css` (or `stylelint`) script exists, or `package.json` declares `stylelint` and a config exists: `.stylelintrc*`, `stylelint.config.*` or a `stylelint` key in `package.json` | The `lint` (or `check`) script names `stylelint`, or the `lint:css` script | The script, as written; otherwise `stylelint --allow-empty-input <files>`, only the `.css`, `.scss`, `.sass` and `.less` ones, and `.vue`, `.svelte`, `.astro` and `.html` when `package.json` declares `postcss-html` or a `stylelint-config-*` for them (`stylelint-config-recommended-vue`, `stylelint-config-html`) |
+
+- **Which files.** On a pull request, only the files it changes (in the merge queue, those of the group), so existing issues do not block it, as with Pint; on other events (push, schedule, manual runs), every tracked file. Lockfiles, minified files (`*.min.js`, `*.min.css`), `vendor/`, `node_modules/` and `public/build/` are left out. A tool with no file to check is skipped. The ignore files still apply (`.prettierignore`, `.stylelintignore`, the `ignores` of the ESLint config).
+- **Scripts check the whole scope they name.** `format:check` and `lint:css` run as written, on every event: `"format:check": "prettier --check resources/"` checks all of `resources/` on every pull request.
+- **Turning one off.** `eslint: false`, `prettier: false` or `stylelint: false` in the workflow file (setup's lint question offers the ones the project has; with Prettier and Stylelint, their `format:check` and `lint:css` scripts are skipped too). A tool the `lint` script runs still runs there: the inputs only cover what CI runs on its own. `js: false` turns off every JavaScript check.
 
 ## Laravel app
 
@@ -35,7 +49,7 @@ PHP, in `composer.json`:
 }
 ```
 
-- Pint, PHPStan and Rector run as steps of their own when installed (Rector only with a `rector.php`, in a dry run): no `lint-command` is needed for them, and setup does not suggest `composer lint:check` when Pint covers it. Pint runs only on the files changed by the pull request, so old style issues do not block unrelated pull requests.
+- Pint, PHPStan and Rector run as steps of their own when installed (Rector only with a `rector.php`, in a dry run): no `lint-command` is needed for them, and setup does not suggest `composer lint:check` when Pint covers it. On a pull request Pint runs only on the files it changes, and in the merge queue only on the files of the queued group, so old style issues do not block unrelated pull requests; on pushes, scheduled and manual runs it checks every file, so those runs fail until the old issues are fixed: run `vendor/bin/pint` (with `--blade` when CI checks views) once and commit the result.
 - PHPStan reads `phpstan.neon` (with Larastan's `extension.neon` and the level the project chose). Start at the level the code passes and raise it in pull requests of their own.
 - When `composer test` also runs Pint or PHPStan (as in the starter kits), setup suggests `php artisan test` as the test command, so lint does not run twice.
 - `lint-command` is for other checks, e.g. `composer cs:check`.
@@ -60,7 +74,9 @@ The same `composer.json` tools as an app (`laravel/pint`, `larastan/larastan` or
 
 A PHP package without Laravel uses the same steps: Pint works on any PHP code, and PHPStan without Larastan. Other tools run through `lint-command`, e.g. `composer cs:check` with `"cs:check": "php-cs-fixer fix --dry-run --diff"` (or `ecs check`), and Psalm in the same script; setup suggests the check scripts of `composer.json`.
 
-A package without Blade views needs nothing else: without a `package.json` that declares `prettier-plugin-blade`, the lint job does not install Node and Pint checks PHP only. A package with views can check them too: see [Blade views](#blade-views).
+A package without Blade views needs nothing else: without a `package.json` that declares `prettier-plugin-blade`, the lint job does not install Node and Pint checks PHP only.
+
+A package with a `package.json` (a Livewire or Blade component library with its own JavaScript) gets, with `js` (on by default), a `js` job that runs its typecheck, lint (or ESLint) and `test` scripts once, as in an app: see [Laravel package tests](laravel/package-tests.md#what-it-does). It installs Node only when one of them exists. A package with views can check them too: see [Blade views](#blade-views).
 
 ## Next
 

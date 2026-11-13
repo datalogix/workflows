@@ -128,7 +128,8 @@ Options (each one skips its question in setup)
                               packages: claude,review,security-review, all off by default)
   --code-owners "@user"       Who must approve changes to .github/ (users or @org/teams)
   --language pt-BR            Language of what is written for the team (fixed texts: pt-BR or en)
-  --lint pint,phpstan,rector,command  Lint checks, separated by commas (none turns lint off)
+  --lint pint,phpstan,rector,eslint,prettier,stylelint,command  Lint checks, separated by commas (none turns
+                              lint off)
   --lint-command "<command>"  Lint command, with --lint command
   --test-command "<command>"  Test command (none turns the test suite off)
   --js / --no-js              Run the typecheck, lint and test scripts of package.json

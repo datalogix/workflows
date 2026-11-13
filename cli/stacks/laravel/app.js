@@ -25,9 +25,9 @@ async function readLocale(root) {
   return /^APP_LOCALE\s*=\s*["']?([^"'\s#]+)/m.exec(env)?.[1] ?? null;
 }
 
-// The package.json scripts laravel-app-tests runs (input js), each the first of its names that is defined: types:check
-// and check (Vite+'s vp check) are the Laravel starter kits' names, type-check create-vue's; npm init's test script
-// only fails
+// The package.json scripts laravel-app-tests and laravel-package-tests run (input js), each the first of its names that
+// is defined: types:check and check (Vite+'s vp check) are the Laravel starter kits' names, type-check create-vue's;
+// npm init's test script only fails
 const NODE_SCRIPTS = [['typecheck', 'types:check', 'type-check'], ['lint', 'check'], ['test']];
 
 /** The scripts of package.json the tests would run. */
@@ -52,7 +52,7 @@ export const jsStep = {
         message: question(
           header,
           'Run the package.json scripts in the tests?',
-          `${ctx.state.nodeScripts.map((name) => `npm run ${name}`).join(', ')} after the PHP checks; a failure fails the tests check`,
+          `${ctx.state.nodeScripts.map((name) => `npm run ${name}`).join(', ')} with the PHP checks; a failure fails the tests check`,
         ),
         initialValue: ctx.state.current?.js ?? true,
       }),

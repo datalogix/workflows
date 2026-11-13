@@ -1,16 +1,25 @@
 import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { NO_TESTS, validCommand } from '../../lib/tools.js';
+import { inspectJsLint, NO_JS_LINT, NO_TESTS, validCommand } from '../../lib/tools.js';
 import { clack, dim, orExit, question } from '../../lib/ui.js';
 
-// The lint and test tools of a Laravel app or package, read from composer.json, and the setup questions that choose
-// the pint, phpstan, rector, lint-command and test-command inputs (cli/lib/tools.js)
+// The lint and test tools of a Laravel app or package, read from composer.json (and package.json for ESLint, Prettier
+// and Stylelint), and the setup questions that choose the pint, phpstan, rector, eslint, prettier, stylelint,
+// lint-command and test-command inputs (cli/lib/tools.js)
 
-export const NO_TOOLS = { pint: false, phpstan: false, rector: false, pest: false, phpunit: false, scripts: {} };
+export const NO_TOOLS = {
+  pint: false,
+  phpstan: false,
+  rector: false,
+  ...NO_JS_LINT,
+  pest: false,
+  phpunit: false,
+  scripts: {},
+};
 
 const PHPSTAN = ['phpstan/phpstan', 'larastan/larastan', 'nunomaduro/larastan'];
-const LINT_CHOICES = ['pint', 'phpstan', 'rector', 'command'];
-// --lint pint,phpstan,rector,command, or none
+const LINT_CHOICES = ['pint', 'phpstan', 'rector', 'eslint', 'prettier', 'stylelint', 'command'];
+// --lint pint,phpstan,rector,eslint,prettier,stylelint,command, or none
 const lintChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
 const validLint = (value) =>
   lintChoices(value ?? '').every((choice) => LINT_CHOICES.includes(choice))
@@ -24,13 +33,17 @@ const LINT = /\b(pint|phpstan|larastan|psalm|rector|phpcs|php-cs-fixer|ecs)\b/;
 const CHECK_SCRIPT = /(^|:)check$|^(analy[sz]e|phpstan|stan|psalm|types)$/;
 const TESTS = /\b(artisan test|pest|phpunit|paratest)\b|^@test$/;
 
-/** The tools composer.json requires and its scripts (each as its list of commands). */
+/**
+ * The tools composer.json requires and its scripts (each as its list of commands), and the ESLint, Prettier and
+ * Stylelint the JS style check runs.
+ */
 export async function inspectTools(root) {
+  const js = await inspectJsLint(root);
   let composer;
   try {
     composer = JSON.parse(await readFile(join(root, 'composer.json'), 'utf8'));
   } catch {
-    return NO_TOOLS;
+    return { ...NO_TOOLS, ...js };
   }
   const names = new Set(Object.keys({ ...composer.require, ...composer['require-dev'] }));
   const scripts = Object.fromEntries(
@@ -49,6 +62,7 @@ export async function inspectTools(root) {
         () => true,
         () => false,
       )),
+    ...js,
     pest: names.has('pestphp/pest'),
     phpunit: names.has('phpunit/phpunit') || names.has('pestphp/pest'),
     scripts,
@@ -98,8 +112,17 @@ export function suggestedLint(tools, chosen = []) {
     .join(' && ');
 }
 
-// The tools the lint question offers, those installed
-const offered = (tools) => ['pint', 'phpstan', 'rector'].filter((tool) => tools[tool]);
+// The tools the lint question offers, those installed (for ESLint, Prettier and Stylelint, those the JS style check
+// runs), with their label and hint
+const OPTIONS = {
+  pint: { label: 'Laravel Pint', hint: 'changed files on pull requests, all on pushes' },
+  phpstan: { label: 'PHPStan', hint: 'phpstan.neon' },
+  rector: { label: 'Rector', hint: 'rector.php, dry run' },
+  eslint: { label: 'ESLint', hint: 'without a lint script; changed files on pull requests' },
+  prettier: { label: 'Prettier', hint: 'format:check, or changed files on pull requests' },
+  stylelint: { label: 'Stylelint', hint: 'lint:css, or changed files on pull requests' },
+};
+const offered = (tools) => Object.keys(OPTIONS).filter((tool) => tools[tool]);
 
 /**
  * The lint and test questions of a Laravel app (kind 'project') or package ('package'); testFallback(tools) names the
@@ -120,13 +143,7 @@ export function toolSteps(kind, { testFallback = null } = {}) {
           await clack.multiselect({
             message: question(header, `Lint checks${dim('  installed tools come checked; none turns lint off')}`),
             options: [
-              ...(installed.includes('pint')
-                ? [{ value: 'pint', label: 'Laravel Pint', hint: 'only the files changed by the pull request' }]
-                : []),
-              ...(installed.includes('phpstan') ? [{ value: 'phpstan', label: 'PHPStan', hint: 'phpstan.neon' }] : []),
-              ...(installed.includes('rector')
-                ? [{ value: 'rector', label: 'Rector', hint: 'rector.php, dry run' }]
-                : []),
+              ...installed.map((tool) => ({ value: tool, ...OPTIONS[tool] })),
               { value: 'command', label: 'Another command…', hint: 'e.g. composer lint:check' },
             ],
             initialValues: [

@@ -1,7 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { packageAnswers, renderPackageWorkflow } from '../kinds/package/workflow.js';
 import { projectAnswers, renderProjectWorkflow } from '../kinds/project/workflow.js';
-import { commandValue, toolInputs, validCommand } from '../lib/tools.js';
+import { commandValue, inspectJsLint, NO_JS_LINT, toolInputs, validCommand } from '../lib/tools.js';
 import { askSteps } from '../lib/ui.js';
 import { parseInputs } from '../lib/workflow-file.js';
 import {
@@ -291,8 +291,8 @@ test('answers the questions from flags', async () => {
     phpstan: false,
   });
 
-  await expect(askSteps(toolSteps('project'), { ...ctxWith(installed), flags: { lint: 'eslint' } })).rejects.toThrow(
-    '--lint: use pint, phpstan, rector, command separated by commas, or none',
+  await expect(askSteps(toolSteps('project'), { ...ctxWith(installed), flags: { lint: 'psalm' } })).rejects.toThrow(
+    '--lint: use pint, phpstan, rector, eslint, prettier, stylelint, command separated by commas, or none',
   );
 });
 
@@ -305,4 +305,81 @@ test('asks the lint and test questions for apps and packages', async (t) => {
   const root = await folder(t, { 'composer.json': JSON.stringify(STARTER) });
   expect((await laravelPackage.inspect(root)).tools.phpstan).toBe(true);
   expect((await app.inspect(root)).tools.pint).toBe(true);
+});
+
+test('reads the ESLint, Prettier and Stylelint the JS style check runs', async (t) => {
+  const read = async (files) => inspectJsLint(await folder(t, files));
+  const manifest = (body) => JSON.stringify(body);
+  const declared = { devDependencies: { eslint: '*', prettier: '*', stylelint: '*' } };
+
+  expect(await read({})).toStrictEqual(NO_JS_LINT);
+  // Declared but without a config: none runs
+  expect(await read({ 'package.json': manifest(declared) })).toStrictEqual(NO_JS_LINT);
+  expect(
+    await read({
+      'package.json': manifest(declared),
+      'eslint.config.js': '',
+      '.prettierrc': '{}',
+      'stylelint.config.mjs': '',
+    }),
+  ).toStrictEqual({ eslint: true, prettier: true, stylelint: true });
+  // The config of Prettier and Stylelint may be a key of package.json
+  expect(await read({ 'package.json': manifest({ ...declared, prettier: {}, stylelint: {} }) })).toStrictEqual({
+    eslint: false,
+    prettier: true,
+    stylelint: true,
+  });
+  // A lint script replaces ESLint, and takes Prettier and Stylelint when it names them or their scripts
+  expect(
+    await read({
+      'package.json': manifest({
+        ...declared,
+        scripts: { lint: 'eslint . && prettier --check . && npm run lint:css', 'lint:css': 'stylelint "**/*.css"' },
+      }),
+      'eslint.config.js': '',
+      '.prettierrc': '{}',
+    }),
+  ).toStrictEqual(NO_JS_LINT);
+  // Their check scripts run even without the dependency declared
+  expect(
+    await read({ 'package.json': manifest({ scripts: { 'format:check': 'prettier --check .', stylelint: 'x' } }) }),
+  ).toStrictEqual({ eslint: false, prettier: true, stylelint: true });
+});
+
+test('offers the JS style tools in the lint question and turns off the unchecked ones', async (t) => {
+  const installed = await inspectTools(
+    await folder(t, {
+      'composer.json': JSON.stringify(STARTER),
+      'package.json': JSON.stringify({ devDependencies: { eslint: '*', prettier: '*' } }),
+      'eslint.config.js': '',
+      '.prettierrc': '{}',
+    }),
+  );
+  expect(installed).toMatchObject({ pint: true, eslint: true, prettier: true, stylelint: false });
+
+  prompts.answers = [['pint', 'phpstan', 'eslint'], 'php artisan test'];
+  const answers = await askSteps(toolSteps('project'), ctxWith(installed, { prettier: false }));
+  expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual([
+    'pint',
+    'phpstan',
+    'eslint',
+    'prettier',
+    'command',
+  ]);
+  // Turned off in the workflow file: starts unchecked
+  expect(prompts.asked[0].initialValues).toStrictEqual(['pint', 'phpstan', 'eslint']);
+  expect(answers).toMatchObject({ eslint: undefined, prettier: false });
+
+  const project = await renderProjectWorkflow({ deploy: 'none', ...answers });
+  expect(parseInputs(project)).toStrictEqual({ prettier: 'false', 'test-command': 'php artisan test' });
+  expect(projectAnswers(parseInputs(project))).toMatchObject({ prettier: false, eslint: undefined });
+
+  const flagged = await askSteps(toolSteps('project'), {
+    ...ctxWith(installed),
+    flags: { lint: 'pint,phpstan,prettier', 'test-command': 'none' },
+  });
+  expect(flagged).toMatchObject({ eslint: false, prettier: undefined });
+  // Not installed: left at its default
+  expect(flagged.stylelint).toBeUndefined();
+  expect(prompts.asked).toHaveLength(2);
 });

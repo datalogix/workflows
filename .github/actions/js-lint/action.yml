@@ -1,0 +1,37 @@
+name: Datalogix JS lint
+description: Checks the style of a JavaScript or TypeScript project with the ESLint, Prettier and Stylelint it installed, those no lint script of package.json runs already (needs the dependencies installed, and the history on pull requests and merge queues)
+
+inputs:
+  run:
+    description: false only finds the tools (the tools output), without running them, so it works before the dependencies are installed
+    default: "true"
+  eslint:
+    description: false never runs ESLint
+    default: "true"
+  prettier:
+    description: false never runs Prettier, nor the format:check script
+    default: "true"
+  stylelint:
+    description: false never runs Stylelint, nor the lint:css script
+    default: "true"
+
+outputs:
+  tools:
+    description: The tools it runs, separated by spaces (eslint, prettier, stylelint); empty when there is none
+    value: ${{ steps.lint.outputs.tools }}
+
+runs:
+  using: composite
+
+  steps:
+    - id: lint
+      shell: bash
+      env:
+        RUN: ${{ inputs.run }}
+        RUN_ESLINT: ${{ inputs.eslint }}
+        RUN_PRETTIER: ${{ inputs.prettier }}
+        RUN_STYLELINT: ${{ inputs.stylelint }}
+        # The files changed by a pull request are those since its base branch, in a merge queue since the group's base
+        BASE_REF: ${{ github.base_ref }}
+        MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+      run: bash "$GITHUB_ACTION_PATH/js-lint.sh"
