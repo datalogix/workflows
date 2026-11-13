@@ -6,6 +6,8 @@ import { vercelApi, vercelProjects, vercelStagingTask } from '../../providers/de
 import { netlifyApi, netlifyLockTask, netlifySites } from '../../providers/deploy/netlify.js';
 import { monitoringServices } from '../../providers/monitoring/index.js';
 import { bold, clack, cyan, dim, orExit, question } from '../../lib/ui.js';
+import { nodeScripts, typecheckStep } from '../laravel/app.js';
+import { inspectJsLint, jsLintStep, NO_JS_LINT } from './lint.js';
 
 // What a JavaScript app (Next, Nuxt, SvelteKit, Astro, React Router, Remix, or a Vue, React or Svelte single-page app
 // built with Vite) adds to project.yml
@@ -889,8 +891,14 @@ export default projectKind({
     sentry: false,
     spaRouter: false,
     spaFallback: null,
+    jsLint: NO_JS_LINT,
+    nodeScripts: [],
   },
-  inspect: inspectApp,
+  inspect: async (root) => ({
+    ...(await inspectApp(root)),
+    jsLint: await inspectJsLint(root),
+    nodeScripts: await nodeScripts(root),
+  }),
   healthPath: (ctx) => healthPathOf(ctx.state),
   deploySteps: () => [
     vercelTokenStep,
@@ -900,7 +908,7 @@ export default projectKind({
     netlifySiteStep('production'),
     netlifySiteStep('staging'),
   ],
-  steps: () => [healthRouteStep, e2eStep],
+  steps: () => [healthRouteStep, e2eStep, typecheckStep, jsLintStep],
   tasks: (answers, { root, state }) => [
     ...(withToken(answers) && answers.vercelProject && answers.staging
       ? [vercelStagingTask(vercelApi(answers.deployToken.trim()), answers.vercelProject)]

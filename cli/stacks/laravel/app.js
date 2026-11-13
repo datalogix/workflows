@@ -25,9 +25,9 @@ async function readLocale(root) {
   return /^APP_LOCALE\s*=\s*["']?([^"'\s#]+)/m.exec(env)?.[1] ?? null;
 }
 
-// The package.json scripts laravel-app-tests runs (input js), each the first of its names that is defined: types:check
-// and check (Vite+'s vp check) are the Laravel starter kits' names, type-check create-vue's; npm init's test script
-// only fails
+// The package.json scripts laravel-app-tests and laravel-package-tests run (input js), each the first of its names that
+// is defined: types:check and check (Vite+'s vp check) are the Laravel starter kits' names, type-check create-vue's;
+// npm init's test script only fails
 const NODE_SCRIPTS = [['typecheck', 'types:check', 'type-check'], ['lint', 'check'], ['test']];
 
 /** The scripts of package.json the tests would run. */
@@ -52,9 +52,49 @@ export const jsStep = {
         message: question(
           header,
           'Run the package.json scripts in the tests?',
-          `${ctx.state.nodeScripts.map((name) => `npm run ${name}`).join(', ')} after the PHP checks; a failure fails the tests check`,
+          `${ctx.state.nodeScripts.map((name) => `npm run ${name}`).join(', ')} with the PHP checks; a failure fails the tests check`,
         ),
         initialValue: ctx.state.current?.js ?? true,
+      }),
+    ),
+};
+
+// The names of the typecheck script, as nodeScripts gives them
+const TYPECHECK_SCRIPTS = NODE_SCRIPTS[0];
+const typecheckOf = (ctx) => ctx.state.nodeScripts?.find((name) => TYPECHECK_SCRIPTS.includes(name));
+
+/** Whether the tests run the typecheck script, asked when package.json has one (and its scripts run, with js). */
+export const typecheckStep = {
+  id: 'typecheck',
+  flag: 'typecheck',
+  when: (a, ctx) => a.js !== false && Boolean(typecheckOf(ctx)),
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.confirm({
+        message: question(
+          header,
+          `Run the typecheck (npm run ${typecheckOf(ctx)}) in the tests?`,
+          'A type error fails the tests check',
+        ),
+        initialValue: ctx.state.current?.typecheck ?? true,
+      }),
+    ),
+};
+
+/** Whether the tests run the test script of package.json, asked when it has one (and its scripts run, with js). */
+export const jsTestsStep = {
+  id: 'jsTests',
+  flag: 'js-tests',
+  when: (a, ctx) => a.js !== false && Boolean(ctx.state.nodeScripts?.includes('test')),
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.confirm({
+        message: question(
+          header,
+          'Run the JavaScript tests (npm run test) in the tests?',
+          'Besides the PHP tests; a failure fails the tests check',
+        ),
+        initialValue: ctx.state.current?.jsTests ?? true,
       }),
     ),
 };
@@ -225,7 +265,7 @@ export default projectKind({
   }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
   deploySteps: SITES.steps,
-  steps: () => [databaseCheckStep, ...toolSteps('project'), jsStep],
+  steps: () => [databaseCheckStep, ...toolSteps('project'), jsStep, typecheckStep, jsTestsStep],
   tasks: (answers, { root, state }) => [
     ...SITES.tasks(answers, { state }),
     ...(answers.databaseCheck ? [healthCheckTask(root)] : []),

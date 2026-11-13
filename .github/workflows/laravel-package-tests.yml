@@ -49,7 +49,7 @@ on:
       pint:
         type: boolean
         default: true
-        description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+ in require-dev)
+        description: Run Laravel Pint in test mode when composer.json requires it, on the files changed by the PR (requires Pint 1.20+) or the merge queue group, and on every file on other events
       phpstan:
         type: boolean
         default: true
@@ -62,10 +62,34 @@ on:
         type: boolean
         default: false
         description: On pull requests, fail when the change breaks the public API of the package compared with the base branch (roave/backward-compatibility-check)
+      eslint:
+        type: boolean
+        default: true
+        description: Run ESLint, when package.json declares it, it has a config and there is no lint (or check) script
+      prettier:
+        type: boolean
+        default: true
+        description: Run Prettier (or the format:check script), when package.json declares it, it has a config and the lint script does not run it
+      stylelint:
+        type: boolean
+        default: true
+        description: Run Stylelint (or the lint:css script), when package.json declares it, it has a config and the lint script does not run it
       lint-command:
         type: string
         default: ""
         description: Extra lint command run once after Pint, PHPStan and Rector (e.g. composer lint:check); empty runs none
+      js:
+        type: boolean
+        default: true
+        description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json once, when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
+      js-tests:
+        type: boolean
+        default: true
+        description: Run the test script of package.json when it is defined (the PHP tests are test-command)
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -224,7 +248,7 @@ jobs:
 
   # Lint does not depend on the matrix, so it runs once, next to the tests
   lint:
-    if: (inputs.pint && github.event_name == 'pull_request') || inputs.phpstan || inputs.rector || inputs.lint-command != '' || (inputs.api-check && github.event_name == 'pull_request')
+    if: inputs.pint || inputs.phpstan || inputs.rector || inputs.lint-command != '' || (inputs.api-check && github.event_name == 'pull_request')
 
     runs-on: ubuntu-latest
 
@@ -241,16 +265,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          # Pint compares with the base branch, which needs the history; it only runs on pull requests. 0 is falsy in
+          # Pint compares with the base of the pull request or the merge queue group, and the public API check with the
+          # base of the pull request, which needs the history; on other events Pint checks every file. 0 is falsy in
           # expressions, so it goes last
-          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
+          fetch-depth: ${{ !contains(fromJSON('["pull_request", "merge_group"]'), github.event_name) && 1 || 0 }}
 
       - name: Check for lint tools
         id: lint
         shell: bash
         env:
           PHP: ${{ inputs.php }}
-          PINT: ${{ inputs.pint && github.event_name == 'pull_request' }}
+          PINT: ${{ inputs.pint }}
           PHPSTAN: ${{ inputs.phpstan }}
           RECTOR: ${{ inputs.rector }}
           LINT_COMMAND: ${{ inputs.lint-command }}
@@ -336,16 +361,23 @@ jobs:
         if: steps.lint.outputs.blade
         uses: datalogix/workflows/.github/actions/setup-js@v2
 
-      # Only the files changed by the PR, so existing style issues do not fail the build. Blade views too when the
+      # On a pull request only the files it changes, so existing style issues do not block it, and in the merge queue
+      # only those of the group, so they do not block the queue; every file on other events. Blade views too when the
       # package declares prettier-plugin-blade and Pint has --blade (1.30+)
       - name: Laravel Pint
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.lint.outputs.pint && (!steps.lint.outputs.blade || steps.js.outcome == 'success') }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
           BLADE: ${{ steps.lint.outputs.blade }}
         run: |
-          args=(--test --diff="origin/$BASE")
+          args=(--test)
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            args+=(--diff="origin/$BASE")
+          elif [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+            args+=(--diff="$MERGE_GROUP_BASE")
+          fi
           if [ "$BLADE" = true ] && grep -q -- '--blade' <<< "$(vendor/bin/pint --help)"; then
             args+=(--blade)
           fi
@@ -406,11 +438,161 @@ jobs:
           "$(composer global config bin-dir --absolute --quiet)/roave-backward-compatibility-check" \
             --from="origin/$BASE" --format=github-actions
 
+  # The package.json scripts do not depend on the PHP matrix, so they run once, without PHP
+  js:
+    if: inputs.js
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-js
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          # The JS style check compares with the base of the pull request or the merge queue group, which needs the
+          # history; on other events it checks every file. 0 is falsy in expressions, so it goes last
+          fetch-depth: ${{ !contains(fromJSON('["pull_request", "merge_group"]'), github.event_name) && 1 || 0 }}
+
+      # Before Node is installed, so a package with nothing to run does not install it
+      - name: Detect package.json scripts
+        id: js
+        shell: bash
+        env:
+          TYPECHECK: ${{ inputs.typecheck }}
+          JS_TESTS: ${{ inputs.js-tests }}
+        run: |
+          if [ ! -f package.json ]; then
+            echo "No package.json, skipping"
+            exit 0
+          fi
+
+          # The first of the names that package.json defines (npm init writes a test script that only fails)
+          first() {
+            for script in "$@"; do
+              if jq -e --arg script "$script" '.scripts[$script] // "" | select(. != "" and (contains("no test specified") | not))' package.json >/dev/null; then
+                echo "$script"
+                return
+              fi
+            done
+            echo "No $1 script in package.json, skipping" >&2
+          }
+
+          # types:check is the name in the Laravel starter kits, type-check create-vue's; check is Vite+'s (vp check),
+          # the starter kits' lint
+          typecheck=$(first typecheck types:check type-check)
+          lint=$(first lint check)
+          test=$(first test)
+
+          # Turned off by their inputs, so a package with nothing else to run does not install Node
+          if [ "$TYPECHECK" = false ] && [ -n "$typecheck" ]; then
+            echo "The $typecheck script is turned off (typecheck: false)"
+            typecheck=
+          fi
+          if [ "$JS_TESTS" = false ] && [ -n "$test" ]; then
+            echo "The test script is turned off (js-tests: false)"
+            test=
+          fi
+
+          {
+            echo "typecheck=$typecheck"
+            echo "lint=$lint"
+            echo "test=$test"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "$typecheck$lint$test" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only finds the tools, which needs no dependencies
+      - name: Detect JS style tools
+        id: style
+        if: hashFiles('package.json') != ''
+        uses: datalogix/workflows/.github/actions/js-lint@v2
+        with:
+          eslint: ${{ inputs.eslint }}
+          prettier: ${{ inputs.prettier }}
+          stylelint: ${{ inputs.stylelint }}
+          run: false
+
+      # Each check below runs even when an earlier one failed, so a run reports every failure at once; none runs
+      # without the dependencies
+      - name: Setup JavaScript
+        id: setup
+        if: steps.js.outputs.enabled || steps.style.outputs.tools
+        uses: datalogix/workflows/.github/actions/setup-js@v2
+
+      # The typecheck and lint scripts must check, not fix: the step after them fails when they changed a tracked file
+      - name: Snapshot the working tree
+        id: snapshot
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@localhost
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@localhost
+        # A commit of the tracked files as installing left them (HEAD when it changed none), without touching them
+        run: |
+          snapshot=$(git stash create)
+          echo "ref=${snapshot:-$(git rev-parse HEAD)}" >> "$GITHUB_OUTPUT"
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.typecheck }}
+        shell: bash
+        env:
+          RUN: ${{ steps.setup.outputs.run }}
+          SCRIPT: ${{ steps.js.outputs.typecheck }}
+        run: $RUN "$SCRIPT"
+
+      - name: JS lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.lint }}
+        shell: bash
+        env:
+          RUN: ${{ steps.setup.outputs.run }}
+          SCRIPT: ${{ steps.js.outputs.lint }}
+        run: $RUN "$SCRIPT"
+
+      # ESLint, Prettier and Stylelint, each one the lint script does not run already: on the files the pull request or
+      # the merge queue group changes, on every tracked file on other events
+      - name: JS style
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.style.outputs.tools }}
+        uses: datalogix/workflows/.github/actions/js-lint@v2
+        with:
+          eslint: ${{ inputs.eslint }}
+          prettier: ${{ inputs.prettier }}
+          stylelint: ${{ inputs.stylelint }}
+
+      - name: Check that lint changed no files
+        if: ${{ !cancelled() && steps.snapshot.outputs.ref }}
+        shell: bash
+        env:
+          SNAPSHOT: ${{ steps.snapshot.outputs.ref }}
+        run: |
+          if ! git diff --quiet "$SNAPSHOT"; then
+            echo "::error::The typecheck or lint script changed tracked files: it must check, not fix (e.g. eslint . instead of eslint . --fix, prettier --check instead of prettier --write)"
+            git diff --stat "$SNAPSHOT"
+            exit 1
+          fi
+
+      - name: JS tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.test }}
+        shell: bash
+        env:
+          RUN: ${{ steps.setup.outputs.run }}
+        run: $RUN test
+
   # Single status check for branch protection and merge queues, so it does not depend on the matrix job names
   all-checks:
     if: always()
 
-    needs: [tests, lint]
+    needs: [tests, lint, js]
 
     runs-on: ubuntu-latest
 
@@ -424,6 +606,6 @@ jobs:
         run: |
           echo "Results: $RESULTS"
           for result in $RESULTS; do
-            # tests is skipped with test-command none, lint when it has nothing to run
+            # tests is skipped with test-command none, lint when it has nothing to run, js with js false
             [ "$result" = success ] || [ "$result" = skipped ] || exit 1
           done

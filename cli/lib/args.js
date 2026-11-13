@@ -7,6 +7,8 @@ export const BOOLEAN = [
   'github-deployments',
   'incidents',
   'js',
+  'typecheck',
+  'js-tests',
   'api-check',
   'release',
   'solo',
@@ -128,10 +130,13 @@ Options (each one skips its question in setup)
                               packages: claude,review,security-review, all off by default)
   --code-owners "@user"       Who must approve changes to .github/ (users or @org/teams)
   --language pt-BR            Language of what is written for the team (fixed texts: pt-BR or en)
-  --lint pint,phpstan,rector,command  Lint checks, separated by commas (none turns lint off)
+  --lint pint,phpstan,rector,eslint,prettier,stylelint,command  Lint checks, separated by commas (none turns
+                              lint off)
   --lint-command "<command>"  Lint command, with --lint command
   --test-command "<command>"  Test command (none turns the test suite off)
   --js / --no-js              Run the typecheck, lint and test scripts of package.json
+  --typecheck / --no-typecheck  Run the typecheck script of package.json
+  --js-tests / --no-js-tests  Laravel and PHP: run the test script of package.json
   --api-check / --no-api-check  Packages: check the public API on pull requests (js: what the library publishes)
   --release / --no-release    Packages: release new versions from the commits (release pull request, tag, GitHub release, npm)
   --database <server>         Database server of the tests of a Symfony app (postgres, mysql, mariadb or none)

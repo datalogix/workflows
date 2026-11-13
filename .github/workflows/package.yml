@@ -20,7 +20,7 @@ on:
       tests:
         type: boolean
         default: true
-        description: Run the test suite across the matrix and the lint checks (laravel-package-tests, without the Laravel axis for php, or node-package-tests for js)
+        description: Run the test suite across the matrix and the lint checks (laravel-package-tests, without the Laravel axis for php, with the package.json scripts, or node-package-tests for js)
 
       # Passed to laravel-package-tests (and os, test-command, min-coverage, lint-command and timeout-minutes to
       # node-package-tests), with the same defaults
@@ -74,7 +74,7 @@ on:
       pint:
         type: boolean
         default: true
-        description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+ in require-dev)
+        description: Run Laravel Pint in test mode when composer.json requires it, on the files changed by the PR (requires Pint 1.20+) or the merge queue group, and on every file on other events
       phpstan:
         type: boolean
         default: true
@@ -87,10 +87,34 @@ on:
         type: boolean
         default: false
         description: "Check the public API: on pull requests, fail on changes that break it (laravel and php, with roave/backward-compatibility-check against the base branch); for js, check what the library publishes (publint and @arethetypeswrong/cli)"
+      eslint:
+        type: boolean
+        default: true
+        description: Run ESLint, when package.json declares it, it has a config and there is no lint (or check) script
+      prettier:
+        type: boolean
+        default: true
+        description: Run Prettier (or the format:check script), when package.json declares it, it has a config and the lint script does not run it
+      stylelint:
+        type: boolean
+        default: true
+        description: Run Stylelint (or the lint:css script), when package.json declares it, it has a config and the lint script does not run it
       lint-command:
         type: string
         default: ""
         description: Extra lint command run once after Pint, PHPStan and Rector (e.g. composer lint:check), or for js after the build (e.g. npx publint); empty runs none
+      js:
+        type: boolean
+        default: true
+        description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json once, when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them (laravel and php; a js package runs its scripts anyway)
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
+      js-tests:
+        type: boolean
+        default: true
+        description: Run the test script of package.json when it is defined (the PHP tests are test-command)
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -136,8 +160,14 @@ jobs:
       pint: ${{ inputs.pint }}
       phpstan: ${{ inputs.phpstan }}
       rector: ${{ inputs.rector }}
+      eslint: ${{ inputs.eslint }}
+      prettier: ${{ inputs.prettier }}
+      stylelint: ${{ inputs.stylelint }}
       lint-command: ${{ inputs.lint-command }}
       api-check: ${{ inputs.api-check }}
+      js: ${{ inputs.js }}
+      typecheck: ${{ inputs.typecheck }}
+      js-tests: ${{ inputs.js-tests }}
 
   js-tests:
     # Same name as the Laravel job: the required check is <calling job> / tests / all-checks for every stack
@@ -151,6 +181,10 @@ jobs:
       node: ${{ inputs.node }}
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}
+      typecheck: ${{ inputs.typecheck }}
+      eslint: ${{ inputs.eslint }}
+      prettier: ${{ inputs.prettier }}
+      stylelint: ${{ inputs.stylelint }}
       lint-command: ${{ inputs.lint-command }}
       api-check: ${{ inputs.api-check }}
       timeout-minutes: ${{ inputs.timeout-minutes }}

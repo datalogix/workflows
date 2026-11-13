@@ -7,7 +7,7 @@ The checks are the library's own `package.json` scripts, so CI, your machine and
 | Job | Runs |
 | --- | --- |
 | Tests, on each Node version of `node` and each runner of `os` | The `test` script (`test-command` runs another command; `none` skips it). Without a `test` script, or with the one `npm init` writes, nothing runs and the job says so. On the first runner of `os`, the coverage must reach `min-coverage` (see [Minimum coverage](../coverage.md)); without tests, that check fails unless `min-coverage` is 0 |
-| Lint, once, on the Node version of `.nvmrc` or `.node-version` (the current LTS otherwise) | The `typecheck` (or `types:check`, `type-check`), `lint` (or `check`) and `build` scripts that exist, then `lint-command`. The typecheck and lint scripts must only check: the job fails when they change a tracked file (see [Lint](../lint.md)). Each runs even when an earlier one failed, so one run reports every failure. Then the audit: `pnpm audit --audit-level high`, `npm audit --audit-level=high` or `yarn audit --level high` (Yarn 1; `yarn npm audit --recursive --severity high` from Yarn 2), only on pull requests that change the lockfile and on scheduled and manual runs |
+| Lint, once, on the Node version of `.nvmrc` or `.node-version` (the current LTS otherwise) | The `typecheck` (or `types:check`, `type-check`), `lint` (or `check`) and `build` scripts that exist, [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) when the project installed them and no script runs them, then `lint-command`. The typecheck and lint scripts must only check: the job fails when they change a tracked file (see [Lint](../lint.md)). Each runs even when an earlier one failed, so one run reports every failure. Then the audit: `pnpm audit --audit-level high`, `npm audit --audit-level=high` or `yarn audit --level high` (Yarn 1; `yarn npm audit --recursive --severity high` from Yarn 2), only on pull requests that change the lockfile and on scheduled and manual runs |
 | `all-checks` | The required check: fails when either job failed |
 
 ## Inputs
@@ -20,6 +20,8 @@ Passed to `package` with `stack: js`:
 | `os` | `["ubuntu-latest"]` | Runners the tests run on (JSON) |
 | `test-command` | empty | Empty runs the `test` script; `none` skips the tests |
 | `min-coverage` | `100` | Minimum coverage of the tests; `0` turns the check off. See [Minimum coverage](../coverage.md) |
+| `eslint` / `prettier` / `stylelint` | `true` | Run ESLint, Prettier (or `format:check`) and Stylelint (or `lint:css`) when the project installed them and no script runs them; see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) |
+| `typecheck` | `true` | Run the typecheck script (`typecheck`, `types:check` or `type-check`); `false` skips only it |
 | `lint-command` | empty | Extra lint command after the `build` script, e.g. `npx publint && npx attw --pack .`, or `composer install --no-interaction && composer lint` for PHP tooling |
 | `timeout-minutes` | `30` | Timeout of each job |
 | `tests` | `true` | `false` turns the layer off, and its required check with it: run `protect` again |

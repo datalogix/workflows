@@ -100,7 +100,7 @@ on:
       pint:
         type: boolean
         default: true
-        description: Run Laravel Pint on the files changed by the PR (requires Pint 1.20+)
+        description: Run Laravel Pint in test mode when it is installed, on the files changed by the PR (requires Pint 1.20+) or the merge queue group, and on every file on other events
       phpstan:
         type: boolean
         default: true
@@ -109,6 +109,18 @@ on:
         type: boolean
         default: true
         description: Run Rector in dry-run mode when it is installed and rector.php exists
+      eslint:
+        type: boolean
+        default: true
+        description: Run ESLint, when package.json declares it, it has a config and there is no lint (or check) script
+      prettier:
+        type: boolean
+        default: true
+        description: Run Prettier (or the format:check script), when package.json declares it, it has a config and the lint script does not run it
+      stylelint:
+        type: boolean
+        default: true
+        description: Run Stylelint (or the lint:css script), when package.json declares it, it has a config and the lint script does not run it
       lint-command:
         type: string
         default: ""
@@ -128,7 +140,15 @@ on:
       js:
         type: boolean
         default: true
-        description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json when they are defined
+        description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
+      js-tests:
+        type: boolean
+        default: true
+        description: Run the test script of package.json when it is defined (the PHP tests are test-command)
       e2e:
         type: boolean
         default: true
@@ -231,10 +251,15 @@ jobs:
       pint: ${{ inputs.pint }}
       phpstan: ${{ inputs.phpstan }}
       rector: ${{ inputs.rector }}
+      eslint: ${{ inputs.eslint }}
+      prettier: ${{ inputs.prettier }}
+      stylelint: ${{ inputs.stylelint }}
       lint-command: ${{ inputs.lint-command }}
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}
       js: ${{ inputs.js }}
+      typecheck: ${{ inputs.typecheck }}
+      js-tests: ${{ inputs.js-tests }}
       database: ${{ inputs.database }}
 
   js-tests:
@@ -246,6 +271,10 @@ jobs:
     uses: datalogix/workflows/.github/workflows/node-app-tests.yml@v2
     with:
       node-version: ${{ inputs.node-version }}
+      typecheck: ${{ inputs.typecheck }}
+      eslint: ${{ inputs.eslint }}
+      prettier: ${{ inputs.prettier }}
+      stylelint: ${{ inputs.stylelint }}
       lint-command: ${{ inputs.lint-command }}
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}

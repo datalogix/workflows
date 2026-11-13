@@ -4,10 +4,12 @@ With `stack: php`, the `tests` job of [`package`](../reference.md#package) calls
 
 Everything else is what [Laravel package tests](../laravel/package-tests.md) describes: the test command (`composer test`, else `vendor/bin/pest`, else `vendor/bin/phpunit`), coverage on the newest combination (highest PHP, `prefer-stable`, first OS) checked against `min-coverage` (100% by default, see [Minimum coverage](../coverage.md)), and the `lint` job:
 
-- `pint --test` on the files a pull request changes, when the package requires `laravel/pint`, which works on any PHP code;
+- `pint --test` when the package requires `laravel/pint`, which works on any PHP code: on the files a pull request (or the merge queue group) changes, on every file on other events;
 - PHPStan, when the package requires `phpstan/phpstan`;
 - Rector in a dry run (`rector process --dry-run`), when the package requires `rector/rector` and has `rector.php` (`rector: false` turns it off);
 - `lint-command` for any other tool, e.g. `composer cs:check` for php-cs-fixer or ECS, or Psalm. See [Lint](../lint.md#laravel-and-php-packages).
+
+And the `js` job, once, for a package with a `package.json`: its typecheck, lint and test scripts, and ESLint, Prettier and Stylelint when no script runs them, as described in [Laravel package tests](../laravel/package-tests.md#what-it-does) (`js: false` turns it off).
 
 The matrix job names leave Laravel out (`P8.5 - prefer-stable - ubuntu-latest`).
 

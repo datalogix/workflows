@@ -15,7 +15,7 @@ Coverage is collected only on the newest combination (highest PHP and Laravel, `
 
 A separate `lint` job runs once, outside the matrix, on the highest PHP version of the matrix with `prefer-stable`:
 
-- on pull requests, `pint --test` on the files they change, when the package requires `laravel/pint` (1.20+), so existing style issues in untouched files do not fail the build (`pint: false` turns it off); with `prettier-plugin-blade` in `package.json` and Pint 1.30+, it also checks Blade views (`--blade`), installing Node and the package's Node dependencies first, as in an [app](app-tests.md#test-scripts);
+- `pint --test`, when the package requires `laravel/pint` (`pint: false` turns it off): on a pull request only on the files it changes (`--diff`, Pint 1.20+), so existing style issues in untouched files do not block it, and in the merge queue only on the files of the queued group (compared with its base commit), so they do not block the queue either; on pushes, scheduled and manual runs on every file, so the default branch stays clean. With `prettier-plugin-blade` in `package.json` and Pint 1.30+, it also checks Blade views (`--blade`), installing Node and the package's Node dependencies first, as in an [app](app-tests.md#test-scripts);
 - PHPStan, when the package requires `phpstan/phpstan` or Larastan (`phpstan: false` turns it off);
 - Rector in a dry run (`rector process --dry-run`), when the package requires `rector/rector` and has `rector.php` (`rector: false` turns it off);
 - `lint-command`, when set (e.g. `composer lint:check`).
@@ -24,7 +24,9 @@ Each one runs even when an earlier one failed, so one run reports every lint fai
 
 Setup asks for them like for an app, starting from what `composer.json` requires: see [Lint and test suite](app-tests.md#lint-and-test-suite).
 
-A new push to a pull request cancels the previous run; runs on `main` always finish. The `all-checks` job passes only when every other job passed (or was skipped), so the required check does not depend on the matrix job names.
+A separate `js` job runs, once and without PHP, the scripts of `package.json` an [app](app-tests.md#test-scripts) runs: the first of `typecheck`, `types:check` and `type-check`, then `lint` (or `check`), then `test` (npm init's placeholder `test` script is skipped). Then ESLint (without a `lint` or `check` script), Prettier and Stylelint, when `package.json` declares them, they have a config and no script runs them: on the files changed by the pull request or the merge queue group, every tracked file on other events, with the version the package installed (see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint)). Node and the dependencies are installed with [`setup-js`](../../.github/actions/setup-js/action.yml) (the version of `.nvmrc` or `.node-version`, otherwise the current LTS) only when there is something to run; without `package.json`, any of these scripts or any of these tools, the job passes without installing anything. The typecheck and lint must only check: the job fails when they change a tracked file (see [Lint](../lint.md#rules-for-every-project)). `js: false` turns the job off; setup asks when `package.json` has one of the scripts.
+
+A new push to a pull request cancels the previous run; runs on `main` always finish. The `all-checks` job passes only when every other job (the matrix, `lint` and `js`) passed or was skipped, so the required check does not depend on the matrix job names.
 
 ## Public API
 
@@ -64,9 +66,12 @@ A package that still supports Laravel 11 adds it back with `laravel: '["^11.0", 
 | `min-coverage`    | `100`                                                                  | Minimum coverage on that combination; `0` turns the check off. See [Minimum coverage](../coverage.md) |
 | `coverage-driver` | `pcov`                                                                 | `pcov` or `xdebug`                                                      |
 | `timeout-minutes` | `30`                                                                   | Timeout per job                                                         |
-| `pint`            | `true`                                                                 | Run `pint --test` on the files changed by the pull request (Pint 1.20+), Blade views included when `package.json` declares `prettier-plugin-blade` (Pint 1.30+) |
+| `pint`            | `true`                                                                 | Run `pint --test`: on the files changed by the pull request (Pint 1.20+) or the merge queue group, on every file on other events; Blade views included when `package.json` declares `prettier-plugin-blade` (Pint 1.30+) |
 | `phpstan`         | `true`                                                                 | Run PHPStan once when `composer.json` requires it                       |
 | `rector`          | `true`                                                                 | Run Rector in a dry run once when `composer.json` requires `rector/rector` and `rector.php` exists |
+| `eslint` / `prettier` / `stylelint` | `true` | Run ESLint, Prettier (or `format:check`) and Stylelint (or `lint:css`) in the `js` job when the package installed them and no script runs them; see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) |
 | `lint-command`    | empty                                                                  | Extra lint command, run once after Pint, PHPStan and Rector             |
+| `js`              | `true`                                                                 | Run the `typecheck` (or `types:check`, `type-check`), `lint` (or `check`) and `test` scripts of `package.json`, and [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) when no script runs them, once, in the `js` job; see [What it does](#what-it-does) |
+| `typecheck` / `js-tests` | `true` | `false` skips the typecheck script (`typecheck`, `types:check` or `type-check`) or the `test` script of `package.json` in the `js` job, keeping the rest of the JavaScript checks |
 
 Secret: `CODECOV_TOKEN` (optional).

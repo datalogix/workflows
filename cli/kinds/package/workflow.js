@@ -48,7 +48,7 @@ export const layersOn = (a) => Object.keys(PACKAGE_LAYERS).some((answer) => a?.[
 
 /**
  * Answers implied by a package's workflow file: from the pipeline job, its stack, the tests it turns off, the public
- * API check and its lint and test tools; from the claude job (claudeInputs), the layers it turns on (off unless the
+ * API check, the package.json scripts (js) and its lint and test tools; from the claude job (claudeInputs), the layers it turns on (off unless the
  * input is true) and the team language.
  */
 export function packageAnswers(inputs, claudeInputs = {}) {
@@ -64,6 +64,9 @@ export function packageAnswers(inputs, claudeInputs = {}) {
     ),
     language: scalar(claudeInputs.language) || DEFAULT_LANGUAGE,
     apiCheck: scalar(inputs['api-check'])?.toLowerCase() === 'true',
+    js: flagOf(inputs.js),
+    typecheck: flagOf(inputs.typecheck),
+    jsTests: flagOf(inputs['js-tests']),
     ...toolAnswers(inputs),
   };
 }
@@ -142,8 +145,8 @@ async function releaseJob(answers, existing) {
 }
 
 /**
- * A package's workflow file with pushes to the default branch, the lint, test and public API inputs of the answers in
- * the pipeline job and every other input of the existing file. With a layer on (or, when the layers question was not
+ * A package's workflow file with pushes to the default branch, the lint, test, package.json scripts and public API
+ * inputs of the answers in the pipeline job and every other input of the existing file. With a layer on (or, when the layers question was not
  * asked, an existing claude job), the file is examples/package-claude.yml: its events, and the claude job with the
  * layers, the language and its other existing inputs. With every layer off, it is examples/package.yml, without the
  * claude job, so the file grants only contents: read as before the layers existed. With release on (or, when the
@@ -155,11 +158,20 @@ export async function renderPackageWorkflow(existing = '', branch = 'main', answ
   const stack = answers.stack && answers.stack !== 'laravel' ? { stack: answers.stack } : {};
   // Off is package.yml's default: written only when on, managed once the question was answered
   const apiCheck = answers.apiCheck === undefined ? [] : ['api-check'];
-  const managed = [...(answers.stack ? ['stack'] : []), ...apiCheck, ...TOOL_INPUTS];
+  // On is package.yml's default: written only when off, managed once the question was answered
+  const js = [
+    ...(answers.js === undefined ? [] : ['js']),
+    ...(answers.typecheck === undefined ? [] : ['typecheck']),
+    ...(answers.jsTests === undefined ? [] : ['js-tests']),
+  ];
+  const managed = [...(answers.stack ? ['stack'] : []), ...apiCheck, ...js, ...TOOL_INPUTS];
   const kept = Object.entries(current).filter(([key]) => !managed.includes(key));
   const inputs = [
     ...Object.entries(stack),
     ...(answers.apiCheck === true ? [['api-check', 'true']] : []),
+    ...(answers.js === false ? [['js', 'false']] : []),
+    ...(answers.typecheck === false ? [['typecheck', 'false']] : []),
+    ...(answers.jsTests === false ? [['js-tests', 'false']] : []),
     ...kept,
     ...Object.entries(toolInputs(answers, current)),
   ];

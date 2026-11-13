@@ -736,6 +736,35 @@ describe('setup steps', () => {
     expect(prompts.asked.map((options) => options.initialValue)).toStrictEqual([true, false]);
   });
 
+  test('asks whether to run the typecheck and the JavaScript tests only when the scripts exist and run', async () => {
+    const asked = (nodeScripts, answers = {}) =>
+      askedSteps(setupSteps(), { ...branchAnswers, ...answers }, { state: { ...APP_STATE, nodeScripts } });
+    expect(asked(['types:check', 'lint', 'test'])).toEqual(expect.arrayContaining(['js', 'typecheck', 'jsTests']));
+    expect(asked(['lint'])).not.toContain('typecheck');
+    expect(asked(['lint'])).not.toContain('jsTests');
+    // With js off, neither runs
+    expect(asked(['types:check', 'test'], { js: false })).not.toContain('typecheck');
+    expect(asked(['types:check', 'test'], { js: false })).not.toContain('jsTests');
+
+    const step = (id) => setupSteps().find((candidate) => candidate.id === id);
+    const state = (current) => ({ ...APP_STATE, nodeScripts: ['types:check', 'test'], current });
+    await step('typecheck').ask({ header: '1/1', ctx: { state: state(null) } });
+    await step('jsTests').ask({ header: '1/1', ctx: { state: state({ jsTests: false }) } });
+    expect(prompts.asked.map((options) => options.initialValue)).toStrictEqual([true, false]);
+    expect(prompts.asked[0].message).toContain('npm run types:check');
+  });
+
+  test('writes typecheck and js-tests only when off, and reads them back', async () => {
+    const file = await renderProjectWorkflow({ deploy: 'none', js: true, typecheck: false, jsTests: false });
+    expect(parseInputs(file)).toStrictEqual({ typecheck: 'false', 'js-tests': 'false' });
+    expect(projectAnswers(parseInputs(file))).toMatchObject({ typecheck: false, jsTests: false });
+    // On again: removed; not asked: kept
+    expect(
+      parseInputs(await renderProjectWorkflow({ deploy: 'none', typecheck: true, jsTests: true }, file)),
+    ).toStrictEqual({});
+    expect(parseInputs(await renderProjectWorkflow({ deploy: 'none' }, file))).toStrictEqual(parseInputs(file));
+  });
+
   test("offers the Laravel starter kits' script names, one per check", async (t) => {
     const scripts = { check: 'vp check', 'check:fix': 'vp check --fix', 'types:check': 'vue-tsc --noEmit' };
     const root = await folder(t, { 'package.json': JSON.stringify({ scripts }) }, 'setup-');
