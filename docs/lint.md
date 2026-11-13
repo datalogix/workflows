@@ -4,9 +4,9 @@ The tests workflows run the project's own lint tools, so CI, your machine and Cl
 
 | Project | Workflow | Lint it runs |
 | --- | --- | --- |
-| Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request (Blade views too, see [Blade views](#blade-views)), PHPStan, `lint-command`; with `js`, the typecheck and lint scripts of `package.json` |
-| Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files (Blade views too), PHPStan, `lint-command`, once outside the matrix |
-| PHP package | [`laravel-package-tests`](php/package-tests.md), without Laravel | Pint on the changed files, PHPStan, `lint-command` (php-cs-fixer, ECS, Psalm, Rector), once outside the matrix |
+| Laravel app | [`laravel-app-tests`](laravel/app-tests.md) | Pint on the files changed by the pull request (Blade views too, see [Blade views](#blade-views)), PHPStan, Rector, `lint-command`; with `js`, the typecheck and lint scripts of `package.json` |
+| Laravel package | [`laravel-package-tests`](laravel/package-tests.md) | Pint on the changed files (Blade views too), PHPStan, Rector, `lint-command`, once outside the matrix |
+| PHP package | [`laravel-package-tests`](php/package-tests.md), without Laravel | Pint on the changed files, PHPStan, Rector, `lint-command` (php-cs-fixer, ECS, Psalm), once outside the matrix |
 | Next, Nuxt, SvelteKit, Astro, React Router, Remix, and Vue, React and Svelte built with Vite | [`node-app-tests`](js/app-tests.md) | The typecheck and lint scripts, `lint-command`, then the build |
 | JavaScript or TypeScript library | [`node-package-tests`](js/package-tests.md) | The typecheck and lint scripts, the build, then `lint-command` |
 
@@ -35,10 +35,10 @@ PHP, in `composer.json`:
 }
 ```
 
-- Pint and PHPStan run as steps of their own when installed: no `lint-command` is needed for them, and setup does not suggest `composer lint:check` when Pint covers it. Pint runs only on the files changed by the pull request, so old style issues do not block unrelated pull requests.
+- Pint, PHPStan and Rector run as steps of their own when installed (Rector only with a `rector.php`, in a dry run): no `lint-command` is needed for them, and setup does not suggest `composer lint:check` when Pint covers it. Pint runs only on the files changed by the pull request, so old style issues do not block unrelated pull requests.
 - PHPStan reads `phpstan.neon` (with Larastan's `extension.neon` and the level the project chose). Start at the level the code passes and raise it in pull requests of their own.
 - When `composer test` also runs Pint or PHPStan (as in the starter kits), setup suggests `php artisan test` as the test command, so lint does not run twice.
-- `lint-command` is for other checks, e.g. `vendor/bin/rector --dry-run`.
+- `lint-command` is for other checks, e.g. `composer cs:check`.
 
 Frontend, in `package.json`, run with `js` (on by default). The Vue and React starter kits already have what CI runs:
 
@@ -56,9 +56,9 @@ With ESLint and Prettier instead of Vite+: `"lint": "eslint . && prettier --chec
 
 ## Laravel and PHP packages
 
-The same `composer.json` tools as an app (`laravel/pint`, `larastan/larastan` or `phpstan/phpstan`). Pint runs only when the package requires `laravel/pint`, and PHPStan when it requires PHPStan or Larastan; both run once, on the newest PHP of the matrix.
+The same `composer.json` tools as an app (`laravel/pint`, `larastan/larastan` or `phpstan/phpstan`, `rector/rector`). Pint runs only when the package requires `laravel/pint`, PHPStan when it requires PHPStan or Larastan, and Rector when it requires `rector/rector` and has `rector.php`; they run once, on the newest PHP of the matrix.
 
-A PHP package without Laravel uses the same steps: Pint works on any PHP code, and PHPStan without Larastan. Other tools run through `lint-command`, e.g. `composer cs:check` with `"cs:check": "php-cs-fixer fix --dry-run --diff"` (or `ecs check`), and Psalm or Rector (`rector --dry-run`) in the same script; setup suggests the check scripts of `composer.json`.
+A PHP package without Laravel uses the same steps: Pint works on any PHP code, and PHPStan without Larastan. Other tools run through `lint-command`, e.g. `composer cs:check` with `"cs:check": "php-cs-fixer fix --dry-run --diff"` (or `ecs check`), and Psalm in the same script; setup suggests the check scripts of `composer.json`.
 
 A package without Blade views needs nothing else: without a `package.json` that declares `prettier-plugin-blade`, the lint job does not install Node and Pint checks PHP only. A package with views can check them too: see [Blade views](#blade-views).
 

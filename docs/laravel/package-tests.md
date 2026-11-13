@@ -17,6 +17,7 @@ A separate `lint` job runs once, outside the matrix, on the highest PHP version 
 
 - on pull requests, `pint --test` on the files they change, when the package requires `laravel/pint` (1.20+), so existing style issues in untouched files do not fail the build (`pint: false` turns it off); with `prettier-plugin-blade` in `package.json` and Pint 1.30+, it also checks Blade views (`--blade`), installing Node and the package's Node dependencies first, as in an [app](app-tests.md#test-scripts);
 - PHPStan, when the package requires `phpstan/phpstan` or Larastan (`phpstan: false` turns it off);
+- Rector in a dry run (`rector process --dry-run`), when the package requires `rector/rector` and has `rector.php` (`rector: false` turns it off);
 - `lint-command`, when set (e.g. `composer lint:check`).
 
 Each one runs even when an earlier one failed, so one run reports every lint failure.
@@ -65,6 +66,7 @@ A package that still supports Laravel 11 adds it back with `laravel: '["^11.0", 
 | `timeout-minutes` | `30`                                                                   | Timeout per job                                                         |
 | `pint`            | `true`                                                                 | Run `pint --test` on the files changed by the pull request (Pint 1.20+), Blade views included when `package.json` declares `prettier-plugin-blade` (Pint 1.30+) |
 | `phpstan`         | `true`                                                                 | Run PHPStan once when `composer.json` requires it                       |
-| `lint-command`    | empty                                                                  | Extra lint command, run once after Pint and PHPStan                     |
+| `rector`          | `true`                                                                 | Run Rector in a dry run once when `composer.json` requires `rector/rector` and `rector.php` exists |
+| `lint-command`    | empty                                                                  | Extra lint command, run once after Pint, PHPStan and Rector             |
 
 Secret: `CODECOV_TOKEN` (optional).

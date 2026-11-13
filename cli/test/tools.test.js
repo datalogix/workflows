@@ -74,6 +74,38 @@ test('reads PHPUnit, every PHPStan package, and only the commands of a script', 
   });
 });
 
+test('reads Rector only with its config, offers it and leaves its scripts out of the lint command', async (t) => {
+  const composer = {
+    'require-dev': { 'rector/rector': '^2.8' },
+    scripts: { 'rector:check': ['rector --dry-run'] },
+  };
+  const without = await inspectTools(await folder(t, { 'composer.json': JSON.stringify(composer) }));
+  expect(without.rector).toBe(false);
+  const installed = await inspectTools(
+    await folder(t, { 'composer.json': JSON.stringify(composer), 'rector.php': '<?php' }),
+  );
+  expect(installed.rector).toBe(true);
+  expect(suggestedLint(installed, ['rector', 'command'])).toBe('');
+  expect(suggestedLint(installed, ['command'])).toBe('composer rector:check');
+
+  prompts.answers = [['command']];
+  await askSteps(toolSteps('package'), {
+    ...ctxWith(installed),
+    flags: { 'lint-command': 'x', 'test-command': 'none' },
+  });
+  expect(prompts.asked[0].options.map((option) => option.value)).toStrictEqual(['rector', 'command']);
+  expect(prompts.asked[0].initialValues).toStrictEqual(['rector']);
+
+  // Installed but unchecked: turned off, and written as rector: false
+  const answers = await askSteps(toolSteps('package'), {
+    ...ctxWith(installed),
+    flags: { lint: 'none', 'test-command': 'none' },
+  });
+  expect(answers.rector).toBe(false);
+  expect(toolInputs(answers, {})).toMatchObject({ rector: 'false' });
+  expect(toolInputs({}, { rector: 'false' })).toStrictEqual({ rector: 'false' });
+});
+
 test('suggests a test command that does not lint again', async (t) => {
   const starter = await inspectTools(await folder(t, { 'composer.json': JSON.stringify(STARTER) }));
   expect(suggestedTests(starter, 'project')).toStrictEqual({ value: 'php artisan test', label: 'php artisan test' });
@@ -260,7 +292,7 @@ test('answers the questions from flags', async () => {
   });
 
   await expect(askSteps(toolSteps('project'), { ...ctxWith(installed), flags: { lint: 'eslint' } })).rejects.toThrow(
-    '--lint: use pint, phpstan, command separated by commas, or none',
+    '--lint: use pint, phpstan, rector, command separated by commas, or none',
   );
 });
 

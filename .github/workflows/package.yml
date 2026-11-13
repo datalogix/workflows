@@ -79,6 +79,10 @@ on:
         type: boolean
         default: true
         description: Run PHPStan once, on the highest PHP version of the matrix, when composer.json requires it (phpstan/phpstan or Larastan)
+      rector:
+        type: boolean
+        default: true
+        description: Run Rector in dry-run mode once, on the highest PHP version of the matrix, when composer.json requires rector/rector and rector.php exists
       api-check:
         type: boolean
         default: false
@@ -86,7 +90,7 @@ on:
       lint-command:
         type: string
         default: ""
-        description: Extra lint command run once after Pint and PHPStan (e.g. composer lint:check), or for js after the build (e.g. npx publint); empty runs none
+        description: Extra lint command run once after Pint, PHPStan and Rector (e.g. composer lint:check), or for js after the build (e.g. npx publint); empty runs none
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -131,6 +135,7 @@ jobs:
       timeout-minutes: ${{ inputs.timeout-minutes }}
       pint: ${{ inputs.pint }}
       phpstan: ${{ inputs.phpstan }}
+      rector: ${{ inputs.rector }}
       lint-command: ${{ inputs.lint-command }}
       api-check: ${{ inputs.api-check }}
 
