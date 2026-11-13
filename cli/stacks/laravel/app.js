@@ -59,6 +59,46 @@ export const jsStep = {
     ),
 };
 
+// The names of the typecheck script, as nodeScripts gives them
+const TYPECHECK_SCRIPTS = NODE_SCRIPTS[0];
+const typecheckOf = (ctx) => ctx.state.nodeScripts?.find((name) => TYPECHECK_SCRIPTS.includes(name));
+
+/** Whether the tests run the typecheck script, asked when package.json has one (and its scripts run, with js). */
+export const typecheckStep = {
+  id: 'typecheck',
+  flag: 'typecheck',
+  when: (a, ctx) => a.js !== false && Boolean(typecheckOf(ctx)),
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.confirm({
+        message: question(
+          header,
+          `Run the typecheck (npm run ${typecheckOf(ctx)}) in the tests?`,
+          'A type error fails the tests check',
+        ),
+        initialValue: ctx.state.current?.typecheck ?? true,
+      }),
+    ),
+};
+
+/** Whether the tests run the test script of package.json, asked when it has one (and its scripts run, with js). */
+export const jsTestsStep = {
+  id: 'jsTests',
+  flag: 'js-tests',
+  when: (a, ctx) => a.js !== false && Boolean(ctx.state.nodeScripts?.includes('test')),
+  ask: async ({ header, ctx }) =>
+    orExit(
+      await clack.confirm({
+        message: question(
+          header,
+          'Run the JavaScript tests (npm run test) in the tests?',
+          'Besides the PHP tests; a failure fails the tests check',
+        ),
+        initialValue: ctx.state.current?.jsTests ?? true,
+      }),
+    ),
+};
+
 // The package each monitoring service needs in the app, without which nothing reaches it
 const AGENTS = {
   nightwatch: 'laravel/nightwatch',
@@ -225,7 +265,7 @@ export default projectKind({
   }),
   healthPath: (ctx) => ctx.state.health.route ?? '/up',
   deploySteps: SITES.steps,
-  steps: () => [databaseCheckStep, ...toolSteps('project'), jsStep],
+  steps: () => [databaseCheckStep, ...toolSteps('project'), jsStep, typecheckStep, jsTestsStep],
   tasks: (answers, { root, state }) => [
     ...SITES.tasks(answers, { state }),
     ...(answers.databaseCheck ? [healthCheckTask(root)] : []),

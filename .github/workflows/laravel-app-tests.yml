@@ -55,6 +55,14 @@ on:
         type: boolean
         default: true
         description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
+      js-tests:
+        type: boolean
+        default: true
+        description: Run the test script of package.json when it is defined (the PHP tests are test-command)
       timeout-minutes:
         type: number
         default: 30
@@ -287,7 +295,7 @@ jobs:
           echo "ref=${snapshot:-$(git rev-parse HEAD)}" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.typecheck }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.typecheck && steps.js.outputs.typecheck }}
         shell: bash
         env:
           RUN: ${{ steps.js.outputs.run }}
@@ -325,7 +333,7 @@ jobs:
           fi
 
       - name: JS tests
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.js.outputs.test }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.js-tests && steps.js.outputs.test }}
         shell: bash
         env:
           RUN: ${{ steps.js.outputs.run }}

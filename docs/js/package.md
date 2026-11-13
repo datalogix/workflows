@@ -16,6 +16,7 @@ It detects a JavaScript library (a `package.json`, and not an app: neither `next
 
 - writes `.github/workflows/datalogix.yml` from [`examples/package.yml`](../../examples/package.yml) with `stack: js`, the default branch in the `push` trigger and the other `with:` inputs of the existing file kept;
 - with a team (or with `--code-owners`), writes the `/.github/` line of `.github/CODEOWNERS`;
+- when `package.json` has a typecheck script, asks whether the tests run it (`--no-typecheck` answers it), writing `typecheck: false` when not;
 - when the [JS style check](../lint.md#eslint-prettier-and-stylelint) would run ESLint, Prettier or Stylelint, asks which stay on (`--lint eslint,prettier,stylelint` or `none` answers it), writing `eslint: false`, `prettier: false` or `stylelint: false` for those unchecked.
 
 It ends with the commit to make and the `protect` command to run after the first pull request.

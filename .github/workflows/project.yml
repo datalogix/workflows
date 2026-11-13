@@ -141,6 +141,14 @@ on:
         type: boolean
         default: true
         description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
+      js-tests:
+        type: boolean
+        default: true
+        description: Run the test script of package.json when it is defined (the PHP tests are test-command)
       e2e:
         type: boolean
         default: true
@@ -250,6 +258,8 @@ jobs:
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}
       js: ${{ inputs.js }}
+      typecheck: ${{ inputs.typecheck }}
+      js-tests: ${{ inputs.js-tests }}
       database: ${{ inputs.database }}
 
   js-tests:
@@ -261,6 +271,7 @@ jobs:
     uses: datalogix/workflows/.github/workflows/node-app-tests.yml@v2
     with:
       node-version: ${{ inputs.node-version }}
+      typecheck: ${{ inputs.typecheck }}
       eslint: ${{ inputs.eslint }}
       prettier: ${{ inputs.prettier }}
       stylelint: ${{ inputs.stylelint }}

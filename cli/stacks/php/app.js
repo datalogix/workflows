@@ -5,7 +5,7 @@ import { clack, cyan, orExit, question } from '../../lib/ui.js';
 import { deployProviders } from '../../providers/deploy/index.js';
 import { deploySites } from '../../providers/deploy/sites.js';
 import { MONITORING_SERVICES, monitoringServices } from '../../providers/monitoring/index.js';
-import { jsStep, nodeScripts } from '../laravel/app.js';
+import { jsStep, jsTestsStep, nodeScripts, typecheckStep } from '../laravel/app.js';
 import { readComposer } from '../laravel/index.js';
 import { inspectTools, NO_TOOLS, toolSteps } from '../laravel/tools.js';
 
@@ -270,7 +270,15 @@ export default projectKind({
   inspect: inspectApp,
   healthPath: (ctx) => ctx.state.healthRoutePath ?? SYMFONY_HEALTH.path,
   deploySteps: SITES.steps,
-  steps: () => [healthRouteStep, databaseCheckStep, databaseStep, ...toolSteps('project', { testFallback }), jsStep],
+  steps: () => [
+    healthRouteStep,
+    databaseCheckStep,
+    databaseStep,
+    ...toolSteps('project', { testFallback }),
+    jsStep,
+    typecheckStep,
+    jsTestsStep,
+  ],
   tasks: (answers, { root, state }) => [
     ...SITES.tasks(answers, { state }),
     ...(answers.healthRoute && state.healthFile ? [healthRouteTask(root, answers, state)] : []),

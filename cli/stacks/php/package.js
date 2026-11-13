@@ -1,5 +1,5 @@
 import { packageKind } from '../../kinds/package/index.js';
-import { jsStep, nodeScripts } from '../laravel/app.js';
+import { jsStep, jsTestsStep, nodeScripts, typecheckStep } from '../laravel/app.js';
 import { inspectTools, NO_TOOLS, toolSteps } from '../laravel/tools.js';
 
 // What a PHP package without Laravel adds to package.yml (cli/kinds/package/index.js): the same lint and test tools as
@@ -11,5 +11,5 @@ export default packageKind({
   empty: { tools: NO_TOOLS, nodeScripts: [] },
   /** What collectState reads from the folder for a PHP package: its lint and test tools and package.json scripts. */
   inspect: async (root) => ({ tools: await inspectTools(root), nodeScripts: await nodeScripts(root) }),
-  steps: () => [...toolSteps('package'), jsStep],
+  steps: () => [...toolSteps('package'), jsStep, typecheckStep, jsTestsStep],
 });

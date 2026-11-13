@@ -65,6 +65,8 @@ export function packageAnswers(inputs, claudeInputs = {}) {
     language: scalar(claudeInputs.language) || DEFAULT_LANGUAGE,
     apiCheck: scalar(inputs['api-check'])?.toLowerCase() === 'true',
     js: flagOf(inputs.js),
+    typecheck: flagOf(inputs.typecheck),
+    jsTests: flagOf(inputs['js-tests']),
     ...toolAnswers(inputs),
   };
 }
@@ -157,13 +159,19 @@ export async function renderPackageWorkflow(existing = '', branch = 'main', answ
   // Off is package.yml's default: written only when on, managed once the question was answered
   const apiCheck = answers.apiCheck === undefined ? [] : ['api-check'];
   // On is package.yml's default: written only when off, managed once the question was answered
-  const js = answers.js === undefined ? [] : ['js'];
+  const js = [
+    ...(answers.js === undefined ? [] : ['js']),
+    ...(answers.typecheck === undefined ? [] : ['typecheck']),
+    ...(answers.jsTests === undefined ? [] : ['js-tests']),
+  ];
   const managed = [...(answers.stack ? ['stack'] : []), ...apiCheck, ...js, ...TOOL_INPUTS];
   const kept = Object.entries(current).filter(([key]) => !managed.includes(key));
   const inputs = [
     ...Object.entries(stack),
     ...(answers.apiCheck === true ? [['api-check', 'true']] : []),
     ...(answers.js === false ? [['js', 'false']] : []),
+    ...(answers.typecheck === false ? [['typecheck', 'false']] : []),
+    ...(answers.jsTests === false ? [['js-tests', 'false']] : []),
     ...kept,
     ...Object.entries(toolInputs(answers, current)),
   ];

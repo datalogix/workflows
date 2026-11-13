@@ -19,6 +19,10 @@ on:
         type: number
         default: 0
         description: Minimum coverage of the unit tests, in percent of statements, methods and conditionals, read from the Clover report they write (e.g. Vitest's clover reporter, in coverage/); the coverage is shown in the job summary, and 0 (the default) never fails
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
       eslint:
         type: boolean
         default: true
@@ -123,7 +127,7 @@ jobs:
           echo "ref=${snapshot:-$(git rev-parse HEAD)}" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.scripts.outputs.typecheck }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.typecheck && steps.scripts.outputs.typecheck }}
         shell: bash
         env:
           RUN: ${{ steps.setup.outputs.run }}

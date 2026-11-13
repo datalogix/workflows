@@ -107,6 +107,14 @@ on:
         type: boolean
         default: true
         description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json once, when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them (laravel and php; a js package runs its scripts anyway)
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
+      js-tests:
+        type: boolean
+        default: true
+        description: Run the test script of package.json when it is defined (the PHP tests are test-command)
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -158,6 +166,8 @@ jobs:
       lint-command: ${{ inputs.lint-command }}
       api-check: ${{ inputs.api-check }}
       js: ${{ inputs.js }}
+      typecheck: ${{ inputs.typecheck }}
+      js-tests: ${{ inputs.js-tests }}
 
   js-tests:
     # Same name as the Laravel job: the required check is <calling job> / tests / all-checks for every stack
@@ -171,6 +181,7 @@ jobs:
       node: ${{ inputs.node }}
       test-command: ${{ inputs.test-command }}
       min-coverage: ${{ inputs.min-coverage }}
+      typecheck: ${{ inputs.typecheck }}
       eslint: ${{ inputs.eslint }}
       prettier: ${{ inputs.prettier }}
       stylelint: ${{ inputs.stylelint }}

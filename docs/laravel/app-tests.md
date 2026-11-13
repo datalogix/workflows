@@ -86,6 +86,7 @@ For example:
 | `test-command`    | detected           | Test command: `composer test` when defined, otherwise `php artisan test`; `none` skips it |
 | `min-coverage`    | `0`                | Minimum coverage of the test suite, with `pcov`; the coverage is shown either way, and `0` never fails. See [Minimum coverage](../coverage.md) |
 | `js`              | `true`             | Run the `typecheck` (or `types:check`, `type-check`), `lint` (or `check`) and `test` scripts of `package.json`, and [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) when no script runs them |
+| `typecheck` / `js-tests` | `true` | `false` skips the typecheck script (`typecheck`, `types:check` or `type-check`) or the `test` script of `package.json`, keeping the rest of the JavaScript checks |
 | `database`        | `none`             | A Symfony app's database server for the tests: `postgres`, `mysql` or `mariadb`; see [Test database](../php/app-tests.md#test-database) |
 | `timeout-minutes` | `30`               | Job timeout                                                                               |
 

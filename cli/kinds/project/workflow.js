@@ -38,6 +38,8 @@ const MANAGED = [
   'incident-types',
   'language',
   'js',
+  'typecheck',
+  'js-tests',
   'e2e',
   'database',
   ...TOOL_INPUTS,
@@ -69,6 +71,8 @@ export function projectAnswers(inputs) {
     approvalsMedium: scalar(inputs['approvals-medium']) || null,
     approvalsHigh: scalar(inputs['approvals-high']) || null,
     js: flagOf(inputs.js),
+    typecheck: flagOf(inputs.typecheck),
+    jsTests: flagOf(inputs['js-tests']),
     e2e: flagOf(inputs.e2e),
     database: scalar(inputs.database)?.toLowerCase() || 'none',
     language: scalar(inputs.language) || DEFAULT_LANGUAGE,
@@ -132,6 +136,10 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
   }
   if (answers.js === undefined) keep('js');
   else if (answers.js === false) managed.js = 'false';
+  if (answers.typecheck === undefined) keep('typecheck');
+  else if (answers.typecheck === false) managed.typecheck = 'false';
+  if (answers.jsTests === undefined) keep('js-tests');
+  else if (answers.jsTests === false) managed['js-tests'] = 'false';
   if (answers.e2e === undefined) keep('e2e');
   else if (answers.e2e === false) managed.e2e = 'false';
   if (answers.database === undefined) keep('database');

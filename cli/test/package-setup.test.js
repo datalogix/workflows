@@ -241,6 +241,7 @@ test('writes stack: js for a JavaScript library, and asks for no Codecov token',
   const ids = jsPackage.setup.steps().map((step) => step.id);
   expect(ids).toStrictEqual([
     'repository',
+    'typecheck',
     'jsLint',
     'apiCheck',
     'codecovToken',
@@ -517,4 +518,14 @@ test('reports a layer that is on when the workflow file lacks its events or perm
   );
   expect(found).toContainEqual(expect.stringContaining('turns on @claude but lacks the issues event'));
   expect(found).toContainEqual(expect.stringContaining('contents: write'));
+});
+
+test('writes typecheck and js-tests in a package only when off, and keeps them when not asked', async () => {
+  const file = await renderPackageWorkflow('', 'main', { typecheck: false, jsTests: false });
+  expect(parseInputs(file)).toStrictEqual({ typecheck: 'false', 'js-tests': 'false' });
+  expect(packageAnswers(parseInputs(file))).toMatchObject({ typecheck: false, jsTests: false });
+  expect(parseInputs(await renderPackageWorkflow(file, 'main', { typecheck: true }))).toStrictEqual({
+    'js-tests': 'false',
+  });
+  expect(await renderPackageWorkflow(file)).toBe(file);
 });

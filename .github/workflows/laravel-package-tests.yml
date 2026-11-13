@@ -82,6 +82,14 @@ on:
         type: boolean
         default: true
         description: Run the typecheck (or types:check, type-check), lint (or check) and test scripts of package.json once, when they are defined, and ESLint, Prettier and Stylelint when package.json declares them, they have a config and no script runs them
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
+      js-tests:
+        type: boolean
+        default: true
+        description: Run the test script of package.json when it is defined (the PHP tests are test-command)
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -457,6 +465,9 @@ jobs:
       - name: Detect package.json scripts
         id: js
         shell: bash
+        env:
+          TYPECHECK: ${{ inputs.typecheck }}
+          JS_TESTS: ${{ inputs.js-tests }}
         run: |
           if [ ! -f package.json ]; then
             echo "No package.json, skipping"
@@ -479,6 +490,16 @@ jobs:
           typecheck=$(first typecheck types:check type-check)
           lint=$(first lint check)
           test=$(first test)
+
+          # Turned off by their inputs, so a package with nothing else to run does not install Node
+          if [ "$TYPECHECK" = false ] && [ -n "$typecheck" ]; then
+            echo "The $typecheck script is turned off (typecheck: false)"
+            typecheck=
+          fi
+          if [ "$JS_TESTS" = false ] && [ -n "$test" ]; then
+            echo "The test script is turned off (js-tests: false)"
+            test=
+          fi
 
           {
             echo "typecheck=$typecheck"

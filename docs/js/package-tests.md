@@ -21,6 +21,7 @@ Passed to `package` with `stack: js`:
 | `test-command` | empty | Empty runs the `test` script; `none` skips the tests |
 | `min-coverage` | `100` | Minimum coverage of the tests; `0` turns the check off. See [Minimum coverage](../coverage.md) |
 | `eslint` / `prettier` / `stylelint` | `true` | Run ESLint, Prettier (or `format:check`) and Stylelint (or `lint:css`) when the project installed them and no script runs them; see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) |
+| `typecheck` | `true` | Run the typecheck script (`typecheck`, `types:check` or `type-check`); `false` skips only it |
 | `lint-command` | empty | Extra lint command after the `build` script, e.g. `npx publint && npx attw --pack .`, or `composer install --no-interaction && composer lint` for PHP tooling |
 | `timeout-minutes` | `30` | Timeout of each job |
 | `tests` | `true` | `false` turns the layer off, and its required check with it: run `protect` again |

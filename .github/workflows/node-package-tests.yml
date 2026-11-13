@@ -26,6 +26,10 @@ on:
         type: boolean
         default: false
         description: Check what the library publishes after the build (publint, and the types of every entry point with @arethetypeswrong/cli)
+      typecheck:
+        type: boolean
+        default: true
+        description: Run the typecheck script of package.json (typecheck, types:check or type-check) when it is defined
       eslint:
         type: boolean
         default: true
@@ -174,7 +178,7 @@ jobs:
           echo "ref=${snapshot:-$(git rev-parse HEAD)}" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && steps.scripts.outputs.typecheck }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.typecheck && steps.scripts.outputs.typecheck }}
         shell: bash
         env:
           RUN: ${{ steps.setup.outputs.run }}

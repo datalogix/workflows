@@ -7,6 +7,8 @@ export const BOOLEAN = [
   'github-deployments',
   'incidents',
   'js',
+  'typecheck',
+  'js-tests',
   'api-check',
   'release',
   'solo',
@@ -133,6 +135,8 @@ Options (each one skips its question in setup)
   --lint-command "<command>"  Lint command, with --lint command
   --test-command "<command>"  Test command (none turns the test suite off)
   --js / --no-js              Run the typecheck, lint and test scripts of package.json
+  --typecheck / --no-typecheck  Run the typecheck script of package.json
+  --js-tests / --no-js-tests  Laravel and PHP: run the test script of package.json
   --api-check / --no-api-check  Packages: check the public API on pull requests (js: what the library publishes)
   --release / --no-release    Packages: release new versions from the commits (release pull request, tag, GitHub release, npm)
   --database <server>         Database server of the tests of a Symfony app (postgres, mysql, mariadb or none)
