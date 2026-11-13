@@ -2,7 +2,7 @@
 
 The `tests` job of [`package`](../reference.md#package) calls `node-package-tests` when `stack` is `js`. Its check `pipeline / tests / all-checks` is required by the branch ruleset.
 
-The checks are the library's own `package.json` scripts, so CI, your machine and Claude run them the same way. The package manager comes from the lockfile: `pnpm-lock.yaml` (pnpm, through Corepack), `yarn.lock` (Yarn) or `package-lock.json` (npm, with `npm ci`); without a lockfile, `npm install`.
+The checks are the library's own `package.json` scripts, so CI, your machine and Claude run them the same way. The package manager comes from the lockfile: `pnpm-lock.yaml` (pnpm, through Corepack), `yarn.lock` (Yarn) or `package-lock.json` (npm, with `npm ci`); without a lockfile, or with bun's, `npm install`, with a warning, since nothing pins the versions.
 
 | Job | Runs |
 | --- | --- |

@@ -104,7 +104,11 @@ runs:
           YARN_NPM_MINIMAL_AGE_GATE=0 yarn install --frozen-lockfile
         elif [ -f package-lock.json ]; then
           npm ci --min-release-age=0
+        elif [ -f bun.lock ] || [ -f bun.lockb ]; then
+          echo "::warning file=package.json::bun is not supported, so npm install resolves unpinned versions. Use npm, pnpm or yarn and commit its lockfile."
+          npm install --min-release-age=0
         else
+          echo "::warning file=package.json::No lockfile is committed, so npm install resolves unpinned versions. Commit the lockfile of the project's package manager."
           npm install --min-release-age=0
         fi
 
