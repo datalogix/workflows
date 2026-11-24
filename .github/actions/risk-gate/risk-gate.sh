@@ -102,7 +102,14 @@ if [ "$changed_files" -gt 3000 ]; then
   risk=high
   reasons+=("$changed_files changed files (only the first 3000 can be classified)")
 fi
-while IFS=$'\t' read -r file changes previous; do
+while IFS=$'\t' read -r file changes status previous; do
+  # A migration already on the base branch has run on existing databases: changing it does not run it again, so they
+  # end up different from a new one. A rename or removal changes the old path
+  if [ "$status" != added ] && [ -n "${MIGRATION_PATHS:-}" ] && matches "${previous:-$file}" "$MIGRATION_PATHS"; then
+    risk=high
+    reasons+=("\`${previous:-$file}\` is a migration already on the base branch, and this pull request $status it")
+    echo "::warning file=${previous:-$file}::$(t "This migration is already on the base branch: changing it does not run it again on databases that already ran it. Add a new migration instead." "Esta migration já está no branch base: alterá-la não a roda de novo nos bancos que já a rodaram. Crie uma nova migration.")"
+  fi
   # A rename also removes the old path: moving a migration to tests/ is as risky as changing it
   if matches "$file" "$HIGH_PATHS" || { [ -n "$previous" ] && matches "$previous" "$HIGH_PATHS"; }; then
     risk=high
@@ -117,7 +124,7 @@ while IFS=$'\t' read -r file changes previous; do
     continue
   fi
   lines=$((lines + changes))
-done < <(jq -r '.[] | [.filename, (.additions + .deletions), (.previous_filename // "")] | @tsv' <<< "$files")
+done < <(jq -r '.[] | [.filename, (.additions + .deletions), (.status // "added"), (.previous_filename // "")] | @tsv' <<< "$files")
 
 if [ "$lines" -ge "$HIGH_LINES" ]; then
   risk=high

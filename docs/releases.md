@@ -28,6 +28,7 @@ From the commits since the last tag (`vX.Y.Z` or `X.Y.Z`; the next tag keeps the
 - **A `Release-As: X.Y.Z` footer** in any commit sets the version, e.g. `git commit --allow-empty -m "chore: release 1.0.0" -m "Release-As: 1.0.0"` for the first major.
 - **The first release**, without a tag: the version of `package.json` for a JavaScript package (unless it is `0.0.0`), otherwise `0.1.0`.
 - **A project without type prefixes** (`- Commits: no type prefix` in its `CLAUDE.md`): every commit is a patch, a `BREAKING CHANGE:` footer a major; use `Release-As` for a minor.
+- **The public API check** (`api-check`, Laravel and PHP packages) fails a pull request that breaks the public API without declaring it this way, so a break is not released as a minor: see [Public API](laravel/package-tests.md#public-api).
 - With a squash merge, the pull request's title is the commit, so it follows the same format (as Claude's are).
 
 ## What it needs

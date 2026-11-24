@@ -493,6 +493,55 @@ test('a pending review does not withdraw an approval', async () => {
   }
 });
 
+test('a migration already on the base branch that the pull request changes is high risk, with a warning', async () => {
+  const env = { HIGH_PATHS: 'composer.json\n', MIGRATION_PATHS: 'database/migrations/*\n', LANGUAGE: 'en' };
+  const migration = 'database/migrations/2026_10_01_create_orders.php';
+
+  const edited = await gate({ files: [change(migration, '@@ -1 +1 @@\n-a\n+b')], env });
+  expect(edited.code).toBe(1);
+  expect(edited.summary).toMatch(/### Risk: high/);
+  expect(edited.summary).toContain(
+    `\`${migration}\` is a migration already on the base branch, and this pull request modified it`,
+  );
+  expect(edited.stdout).toContain(`::warning file=${migration}::This migration is already on the base branch`);
+
+  // Removed, or renamed away: the old path is the one on the base branch
+  const removed = await gate({ files: [{ ...change(migration), status: 'removed' }], env });
+  expect(removed.summary).toContain(
+    `\`${migration}\` is a migration already on the base branch, and this pull request removed it`,
+  );
+  const renamed = await gate({
+    files: [
+      {
+        ...change('database/migrations/2026_11_01_create_orders.php'),
+        status: 'renamed',
+        previous_filename: migration,
+      },
+    ],
+    env,
+  });
+  expect(renamed.summary).toContain(
+    `\`${migration}\` is a migration already on the base branch, and this pull request renamed it`,
+  );
+
+  // A new migration is not an edited one (here, with no high-risk path for it, it is medium)
+  const added = await gate({ files: [{ ...change(migration), status: 'added' }], env });
+  expect(added.summary).toMatch(/### Risk: medium/);
+  expect(added.stdout).not.toContain('::warning');
+
+  // Without migration paths (warn-edited-migrations: false, or a stack without migrations), nothing is checked
+  const off = await gate({ files: [change(migration)], env: { ...env, MIGRATION_PATHS: '' } });
+  expect(off.summary).toMatch(/### Risk: medium/);
+});
+
+test('the warning about an edited migration follows the language of the project', async () => {
+  const result = await gate({
+    files: [change('database/migrations/2026_10_01_create_orders.php')],
+    env: { MIGRATION_PATHS: 'database/migrations/*\n', LANGUAGE: 'pt-BR' },
+  });
+  expect(result.stdout).toContain('Esta migration já está no branch base');
+});
+
 // The security review comment, with the findings it keeps (keep-findings)
 const securityComment = (findings) => ({
   match: 'issues/7/comments',

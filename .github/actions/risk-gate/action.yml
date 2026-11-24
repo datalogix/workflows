@@ -17,6 +17,9 @@ inputs:
   ignored-paths:
     description: Patterns of generated files; they make a pull request at least medium risk but are not counted in the changed lines
     required: true
+  migration-paths:
+    description: Patterns of migrations; a pull request that changes or removes one already on the base branch is high risk and gets a warning. Empty checks none
+    default: ""
   high-risk-lines:
     description: Changed lines (outside ignored and low-risk paths) that make a pull request high risk
     required: true
@@ -58,6 +61,7 @@ runs:
         EXTRA_HIGH_PATHS: ${{ inputs.extra-high-risk-paths }}
         LOW_PATHS: ${{ inputs.low-risk-paths }}
         IGNORED_PATHS: ${{ inputs.ignored-paths }}
+        MIGRATION_PATHS: ${{ inputs.migration-paths }}
         HIGH_LINES: ${{ inputs.high-risk-lines }}
         APPROVALS_LOW: ${{ inputs.approvals-low }}
         APPROVALS_MEDIUM: ${{ inputs.approvals-medium }}
