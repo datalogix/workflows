@@ -25,6 +25,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
 | `security-fail-on`                                                | `high`                         | Lowest security finding severity that fails the check                    |
+| `security-keep-findings`                                          | `true`                         | Keep the security findings in the review comment, numbered, until a later review finds them resolved (see [`claude-security-review`](#claude-security-review)) |
 | `approvals-medium` / `approvals-high`                             | `1` / `1`                      | Human approvals for medium and high risk pull requests                   |
 | `count-author`                                                    | `false`                        | Count a human author with write access as one approval (solo maintainers) |
 | `extra-high-risk-paths`                                           | empty                          | More patterns (one per line) that make a pull request high risk, added to the risk gate's defaults (e.g. `app/Services/Payment/*`) |
@@ -89,6 +90,7 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes) |
 | `language` | `pt-BR` | Language of what Claude writes for the team |
 | `security-fail-on` | `high` | Lowest security finding severity that fails the check (`high`, `medium`, `low` or `none`) |
+| `security-keep-findings` | `true` | As for apps, with `security-review`; the comment mentions `@claude` only with `claude` on |
 
 The Claude jobs that write or review code get a rule in front of `extra-instructions`: keep the package's public API compatible. `check` reports a layer that is on when the workflow file lacks its events, or the `claude` job its permissions.
 
@@ -173,6 +175,8 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 | --------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
 | `model`                           | `opus`                                 | Review model                                                                        |
 | `fail-on`                         | `high`                                 | Lowest severity that fails the check: `high`, `medium`, `low` or `none`             |
+| `keep-findings`                   | `true`                                 | Keep the findings in the comment until a later review finds them resolved, and give the open ones to each review; `false` rewrites the comment with each review |
+| `claude-mentions`                 | `true`                                 | The comment says how to ask `@claude` for a fix; `package-claude` passes its `claude` input |
 | `ignored-authors`                 | `["dependabot[bot]", "renovate[bot]"]` | Authors that are not reviewed (JSON), unless someone else pushed the commits; dependencies are covered by `composer audit` and the Node audit |
 | `allowed-bots`                    | `*`                                    | Bots whose pull requests are reviewed                                               |
 | `max-turns` / `timeout-minutes`   | `40` / `30`                            | Limits                                                                              |
@@ -181,6 +185,8 @@ Runs on every push to a pull request. A pull request whose changes, taken as a w
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes); the fixed texts exist in `pt-BR` and `en`, other languages get `pt-BR` |
 
 Claude only reads the code and writes its findings to a file; the workflow publishes them as a single pull request comment, updated on every review, and fails when a finding reaches `fail-on` (a finding with an unknown severity counts as `high`).
+
+With `keep-findings` (the default), the comment keeps every finding until a review finds it resolved. Each finding gets a number that does not change between reviews; on every review Claude also gets the open findings of the earlier ones and checks each against the current code: one it finds again stays open (marked _still present_), one it no longer finds moves to _Resolved_ with the commit that resolved it, and one it leaves out stays open, so a finding never disappears unseen. Only open findings count toward `fail-on`. A run that does not review (the workflow file changed, the review did not finish) keeps the list for the next one. When there are open findings, the comment ends with how to ask for a fix: `@claude fix the security problems` for all of them, `@claude fix finding 2` for one, or recording a false positive in `.github/security-review.md`.
 
 A pull request whose copy of the calling workflow file (`.github/workflows/datalogix.yml`) is not the same as the default branch's is not reviewed: `claude-code-action` only runs with the default branch's copy of the file, so the job skips Claude, the comment says why, and the check fails until both are the same. That is a pull request that changes the file or adds it; one that is only behind a change to it on the default branch is reviewed, as the run uses the merge commit. Move workflow changes to a pull request of their own, reviewed by a person; `claude-review` skips such pull requests too, with only a warning in its job.
 

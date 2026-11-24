@@ -43,6 +43,14 @@ on:
         type: string
         default: ""
         description: Extra instructions for this repository (no double quotes)
+      keep-findings:
+        type: boolean
+        default: true
+        description: Keep the findings in the comment, numbered, until a later review finds them resolved, and have Claude check the open ones again on every review; false rewrites the comment with each review
+      claude-mentions:
+        type: boolean
+        default: true
+        description: The comment says how to ask @claude to fix the findings (false where the claude layer is off)
       language:
         type: string
         default: pt-BR
@@ -109,6 +117,8 @@ jobs:
           step: check
           fail-on: ${{ inputs.fail-on }}
           workflow-changed: ${{ steps.workflow.outputs.changed }}
+          keep-findings: ${{ inputs.keep-findings }}
+          previous: ${{ runner.temp }}/security-previous.json
 
       - name: Review security with Claude Code
         if: steps.check.outputs.review == 'true'
@@ -122,17 +132,17 @@ jobs:
             ${{ inputs.plugin-marketplaces }}
           plugins: ${{ steps.plugins.outputs.plugins }}
 
-          prompt: /${{ inputs.stack }}:security-review ${{ env.PR_NUMBER }} ${{ runner.temp }}/security-findings.json
+          prompt: /${{ inputs.stack }}:security-review ${{ env.PR_NUMBER }} ${{ runner.temp }}/security-findings.json ${{ runner.temp }}/security-previous.json
 
-          # Read-only: Claude can only read the code and the PR, and write the findings file (// starts an absolute
-          # path): any other file it could write (the findings of a forged review, $GITHUB_ENV) would be read by the
+          # Read-only: Claude can only read the code, the PR and the earlier findings, and write the findings file (//
+          # starts an absolute path): any other file it could write (the findings of a forged review, $GITHUB_ENV) would be read by the
           # steps after it. Edit rules cover every tool that writes files (Write rules never match) and an edit no rule
           # allows is denied, so Edit stays off the denied list. Reads stay in the workspace (not /proc or the runner's
           # files) and git's --output, which writes a file, is denied
           claude_args: |
             --max-turns ${{ inputs.max-turns }}
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
-            --allowed-tools "Read(./**),Grep(./**),Glob(./**),Edit(/${{ runner.temp }}/security-findings.json),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(ls:*)"
+            --allowed-tools "Read(./**),Read(/${{ runner.temp }}/security-previous.json),Grep(./**),Glob(./**),Edit(/${{ runner.temp }}/security-findings.json),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(ls:*)"
             --disallowed-tools "Bash(git * --output*),Bash(git push:*),Bash(git commit:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh api:*)"
             --append-system-prompt "This is a single, non-interactive session: do everything synchronously and only end your turn once the findings file has been written. Load the core:conventions and ${{ inputs.stack }}:conventions skills before starting. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
 
@@ -152,4 +162,6 @@ jobs:
           reused: ${{ steps.check.outputs.reused }}
           digest: ${{ steps.check.outputs.digest }}
           findings: ${{ runner.temp }}/security-findings.json
+          keep-findings: ${{ inputs.keep-findings }}
+          mentions: ${{ inputs.claude-mentions }}
           language: ${{ inputs.language }}

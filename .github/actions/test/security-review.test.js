@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { callsTo, runScript, unmatchedReads } from './fakes.js';
@@ -396,7 +397,7 @@ describe('publish', () => {
     expect(result.outputs.blocking).toBe('0');
     expect(callsTo(result, 'gh')).toContainEqual(patched(12));
     const body = posted(result);
-    expect(body).toContain('### 🟠 Mass assignment');
+    expect(body).toContain('### 🟠 1. Mass assignment');
     expect(body).toContain('`app/User.php:3` · medium · mass-assignment');
     expect(body).toContain(`${state('f'.repeat(64))}\n${MARKER}`);
     expect(body).not.toContain('bloqueado');
@@ -438,7 +439,7 @@ describe('publish', () => {
 
     expect(result.code).toBe(0);
     const body = posted(result);
-    const order = ['### 🔴 SQL injection', '### 🟠 Mass assignment', '### 🟡 Verbose errors'].map((title) =>
+    const order = ['### 🔴 2. SQL injection', '### 🟠 3. Mass assignment', '### 🟡 1. Verbose errors'].map((title) =>
       body.indexOf(title),
     );
     expect(order.every((at) => at !== -1)).toBe(true);
@@ -486,14 +487,14 @@ describe('publish', () => {
     const result = await publish({ findings: { summary: 'S.', findings: [{ ...FINDING, severity: 'Critical' }] } });
 
     expect(result.code).toBe(1);
-    expect(posted(result)).toContain('### 🔴 Mass assignment');
+    expect(posted(result)).toContain('### 🔴 1. Mass assignment');
   });
 
   test('reads a severity in any case', async () => {
     const result = await publish({ findings: { summary: 'S.', findings: [{ ...FINDING, severity: 'Medium' }] } });
 
     expect(result.code).toBe(0);
-    expect(posted(result)).toContain('### 🟠 Mass assignment');
+    expect(posted(result)).toContain('### 🟠 1. Mass assignment');
   });
 
   test('writes no state line without a digest', async () => {
@@ -512,5 +513,163 @@ describe('publish', () => {
     expect(body).toContain('## Security review');
     expect(body).toContain('No security problems found');
     expect(body).toContain(`[View run](${RUN})`);
+  });
+});
+
+// The findings kept in a comment by publish.sh, and the line that keeps them
+const keptLine = (findings) =>
+  `<!-- claude-security-review-findings: ${Buffer.from(JSON.stringify(findings)).toString('base64')} -->`;
+const keptOf = (body) => {
+  const data = body.match(/<!-- claude-security-review-findings: ([A-Za-z0-9+/=]+) -->/)?.[1];
+  return data === undefined ? undefined : JSON.parse(Buffer.from(data, 'base64').toString());
+};
+const HEAD_SHA = '1234567'.padEnd(40, '0');
+const EARLIER = [
+  { ...FINDING, id: 1, severity: 'high', title: 'SQL injection', status: 'open' },
+  { ...FINDING, id: 2, title: 'Mass assignment', status: 'open' },
+  { ...FINDING, id: 3, severity: 'low', title: 'Verbose errors', status: 'resolved', resolved_in: 'a'.repeat(40) },
+];
+const withEarlier = (findings) => [{ match: COMMENTS, stdout: [bot(`old\n${keptLine(findings)}\n${MARKER}`, 12)] }];
+
+describe('keep findings', () => {
+  test('numbers the findings, keeps them in the comment and says how to ask for a fix', async () => {
+    const result = await publish({
+      env: { KEEP_FINDINGS: 'true', HEAD_SHA },
+      findings: { summary: 'Two problems.', findings: [{ ...FINDING, severity: 'low' }, FINDING] },
+    });
+
+    const body = posted(result);
+    expect(body).toContain('### 🟠 2. Mass assignment');
+    expect(body).toContain('### 🟡 1. Mass assignment');
+    expect(body).toContain('`@claude corrija os problemas de segurança`, ou um deles com `@claude corrija o achado 2`');
+    expect(body).toContain('registre-o em `.github/security-review.md`');
+    expect(keptOf(body).map(({ id, status }) => [id, status])).toEqual([
+      [1, 'open'],
+      [2, 'open'],
+    ]);
+    // The state line and the marker still end the comment, where check.sh reads them
+    expect(body.endsWith(`${state('f'.repeat(64))}\n${MARKER}`)).toBe(true);
+  });
+
+  test('marks what Claude resolved, keeps what it reports again or leaves out, and numbers new ones after', async () => {
+    const result = await publish({
+      env: { KEEP_FINDINGS: 'true', HEAD_SHA },
+      gh: withEarlier(EARLIER),
+      findings: {
+        summary: 'Rechecked.',
+        resolved: [1],
+        findings: [
+          { ...FINDING, id: 2, line: 9 },
+          { ...FINDING, severity: 'high', title: 'Open redirect' },
+        ],
+      },
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.outputs.blocking).toBe('1');
+    const body = posted(result);
+    expect(body).toContain('### 🔴 4. Open redirect\n\n`app/User.php:3` · high · mass-assignment\n');
+    expect(body).toContain('### 🟠 2. Mass assignment\n\n`app/User.php:9` · medium · mass-assignment · ainda presente');
+    expect(body).toContain('#### Resolvidos');
+    expect(body).toContain(
+      `- ~~1. SQL injection~~ (\`app/User.php:3\`) · resolvido em [1234567](https://github.com/datalogix/app/commit/${HEAD_SHA})`,
+    );
+    expect(body).toContain('- ~~3. Verbose errors~~');
+    expect(body).not.toContain('### 🔴 1. SQL injection');
+    expect(keptOf(body).map(({ id, status }) => [id, status])).toEqual([
+      [1, 'resolved'],
+      [2, 'open'],
+      [3, 'resolved'],
+      [4, 'open'],
+    ]);
+    expect(result.summary).toContain('2 finding(s), 1 at or above `high`.');
+
+    // A finding Claude neither reports again nor resolves stays open, so it never disappears unseen
+    const silent = await publish({
+      env: { KEEP_FINDINGS: 'true', HEAD_SHA },
+      gh: withEarlier(EARLIER),
+      findings: { summary: 'Nothing new.', findings: [] },
+    });
+    expect(silent.code).toBe(1);
+    expect(posted(silent)).toContain('### 🔴 1. SQL injection');
+    expect(posted(silent)).toContain('ainda presente');
+  });
+
+  test('passes once every earlier finding is resolved', async () => {
+    const result = await publish({
+      env: { KEEP_FINDINGS: 'true', HEAD_SHA },
+      gh: withEarlier(EARLIER),
+      findings: { summary: 'All fixed.', resolved: [1, 2], findings: [] },
+    });
+
+    expect(result.code).toBe(0);
+    const body = posted(result);
+    expect(body).toContain('Nenhum problema de segurança encontrado');
+    expect(body).toContain('- ~~2. Mass assignment~~');
+    expect(body).not.toContain('@claude');
+  });
+
+  test('keeps the findings when the review did not run', async () => {
+    const failed = await publish({ env: { KEEP_FINDINGS: 'true' }, gh: withEarlier(EARLIER), findings: undefined });
+    expect(keptOf(posted(failed))).toEqual(EARLIER);
+
+    const changed = await publish({
+      env: { KEEP_FINDINGS: 'true', WORKFLOW_CHANGED: 'true', WORKFLOW_FILE: '.github/workflows/datalogix.yml' },
+      gh: withEarlier(EARLIER),
+    });
+    expect(keptOf(posted(changed))).toEqual(EARLIER);
+  });
+
+  test('without keep-findings, rewrites the comment with this review only', async () => {
+    const result = await publish({
+      gh: withEarlier(EARLIER),
+      findings: { summary: 'One problem.', findings: [FINDING] },
+    });
+
+    expect(result.code).toBe(0);
+    const body = posted(result);
+    expect(body).toContain('### 🟠 1. Mass assignment');
+    expect(body).not.toContain('SQL injection');
+    expect(keptOf(body)).toBeUndefined();
+  });
+
+  test('leaves out the @claude hint where the claude layer is off', async () => {
+    const result = await publish({
+      env: { MENTIONS: 'false', LANGUAGE: 'en' },
+      findings: { summary: 'One problem.', findings: [FINDING] },
+    });
+
+    const body = posted(result);
+    expect(body).not.toContain('@claude');
+    expect(body).toContain('If one is a false positive, record it in `.github/security-review.md`.');
+  });
+
+  test('check gives the open earlier findings to the review', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'previous-'));
+    try {
+      const previous = join(dir, 'previous.json');
+      const result = await check({
+        setup: repository({ pr: { 'app/User.php': 'changed\n' } }),
+        env: { KEEP_FINDINGS: 'true', PREVIOUS: previous },
+        gh: withEarlier(EARLIER),
+      });
+
+      expect(result.outputs.review).toBe('true');
+      const open = JSON.parse(await readFile(previous, 'utf8'));
+      expect(open.map(({ id, title }) => [id, title])).toEqual([
+        [1, 'SQL injection'],
+        [2, 'Mass assignment'],
+      ]);
+      expect(open[0]).not.toHaveProperty('recommendation');
+
+      // Without an earlier review, an empty list
+      await check({
+        setup: repository({ pr: { 'app/User.php': 'changed\n' } }),
+        env: { KEEP_FINDINGS: 'true', PREVIOUS: previous },
+      });
+      expect(JSON.parse(await readFile(previous, 'utf8'))).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

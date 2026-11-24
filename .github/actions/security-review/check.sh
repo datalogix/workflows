@@ -2,6 +2,10 @@
 # Decides whether Claude reviews the security of a pull request. Settings come from the environment (see action.yml).
 set -euo pipefail
 
+marker="<!-- claude-security-review -->"
+# The findings publish.sh keeps in the comment, as base64 JSON (Claude's text cannot write a comment: see publish.sh)
+FINDINGS_LINE='<!-- claude-security-review-findings: (?<data>[A-Za-z0-9+/=]+) -->'
+
 # Before the review: a typo in fail-on would otherwise cost a whole review and fail the check
 case "$FAIL_ON" in
   high) levels='["high"]' ;;
@@ -56,7 +60,6 @@ digest=$(git diff --raw --no-abbrev --no-renames "origin/$BASE...HEAD" | sha256s
 echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
 if [ "${RUN_ATTEMPT:-1}" = 1 ]; then
-  marker="<!-- claude-security-review -->"
   state="<!-- claude-security-review-state: diff=$digest fail-on=$FAIL_ON -->"
   # Only where publish.sh writes it, right before the marker that ends the comment, never inside the text of the review
   kept=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
@@ -66,6 +69,18 @@ if [ "${RUN_ATTEMPT:-1}" = 1 ]; then
     echo "review=false" >> "$GITHUB_OUTPUT"
     exit 0
   fi
+fi
+
+# The open findings of earlier reviews, kept in the comment by publish.sh, so Claude checks whether each is still there
+if [ "${KEEP_FINDINGS:-}" = true ] && [ -n "${PREVIOUS:-}" ]; then
+  stored=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+    --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .body
+      | [capture(\"$FINDINGS_LINE\").data][0] // \"\"")
+  stored=${stored%%$'\n'*}
+  jq -n --arg data "$stored" '
+    (try ($data | @base64d | fromjson) catch []) | if type == "array" then . else [] end
+    | map(select(type == "object" and .status == "open")
+      | {id, severity, category, file, line, title, description})' > "$PREVIOUS"
 fi
 
 echo "review=true" >> "$GITHUB_OUTPUT"
