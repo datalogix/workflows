@@ -77,6 +77,9 @@ export function projectAnswers(inputs) {
     database: scalar(inputs.database)?.toLowerCase() || 'none',
     language: scalar(inputs.language) || DEFAULT_LANGUAGE,
     updateStacked: scalar(inputs['update-stacked'])?.toLowerCase() === 'true',
+    keepFindings: flagOf(inputs['security-keep-findings']),
+    fixSecurity: scalar(inputs['fix-security'])?.toLowerCase() === 'true',
+    securityApprovalOn: scalar(inputs['security-approval-on'])?.toLowerCase() || 'none',
     ...toolAnswers(inputs),
   };
 }

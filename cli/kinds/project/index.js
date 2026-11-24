@@ -9,6 +9,8 @@ import {
   languageStep,
   readClaude,
   readLabels,
+  securityInputItems,
+  stackedItems,
 } from '../../lib/claude.js';
 import { coverageItems } from '../../lib/coverage.js';
 import { codeOwnerItems, createReport, ORG, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
@@ -1380,15 +1382,13 @@ async function evaluate(
     stack.evaluateDeploy(report, state);
   }
 
-  // Stacked pull requests are merged with the release GitHub App's token, so the pull requests above run their checks
-  if (state.current?.updateStacked) {
-    if (state.releaseApp) ok('Stacked pull requests updated by the release GitHub App');
-    else
-      error(
-        'update-stacked is on, but RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY are missing, so stacked pull requests are not updated',
-        'see docs/organization-setup.md in datalogix/workflows',
-      );
-  }
+  stackedItems(report, state);
+  // The security review and the risk gate are on unless the file turns them off; the claude layer always is
+  securityInputItems(report, state.current, {
+    claude: true,
+    securityReview: state.current?.securityReview !== false,
+    riskGate: state.current?.riskGate !== false,
+  });
 
   // Problems as issues (on by default) or deploy markers: the monitoring service's agent must be in the app
   const markers = Object.values(state.environments).some((environment) => environment.monitoringToken);

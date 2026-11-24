@@ -1027,3 +1027,26 @@ test('update-stacked needs the release GitHub App', async () => {
   const off = await run(await stateFor({ solo: true, incidents: false }, { releaseApp: false }));
   expect(off.map((item) => item.title).filter((title) => title.includes('tacked'))).toStrictEqual([]);
 });
+
+test('fix-security and security-approval-on warn when the layers they read are off', async () => {
+  const warnings = async (inputs) =>
+    titles(
+      await run(
+        await stateFor({ solo: true, incidents: false }, {}, (content) =>
+          content.replace('    with:\n', `    with:\n${inputs.map((input) => `      ${input}\n`).join('')}`),
+        ),
+      ),
+      'warn',
+    );
+
+  expect(await warnings(['fix-security: true', 'security-keep-findings: false'])).toContain(
+    'fix-security is on, but without security-keep-findings Claude never fixes a finding',
+  );
+  expect(await warnings(['fix-security: true'])).not.toContainEqual(expect.stringContaining('fix-security'));
+  expect(await warnings(['security-approval-on: medium', 'risk-gate: false'])).toContain(
+    'security-approval-on is medium, but without the risk gate no approval is ever required for an open finding',
+  );
+  expect(await warnings(['security-approval-on: none', 'risk-gate: false'])).not.toContainEqual(
+    expect.stringContaining('security-approval-on'),
+  );
+});

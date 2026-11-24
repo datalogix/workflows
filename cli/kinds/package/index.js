@@ -12,6 +12,8 @@ import {
   PLAN_LABEL,
   readClaude,
   readLabels,
+  securityInputItems,
+  stackedItems,
 } from '../../lib/claude.js';
 import { coverageItems } from '../../lib/coverage.js';
 import { codeOwnerItems, createReport, PROTECT, rulesetItems, SETUP, workflowItems } from '../../lib/evaluate.js';
@@ -329,6 +331,13 @@ async function evaluate(stack, checks, state) {
     claudeItems(report, state);
   }
   layerNeedItems(report, state);
+  stackedItems(report, state);
+  // The package layers are off unless the file turns them on
+  securityInputItems(report, state.current, {
+    claude: state.current?.claude === true,
+    securityReview: state.current?.securityReview === true,
+    riskGate: state.current?.riskGate === true,
+  });
   releaseItems(report, state, stack);
   // The workflow file does not say whether one person maintains the package (protect asks): a missing approval rule
   // is not reported, only one that keeps older approvals, and a missing CODEOWNERS only when the ruleset requires it
