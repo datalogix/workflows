@@ -36,6 +36,10 @@ Both live here and have their own README, for working on them:
 
 A new push to a pull request cancels its previous run; runs on `main` always finish.
 
+## Claude in this repository
+
+`.github/workflows/datalogix.yml` gives this repository the Claude layer a project gets: `@claude` on issues and pull requests, and the `claude` and `claude-plan` labels, through the released `claude.yml@v2` (so a change to `claude.yml` reaches it only with a release). It runs with `stack: js` and `language: en`, and its `extra-instructions` point Claude at `CLAUDE.md` and at the checks of `ci.yml`. It needs `CLAUDE_CODE_OAUTH_TOKEN` (an organization secret available to this repository, or a repository secret) and the `claude` and `claude-plan` labels; the Claude GitHub App has the `workflows` permission it needs to push changes to `.github/workflows/`.
+
 ## Working locally
 
 - `npm ci && npm test`: tests of the setup command and of the action scripts (Node 22.12+, required by Vitest; the action script tests need `bash` and `jq` on `PATH`).
