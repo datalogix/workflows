@@ -345,6 +345,30 @@ test('writes the claude job only with a layer on, and the old minimal file witho
   expect(hasJob(withTools, 'claude')).toBe(true);
 });
 
+test('writes fix-ci only when it is off with claude on, and offers it among the layers', async () => {
+  const claudeInputs = async (answers) => parseInputs(await renderPackageWorkflow('', 'main', answers), 'claude');
+
+  // On by default in package-claude.yml: nothing is written
+  expect(await claudeInputs({ claude: true, fixCi: true })).not.toHaveProperty('fix-ci');
+  expect(await claudeInputs({ claude: true })).not.toHaveProperty('fix-ci');
+  const off = await renderPackageWorkflow('', 'main', { claude: true, fixCi: false });
+  expect(parseInputs(off, 'claude')).toMatchObject({ claude: 'true', 'fix-ci': 'false' });
+  expect(answersOf(off)).toMatchObject({ claude: true, fixCi: false });
+  // Without claude it has no effect, so it is not written
+  expect(await claudeInputs({ review: true, fixCi: false })).not.toHaveProperty('fix-ci');
+  // Turned on again: the line goes away
+  expect(
+    parseInputs(await renderPackageWorkflow(off, 'main', { claude: true, fixCi: true }), 'claude'),
+  ).not.toHaveProperty('fix-ci');
+
+  const layers = setup.steps().find((step) => step.id === 'layers');
+  expect(layers.validate('claude,fix-ci,review')).toBeUndefined();
+  expect(layers.validate('claude,fixci')).toContain('fix-ci');
+  const answers = { layers: layers.parse('claude,review') };
+  await layers.then(answers);
+  expect(answers).toMatchObject({ claude: true, review: true, fixCi: false });
+});
+
 test('asks the language and the Claude token with a Claude layer on, and reads what they need', async () => {
   const steps = setup.steps();
   const language = steps.find((step) => step.id === 'language');

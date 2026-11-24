@@ -23,7 +23,11 @@ on:
       claude:
         type: boolean
         default: false
-        description: Let Claude answer @claude on issues and pull requests, implement issues labeled claude, plan issues labeled claude-plan, and fix failed tests on its own pull requests
+        description: Let Claude answer @claude on issues and pull requests, implement issues labeled claude, plan issues labeled claude-plan, and (with fix-ci) fix failed tests on its own pull requests
+      fix-ci:
+        type: boolean
+        default: true
+        description: With claude, let Claude fix failed tests on its own pull requests; false keeps the rest of claude
       review:
         type: boolean
         default: false
@@ -155,7 +159,7 @@ jobs:
   # With claude: Claude's own pull requests (claude/ branches) only exist when it implements issues. The calling job
   # runs after the tests (needs: pipeline) and passes their result; Claude gets one PHP or Node version, not the matrix
   fix-ci:
-    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.claude && github.event_name == 'pull_request' && inputs.tests-result == 'failure'
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.claude && inputs.fix-ci && github.event_name == 'pull_request' && inputs.tests-result == 'failure'
     permissions:
       contents: write
       pull-requests: write
