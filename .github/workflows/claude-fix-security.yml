@@ -1,0 +1,155 @@
+name: claude-fix-security
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        type: string
+        default: laravel
+        description: Stack of the project (laravel, php or js), which picks the environment prepared for Claude and the commands and conventions skill of its plugin (<stack>@datalogix, listed in plugins)
+      php-version:
+        type: string
+        default: ""
+        description: Empty reads .php-version, composer.lock or composer.json config.platform.php, otherwise latest
+      node-version:
+        type: string
+        default: ""
+        description: Empty reads .nvmrc or .node-version, otherwise the current LTS
+      model:
+        type: string
+        default: opus
+        description: Claude model (e.g. fable, opus, sonnet); empty uses the account default
+      max-turns:
+        type: number
+        default: 60
+        description: Maximum turns of Claude when fixing the security findings
+      timeout-minutes:
+        type: number
+        default: 45
+        description: Timeout of the fix job
+      max-attempts:
+        type: number
+        default: 2
+        description: Maximum number of automatic security fix commits ([security-fix]) per PR
+      fix-on:
+        type: string
+        default: high
+        description: Lowest severity of an open security finding that Claude fixes (high, medium or low)
+      branch-prefix:
+        type: string
+        default: claude/
+        description: Only fix PRs from branches with this prefix
+      allowed-tools:
+        type: string
+        default: Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*
+        description: Tools Claude may use, comma-separated
+      disallowed-tools:
+        type: string
+        default: Bash(git push --force:*),Bash(git push -f:*),Bash(git push --delete:*),Bash(gh pr merge:*),Bash(gh pr review:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
+        description: Tools Claude may not use, comma-separated; takes precedence over allowed-tools
+      plugin-marketplaces:
+        type: string
+        default: ""
+        description: Extra Claude Code plugin marketplaces, one per line, besides this repository's (at the same version as the workflows)
+      plugins:
+        type: string
+        default: ""
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed
+      extra-instructions:
+        type: string
+        default: ""
+        description: Extra instructions for this repository (no double quotes)
+      language:
+        type: string
+        default: pt-BR
+        description: Language of what Claude writes for the team (e.g. pt-BR, en; no double quotes); the fixed texts exist in pt-BR and en, other languages get pt-BR
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  # Called after the security review of a pull request (as the project workflow does, with needs): Claude fixes the open
+  # findings the review comment keeps, on its own pull requests only
+  fix:
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, inputs.branch-prefix)
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    concurrency:
+      group: claude-fix-security-${{ github.repository }}-${{ github.event.pull_request.head.ref }}
+      cancel-in-progress: true
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Check whether to fix
+        id: check
+        uses: datalogix/workflows/.github/actions/fix-security@v2
+        with:
+          fix-on: ${{ inputs.fix-on }}
+          max-attempts: ${{ inputs.max-attempts }}
+          findings: ${{ runner.temp }}/security-fix.json
+          head-sha: ${{ github.event.pull_request.head.sha }}
+          base: ${{ github.event.pull_request.base.ref }}
+          language: ${{ inputs.language }}
+
+      - name: Setup Laravel
+        if: steps.check.outputs.fix == 'true' && contains(fromJSON('["laravel", "php"]'), inputs.stack)
+        id: setup
+        uses: datalogix/workflows/.github/actions/setup-laravel@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          node-version: ${{ inputs.node-version }}
+
+      - name: Setup JavaScript
+        if: steps.check.outputs.fix == 'true' && inputs.stack == 'js'
+        uses: datalogix/workflows/.github/actions/setup-js@v2
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Locate the Datalogix plugins
+        id: plugins
+        if: steps.check.outputs.fix == 'true'
+        uses: datalogix/workflows/.github/actions/plugins@v2
+        with:
+          stack: ${{ inputs.stack }}
+          plugins: ${{ inputs.plugins }}
+
+      - name: Fix the security findings with Claude Code
+        if: steps.check.outputs.fix == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          # Symfony's test environment is test; Laravel's is testing
+          APP_ENV: ${{ inputs.stack == 'php' && 'test' || 'testing' }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # The trigger is Claude's own bot; the job already filters by branch and PR
+          allowed_bots: "*"
+
+          plugin_marketplaces: |
+            ${{ steps.plugins.outputs.marketplace }}
+            ${{ inputs.plugin-marketplaces }}
+          plugins: ${{ steps.plugins.outputs.plugins }}
+
+          prompt: /${{ inputs.stack }}:fix-security ${{ env.PR_NUMBER }} ${{ runner.temp }}/security-fix.json
+
+          claude_args: |
+            --max-turns ${{ inputs.max-turns }}
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            ${{ steps.setup.outputs.mcp-config != '' && format('--mcp-config {0}', steps.setup.outputs.mcp-config) || '' }}
+            --allowed-tools "${{ inputs.allowed-tools }}"
+            --disallowed-tools "${{ inputs.disallowed-tools }}"
+            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Do everything synchronously and only end your turn when the task is complete. Before starting, load the core:conventions and ${{ inputs.stack }}:conventions skills and follow all of their rules. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"

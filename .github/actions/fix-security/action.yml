@@ -1,0 +1,48 @@
+name: Fix security findings
+description: Decides whether Claude fixes the open security findings of its own pull request, and writes them to a file for it
+
+inputs:
+  fix-on:
+    description: Lowest severity of an open finding that Claude fixes (high, medium or low)
+    default: high
+  max-attempts:
+    description: Most automatic fix commits ([security-fix]) per pull request
+    default: "2"
+  findings:
+    description: File where the findings to fix are written
+    required: true
+  head-sha:
+    description: The commit the security review reviewed
+    required: true
+  base:
+    description: Base branch of the pull request
+    required: true
+  language:
+    description: Language of the fixed texts (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+  token:
+    description: Token that reads and writes the pull request comments
+    default: ${{ github.token }}
+
+outputs:
+  fix:
+    description: true when Claude should fix the findings in the findings file
+    value: ${{ steps.check.outputs.fix }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Check whether to fix
+      id: check
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        FIX_ON: ${{ inputs.fix-on }}
+        MAX: ${{ inputs.max-attempts }}
+        FINDINGS: ${{ inputs.findings }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        BASE: ${{ inputs.base }}
+        LANGUAGE: ${{ inputs.language }}
+      run: bash "$GITHUB_ACTION_PATH/check.sh"

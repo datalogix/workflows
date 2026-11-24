@@ -185,6 +185,14 @@ on:
         type: boolean
         default: true
         description: Keep the security findings in the review comment, numbered, until a later review finds them resolved; false rewrites the comment with each review
+      fix-security:
+        type: boolean
+        default: false
+        description: Let Claude fix the open security findings of its own pull requests (claude/ branches), with a regression test, up to 2 fix commits per pull request; needs the security review with keep-findings
+      fix-security-on:
+        type: string
+        default: high
+        description: Lowest severity of an open security finding that fix-security fixes (high, medium or low)
       approvals-medium:
         type: number
         default: 1
@@ -355,6 +363,26 @@ jobs:
       php-version: ${{ inputs.php-version }}
       node-version: ${{ inputs.node-version }}
       model: ${{ inputs.fix-ci-model }}
+      extra-instructions: ${{ inputs.extra-instructions }}
+      language: ${{ inputs.language }}
+
+  # After the security review, whose comment keeps the findings it fixes; only Claude's own pull requests
+  fix-security:
+    needs: [security]
+    if: ${{ !cancelled() && contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.fix-security && github.event_name == 'pull_request' && contains(fromJSON('["success", "failure"]'), needs.security.result) }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/claude-fix-security.yml@v2
+    secrets: inherit
+    with:
+      stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
+      php-version: ${{ inputs.php-version }}
+      node-version: ${{ inputs.node-version }}
+      model: ${{ inputs.model }}
+      fix-on: ${{ inputs.fix-security-on }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
