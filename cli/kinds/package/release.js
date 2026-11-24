@@ -76,7 +76,8 @@ async function hasNpmToken(github, read) {
 
 /** What read adds for releases: in setup or with releases on, the release GitHub App and the npm token. */
 export async function readRelease(github, read, { current, claude = false }) {
-  if (!claude && !releaseOn(current)) return {};
+  // update-stacked merges with the release GitHub App too
+  if (!claude && !releaseOn(current) && !current?.updateStacked) return {};
   const [releaseApp, npmToken] = await Promise.all([read('secrets', hasReleaseApp(github)), hasNpmToken(github, read)]);
   return { releaseApp, npmToken };
 }

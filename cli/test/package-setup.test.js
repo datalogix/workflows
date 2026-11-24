@@ -565,3 +565,36 @@ test('writes typecheck and js-tests in a package only when off, and keeps them w
   });
   expect(await renderPackageWorkflow(file)).toBe(file);
 });
+
+test('check warns about fix-security, security-approval-on and update-stacked when they have no effect', async () => {
+  const titles = async (claudeInputs, state = {}) =>
+    (await laravelPackage.evaluate({ ...PACKAGE_STATE, ...state, current: packageAnswers({}, claudeInputs) }))
+      .filter((item) => item.level !== 'ok')
+      .map((item) => item.title);
+
+  // fix-security needs claude, the security review and the kept findings
+  expect(await titles({ 'fix-security': 'true', review: 'true' })).toContainEqual(
+    'fix-security is on, but without claude: true and the security review Claude never fixes a finding',
+  );
+  const fixing = { claude: 'true', 'security-review': 'true', 'fix-security': 'true' };
+  expect(await titles(fixing)).not.toContainEqual(expect.stringContaining('fix-security'));
+  expect(await titles({ ...fixing, 'security-keep-findings': 'false' })).toContainEqual(
+    'fix-security is on, but without security-keep-findings Claude never fixes a finding',
+  );
+
+  // security-approval-on needs the security review and the risk gate
+  expect(await titles({ 'security-review': 'true', 'security-approval-on': 'medium' })).toContainEqual(
+    'security-approval-on is medium, but without the risk gate no approval is ever required for an open finding',
+  );
+  expect(
+    await titles({ 'security-review': 'true', 'risk-gate': 'true', 'security-approval-on': 'medium' }),
+  ).not.toContainEqual(expect.stringContaining('security-approval-on'));
+
+  // update-stacked needs the release GitHub App, read for it
+  expect(await titles({ review: 'true', 'update-stacked': 'true' })).toContainEqual(
+    expect.stringContaining('update-stacked is on'),
+  );
+  expect(await titles({ review: 'true', 'update-stacked': 'true' }, { releaseApp: true })).not.toContainEqual(
+    expect.stringContaining('update-stacked'),
+  );
+});

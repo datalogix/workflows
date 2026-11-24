@@ -216,3 +216,47 @@ export function claudeAppNextSteps(answers, state) {
   }
   return [];
 }
+
+/**
+ * Warnings for the security inputs that have no effect as set: fix-security and security-approval-on read the open
+ * findings the security review comment keeps, so they need the security review with keep-findings (and fix-security,
+ * in a package, the claude layer; security-approval-on, the risk gate). `on` gives whether each layer runs.
+ */
+export function securityInputItems({ warn }, a, on) {
+  const keeps = a?.keepFindings !== false;
+  if (a?.fixSecurity) {
+    const missing = [
+      ...(on.claude ? [] : ['claude: true']),
+      ...(on.securityReview ? [] : ['the security review']),
+      ...(keeps ? [] : ['security-keep-findings']),
+    ];
+    if (missing.length)
+      warn(
+        `fix-security is on, but without ${missing.join(' and ')} Claude never fixes a finding`,
+        `${SETUP}, or turn fix-security off`,
+      );
+  }
+  if (a?.securityApprovalOn && a.securityApprovalOn !== 'none') {
+    const missing = [
+      ...(on.securityReview ? [] : ['the security review']),
+      ...(on.riskGate ? [] : ['the risk gate']),
+      ...(keeps ? [] : ['security-keep-findings']),
+    ];
+    if (missing.length)
+      warn(
+        `security-approval-on is ${a.securityApprovalOn}, but without ${missing.join(' and ')} no approval is ever required for an open finding`,
+        `${SETUP}, or set security-approval-on: none`,
+      );
+  }
+}
+
+/** update-stacked merges with the release GitHub App's token, so the pull requests above run their checks. */
+export function stackedItems({ ok, error }, state) {
+  if (!state.current?.updateStacked) return;
+  if (state.releaseApp) ok('Stacked pull requests updated by the release GitHub App');
+  else
+    error(
+      'update-stacked is on, but RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY are missing, so stacked pull requests are not updated',
+      'see docs/organization-setup.md in datalogix/workflows',
+    );
+}
