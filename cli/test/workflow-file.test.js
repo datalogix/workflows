@@ -375,6 +375,8 @@ test('reads only what a package workflow file can say', () => {
     review: false,
     securityReview: false,
     riskGate: false,
+    // On by default with claude: unknown unless the file says
+    fixCi: undefined,
     language: 'pt-BR',
     apiCheck: false,
     js: undefined,

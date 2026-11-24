@@ -84,7 +84,8 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | --- | --- | --- |
 | `stack` | `laravel` | Stack of the package: the environment prepared for Claude, its plugin and the default high-risk paths |
 | `tests-result` | empty | `needs.pipeline.result`: `failure` on a pull request lets Fix CI run on Claude's own pull requests |
-| `claude` | `false` | [`claude`](#claude) on issues and pull requests (`@claude`, the `claude` and `claude-plan` labels), and [`claude-fix-ci`](#claude-fix-ci) on Claude's own pull requests when the tests fail |
+| `claude` | `false` | [`claude`](#claude) on issues and pull requests (`@claude`, the `claude` and `claude-plan` labels), and with `fix-ci` [`claude-fix-ci`](#claude-fix-ci) on Claude's own pull requests when the tests fail |
+| `fix-ci` | `true` | With `claude`: Claude fixes the failed tests of its own pull requests; `false` turns off only that, keeping the rest of `claude` |
 | `review` | `false` | [`claude-review`](#claude-review) once per pull request |
 | `security-review` | `false` | [`claude-security-review`](#claude-security-review) on every push, with the required check `claude / security / security`; run `protect` again after changing it |
 | `risk-gate` | `false` | [`risk-gate`](#risk-gate) with the patterns of a package of the stack, and the required check `claude / gate / gate`; run `protect` again after changing it |
