@@ -8,3 +8,7 @@ paths:
     ignore:
       - 'missing input "app-id"'
       - 'input "client-id" is not defined'
+  .github/workflows/update-stacked.yml:
+    ignore:
+      - 'missing input "app-id"'
+      - 'input "client-id" is not defined'

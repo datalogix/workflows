@@ -1192,6 +1192,8 @@ async function readProject(stack, github, read, { current, release }) {
     };
   };
   const releases = release || Boolean(current?.productionBranch);
+  // The release GitHub App also merges stacked pull requests (update-stacked)
+  const usesApp = releases || Boolean(current?.updateStacked);
 
   const [labels, production, staging, claude, releaseApp, workflowPermissions, productionBranchStatus] =
     await Promise.all([
@@ -1199,7 +1201,7 @@ async function readProject(stack, github, read, { current, release }) {
       read('production environment', environment('production')),
       read('staging environment', environment('staging')),
       readClaude(github, read),
-      releases ? read('secrets', hasReleaseApp(github)) : false,
+      usesApp ? read('secrets', hasReleaseApp(github)) : false,
       // Optional: reading it needs admin access
       releases ? github.workflowPermissions().catch(() => null) : null,
       current?.productionBranch
@@ -1376,6 +1378,16 @@ async function evaluate(
     productionBranchItems(report, state);
 
     stack.evaluateDeploy(report, state);
+  }
+
+  // Stacked pull requests are merged with the release GitHub App's token, so the pull requests above run their checks
+  if (state.current?.updateStacked) {
+    if (state.releaseApp) ok('Stacked pull requests updated by the release GitHub App');
+    else
+      error(
+        'update-stacked is on, but RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY are missing, so stacked pull requests are not updated',
+        'see docs/organization-setup.md in datalogix/workflows',
+      );
   }
 
   // Problems as issues (on by default) or deploy markers: the monitoring service's agent must be in the app

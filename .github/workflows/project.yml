@@ -167,6 +167,10 @@ on:
         description: Run the Node audit (with audit on); false turns off only this audit
 
       # Claude
+      update-stacked:
+        type: boolean
+        default: false
+        description: On a push to a pull request, merge its branch into the open pull requests based on it (a regular merge, never a force push) and comment on one that conflicts; needs the release GitHub App (RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY)
       model:
         type: string
         default: opus
@@ -366,6 +370,16 @@ jobs:
       security-approval-on: ${{ inputs.security-approval-on }}
       extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
       warn-edited-migrations: ${{ inputs.warn-edited-migrations }}
+      language: ${{ inputs.language }}
+
+  # Stacked pull requests: a push to one is merged into those based on it
+  stacked:
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.update-stacked && github.event_name == 'pull_request' && github.event.action == 'synchronize'
+    permissions:
+      contents: read
+    uses: datalogix/workflows/.github/workflows/update-stacked.yml@v2
+    secrets: inherit
+    with:
       language: ${{ inputs.language }}
 
   # In the same run as the tests, so no separate workflow_run trigger is needed

@@ -23,6 +23,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `audit`                                                           | `true`                         | Audit the dependencies (`composer audit`, and the Node audit on high and critical advisories) on scheduled and manual runs, and on pull requests that change their lockfile; `false` turns off every audit (see [Dependency audits](laravel/app-tests.md#dependency-audits)) |
 | `composer-audit` / `node-audit`                                   | `true`                         | `false` turns off only `composer audit` or only the Node audit; to ignore one advisory instead, see [Ignoring one advisory](laravel/app-tests.md#ignoring-one-advisory) |
 | `database`                                                        | `none`                         | `stack: php`, a Symfony app with Doctrine: `postgres`, `mysql` or `mariadb` starts that server for the tests and points `DATABASE_URL` at it; `none` uses the database of `.env.test` (see [Test database](php/app-tests.md#test-database)) |
+| `update-stacked`                                                  | `false`                        | On a push to a pull request, merge its branch into the open pull requests based on it, and comment on one that conflicts; needs the release GitHub App (see [`update-stacked`](#update-stacked)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
@@ -94,6 +95,7 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | `approvals-medium` / `approvals-high` / `count-author` / `extra-high-risk-paths` / `warn-edited-migrations` | `1` / `1` / `false` / empty / `true` | As for apps, with `risk-gate` (`warn-edited-migrations`: Laravel packages only) |
 | `model` / `plan-model` / `fix-ci-model` | `opus` / `best` / `sonnet` | Models of the Claude layers, as for apps |
 | `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes) |
+| `update-stacked` | `false` | As for apps (see [`update-stacked`](#update-stacked)) |
 | `language` | `pt-BR` | Language of what Claude writes for the team |
 | `security-fail-on` | `high` | Lowest security finding severity that fails the check (`high`, `medium`, `low` or `none`) |
 | `security-keep-findings` | `true` | As for apps, with `security-review`; the comment mentions `@claude` only with `claude` on |
@@ -270,6 +272,20 @@ Called by `project` on pushes when `production-branch` and `deploy` are set. On 
 | `language`          | `pt-BR`  | Language of the pull request texts: `en` for a value starting with `en`, otherwise `pt-BR` |
 
 Secrets: `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY` (optional), of the GitHub App in [Organization setup, step 6](organization-setup.md#6-create-the-release-github-app). Without them the pull requests are opened with the workflow token and run no checks; the repository must have **Allow GitHub Actions to create and approve pull requests** on (setup turns it on; see [Production branch](deploy.md#production-branch)).
+
+## `update-stacked`
+
+Called by `project` and `package-claude` with `update-stacked: true`, on every push to a pull request of the repository (`synchronize`). It merges the pull request's branch into each open pull request based on it, with GitHub's merges API: a regular merge commit on their branch, never a force push. That merge is a push to the pull request above, so its checks run and, in turn, the pull requests based on it are updated. A pull request from a fork is skipped.
+
+When a merge conflicts, the pull request above gets a comment saying to merge by hand (`git merge origin/<branch>`); the comment is updated, not repeated, and says so once a later merge works. Any other failure fails the job.
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `language` | `pt-BR` | Language of the comments (`pt-BR` or `en`) |
+
+Secrets: `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY`, the [release GitHub App](organization-setup.md#6-create-the-release-github-app), required: a merge pushed with the workflow token would run no checks on the pull request above, so the job fails without them, and `check` reports it. The App has no `workflows` permission, so a change to `.github/workflows/` in the pull request below cannot be merged this way (the job fails; merge it by hand).
+
+Only pushes are followed: when the pull request below is merged, GitHub retargets the one above to its base branch, and after a squash merge the commits it already had come again as a single commit, which may conflict; merge the base branch into it by hand then.
 
 ## `incident`
 
