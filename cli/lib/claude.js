@@ -222,7 +222,19 @@ export function claudeAppNextSteps(answers, state) {
  * findings the security review comment keeps, so they need the security review with keep-findings (and fix-security,
  * in a package, the claude layer; security-approval-on, the risk gate). `on` gives whether each layer runs.
  */
-export function securityInputItems({ warn }, a, on) {
+export function securityInputItems({ warn, error }, a, on) {
+  // The risk gate and the fix-security job fail on any other value: the gate is a required check
+  const values = [
+    ['security-approval-on', a?.securityApprovalOn, ['none', 'high', 'medium', 'low']],
+    ['fix-security-on', a?.fixSecurityOn, ['high', 'medium', 'low']],
+  ];
+  for (const [input, value, accepted] of values) {
+    if (value !== undefined && !accepted.includes(value))
+      error(
+        `${input} is ${value}, which the workflows reject, so ${input === 'fix-security-on' ? 'the fix-security job fails' : 'the risk gate fails every pull request'}`,
+        `use ${accepted.join(', ')} (lowercase)`,
+      );
+  }
   const keeps = a?.keepFindings !== false;
   if (a?.fixSecurity) {
     const missing = [
@@ -236,7 +248,7 @@ export function securityInputItems({ warn }, a, on) {
         `${SETUP}, or turn fix-security off`,
       );
   }
-  if (a?.securityApprovalOn && a.securityApprovalOn !== 'none') {
+  if (a?.securityApprovalOn && a.securityApprovalOn !== 'none' && values[0][2].includes(a.securityApprovalOn)) {
     const missing = [
       ...(on.securityReview ? [] : ['the security review']),
       ...(on.riskGate ? [] : ['the risk gate']),

@@ -617,3 +617,13 @@ test('offers fix-security among the package layers, written only with claude, an
   const warnings = await setup.warnings(answers, { state: { ...PACKAGE_STATE, defaultBranch: 'main' } });
   expect(warnings).toContain('fix-security is on, but without the security review Claude never fixes a finding');
 });
+
+test('check rejects a security-approval-on a package workflow does not accept', async () => {
+  const items = await laravelPackage.evaluate({
+    ...PACKAGE_STATE,
+    current: packageAnswers({}, { 'security-review': 'true', 'risk-gate': 'true', 'security-approval-on': 'hihg' }),
+  });
+  expect(items.filter((item) => item.level === 'error').map((item) => item.title)).toContain(
+    'security-approval-on is hihg, which the workflows reject, so the risk gate fails every pull request',
+  );
+});

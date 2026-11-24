@@ -72,7 +72,9 @@ export function packageAnswers(inputs, claudeInputs = {}) {
     fixCi: flagOf(claudeInputs[FIX_CI]),
     keepFindings: flagOf(claudeInputs['security-keep-findings']),
     fixSecurity: scalar(claudeInputs['fix-security'])?.toLowerCase() === 'true',
-    securityApprovalOn: scalar(claudeInputs['security-approval-on'])?.toLowerCase() || 'none',
+    // As written: the scripts compare them exactly, so check can tell a value they reject
+    securityApprovalOn: scalar(claudeInputs['security-approval-on']) || 'none',
+    fixSecurityOn: scalar(claudeInputs['fix-security-on']) || 'high',
     updateStacked: scalar(claudeInputs['update-stacked'])?.toLowerCase() === 'true',
     language: scalar(claudeInputs.language) || DEFAULT_LANGUAGE,
     apiCheck: scalar(inputs['api-check'])?.toLowerCase() === 'true',

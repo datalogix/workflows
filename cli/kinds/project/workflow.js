@@ -82,7 +82,9 @@ export function projectAnswers(inputs) {
     updateStacked: scalar(inputs['update-stacked'])?.toLowerCase() === 'true',
     keepFindings: flagOf(inputs['security-keep-findings']),
     fixSecurity: scalar(inputs['fix-security'])?.toLowerCase() === 'true',
-    securityApprovalOn: scalar(inputs['security-approval-on'])?.toLowerCase() || 'none',
+    // As written: the scripts compare them exactly, so check can tell a value they reject
+    securityApprovalOn: scalar(inputs['security-approval-on']) || 'none',
+    fixSecurityOn: scalar(inputs['fix-security-on']) || 'high',
     ...toolAnswers(inputs),
   };
 }
