@@ -29,6 +29,15 @@ inputs:
   findings:
     description: (publish) Findings file written by Claude
     default: ""
+  keep-findings:
+    description: Keep the findings in the comment until they are resolved, and give the open ones to the review
+    default: "true"
+  previous:
+    description: (check) File where the open findings of earlier reviews are written for Claude
+    default: ""
+  mentions:
+    description: (publish) The comment says how to ask @claude for a fix (false where the claude layer is off)
+    default: "true"
   language:
     description: Language of the fixed texts (pt-BR or en; other languages get pt-BR)
     default: pt-BR
@@ -71,6 +80,8 @@ runs:
         FAIL_ON: ${{ inputs.fail-on }}
         WORKFLOW_CHANGED: ${{ inputs.workflow-changed }}
         RUN_ATTEMPT: ${{ github.run_attempt }}
+        KEEP_FINDINGS: ${{ inputs.keep-findings }}
+        PREVIOUS: ${{ inputs.previous }}
       run: bash "$GITHUB_ACTION_PATH/check.sh"
 
     - name: Publish findings
@@ -88,6 +99,9 @@ runs:
         REUSED: ${{ inputs.reused }}
         DIGEST: ${{ inputs.digest }}
         FINDINGS: ${{ inputs.findings }}
+        KEEP_FINDINGS: ${{ inputs.keep-findings }}
+        MENTIONS: ${{ inputs.mentions }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         LANGUAGE: ${{ inputs.language }}
       run: bash "$GITHUB_ACTION_PATH/publish.sh"
 

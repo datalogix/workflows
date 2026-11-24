@@ -49,10 +49,11 @@ jobs:
     uses: datalogix/workflows/.github/workflows/package-claude.yml@v2
     # CLAUDE_CODE_OAUTH_TOKEN, for the Claude layers
     secrets: inherit
-    # Each layer is off unless set to true: claude (@claude, issues labeled claude or claude-plan, and fixes of Claude's
-    # failed tests), review, security-review (required check claude / security / security) and risk-gate (required
-    # check claude / gate / gate). Other inputs: stack, model, plan-model, fix-ci-model, extra-instructions, language,
-    # security-fail-on, approvals-medium, approvals-high, count-author, extra-high-risk-paths
+    # Each layer is off unless set to true: claude (@claude, issues labeled claude or claude-plan, and with fix-ci,
+    # on by default, fixes of Claude's failed tests), review, security-review (required check claude / security /
+    # security) and risk-gate (required check claude / gate / gate). Other inputs: stack, fix-ci, model, plan-model,
+    # fix-ci-model, extra-instructions, language, security-fail-on, approvals-medium, approvals-high, count-author,
+    # extra-high-risk-paths
     with:
       tests-result: ${{ needs.pipeline.result }}
       claude: true

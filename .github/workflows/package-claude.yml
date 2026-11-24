@@ -23,7 +23,11 @@ on:
       claude:
         type: boolean
         default: false
-        description: Let Claude answer @claude on issues and pull requests, implement issues labeled claude, plan issues labeled claude-plan, and fix failed tests on its own pull requests
+        description: Let Claude answer @claude on issues and pull requests, implement issues labeled claude, plan issues labeled claude-plan, and (with fix-ci) fix failed tests on its own pull requests
+      fix-ci:
+        type: boolean
+        default: true
+        description: With claude, let Claude fix failed tests on its own pull requests; false keeps the rest of claude
       review:
         type: boolean
         default: false
@@ -60,6 +64,10 @@ on:
         type: string
         default: high
         description: Lowest security finding severity that fails the check (high, medium, low or none)
+      security-keep-findings:
+        type: boolean
+        default: true
+        description: Keep the security findings in the review comment, numbered, until a later review finds them resolved; false rewrites the comment with each review
       approvals-medium:
         type: number
         default: 1
@@ -72,6 +80,10 @@ on:
         type: boolean
         default: false
         description: Count a human pull request author with write access as one approval (for solo maintainers)
+      warn-edited-migrations:
+        type: boolean
+        default: true
+        description: The risk gate marks a pull request that changes or removes a migration already on the base branch as high risk, with a warning on the file
       extra-high-risk-paths:
         type: string
         default: ""
@@ -132,6 +144,8 @@ jobs:
       stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
       model: ${{ inputs.model }}
       fail-on: ${{ inputs.security-fail-on }}
+      keep-findings: ${{ inputs.security-keep-findings }}
+      claude-mentions: ${{ inputs.claude }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
@@ -150,12 +164,13 @@ jobs:
       approvals-high: ${{ inputs.approvals-high }}
       count-author: ${{ inputs.count-author }}
       extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
+      warn-edited-migrations: ${{ inputs.warn-edited-migrations }}
       language: ${{ inputs.language }}
 
   # With claude: Claude's own pull requests (claude/ branches) only exist when it implements issues. The calling job
   # runs after the tests (needs: pipeline) and passes their result; Claude gets one PHP or Node version, not the matrix
   fix-ci:
-    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.claude && github.event_name == 'pull_request' && inputs.tests-result == 'failure'
+    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.claude && inputs.fix-ci && github.event_name == 'pull_request' && inputs.tests-result == 'failure'
     permissions:
       contents: write
       pull-requests: write

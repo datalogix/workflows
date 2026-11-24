@@ -42,7 +42,15 @@ on:
       audit:
         type: boolean
         default: true
-        description: Run composer audit and the Node audit (high and critical) on schedule and manual runs, and on PRs that change their lockfile
+        description: Run composer audit and the Node audit (high and critical) on schedule and manual runs, and on PRs that change their lockfile; false turns off both
+      composer-audit:
+        type: boolean
+        default: true
+        description: Run composer audit (with audit on); false turns off only this audit
+      node-audit:
+        type: boolean
+        default: true
+        description: Run the Node audit (with audit on); false turns off only this audit
       test-command:
         type: string
         default: ""
@@ -342,7 +350,7 @@ jobs:
       # On PRs only when composer.lock changes, so a new advisory does not block unrelated PRs;
       # scheduled runs catch advisories published after the dependencies were installed
       - name: Composer audit
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && hashFiles('composer.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && inputs.composer-audit && hashFiles('composer.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
@@ -365,7 +373,7 @@ jobs:
       # Same events as composer audit; fails on high and critical advisories only, as npm reports many low ones.
       # Dev dependencies are included: Vite and the frontend libraries end up in the bundle
       - name: Node audit
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && inputs.node-audit && hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
