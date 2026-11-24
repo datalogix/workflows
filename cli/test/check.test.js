@@ -1050,3 +1050,28 @@ test('fix-security and security-approval-on warn when the layers they read are o
     expect.stringContaining('security-approval-on'),
   );
 });
+
+test('rejects a security-approval-on or fix-security-on the workflows do not accept', async () => {
+  const errors = async (inputs) =>
+    titles(
+      await run(
+        await stateFor({ solo: true, incidents: false }, {}, (content) =>
+          content.replace('    with:\n', `    with:\n${inputs.map((input) => `      ${input}\n`).join('')}`),
+        ),
+      ),
+      'error',
+    );
+
+  expect(await errors(['security-approval-on: medum'])).toContain(
+    'security-approval-on is medum, which the workflows reject, so the risk gate fails every pull request',
+  );
+  expect(await errors(['security-approval-on: Medium'])).toContainEqual(
+    expect.stringContaining('security-approval-on is Medium'),
+  );
+  expect(await errors(['fix-security-on: critical'])).toContain(
+    'fix-security-on is critical, which the workflows reject, so the fix-security job fails',
+  );
+  expect(await errors(['security-approval-on: medium', 'fix-security-on: low'])).not.toContainEqual(
+    expect.stringContaining('which the workflows reject'),
+  );
+});

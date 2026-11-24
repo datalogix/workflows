@@ -1170,7 +1170,7 @@ async function setupWarnings(stack, answers, ctx) {
   }
   // The security inputs the answers leave without effect, as check reports them
   const a = { ...ctx.state.current, ...answers };
-  securityInputItems({ warn: (title) => warnings.push(title) }, a, {
+  securityInputItems({ warn: (title) => warnings.push(title), error: (title) => warnings.push(title) }, a, {
     claude: true,
     securityReview: a.securityReview !== false,
     riskGate: a.riskGate !== false,
