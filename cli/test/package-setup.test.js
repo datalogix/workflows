@@ -453,6 +453,18 @@ test('writes api-check only when on, and keeps it when the question is not asked
   const step = (kind) => kind.setup.steps().find((candidate) => candidate.id === 'apiCheck');
   expect(step(laravelPackage).flag).toBe('api-check');
   expect(step(jsPackage).flag).toBe('api-check');
+
+  // Suggested on for a new Laravel or PHP package; the file's answer otherwise
+  const suggested = async (kind, current) => {
+    clack.confirm.mockClear();
+    await step(kind).ask({ header: '', ctx: { state: { ...PACKAGE_STATE, current } } });
+    return clack.confirm.mock.calls[0][0].initialValue;
+  };
+  expect(await suggested(laravelPackage, null)).toBe(true);
+  expect(await suggested(phpPackage, null)).toBe(true);
+  expect(await suggested(jsPackage, null)).toBe(false);
+  expect(await suggested(laravelPackage, packageAnswers({}))).toBe(false);
+  expect(await suggested(jsPackage, packageAnswers({ 'api-check': 'true' }))).toBe(true);
 });
 
 test('writes js: false only when the package.json scripts are declined, and keeps it when not asked', async () => {

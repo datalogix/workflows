@@ -65,7 +65,7 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
 | `stack` | `laravel` | Stack of the package, which picks its tests: `laravel`, `php` (a [PHP package without Laravel](php/package.md)) or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite (`laravel` and `php`: across the matrix, Pint, PHPStan, Rector, the lint command and, once, the `package.json` scripts of `js`); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
-| `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
+| `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`), unless the pull request declares a breaking change (`feat!:` or a `BREAKING CHANGE:` footer); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
 
 Secrets: `CODECOV_TOKEN` (optional), passed with `secrets: inherit`.
 
