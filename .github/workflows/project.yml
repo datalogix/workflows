@@ -193,6 +193,10 @@ on:
         type: number
         default: 1
         description: Human approvals a high-risk pull request needs of its current changes
+      security-approval-on:
+        type: string
+        default: none
+        description: Lowest severity of an open security finding (none, high, medium or low) that makes the risk gate require an approval by someone other than the author, even with count-author; the security check itself does not fail
       count-author:
         type: boolean
         default: false
@@ -323,8 +327,11 @@ jobs:
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
+  # After the security review, whose comment it reads for security-approval-on; also when the review is off, skipped or
+  # failed (!cancelled())
   gate:
-    if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.risk-gate && contains(fromJSON('["pull_request", "pull_request_review", "merge_group"]'), github.event_name)
+    needs: [security]
+    if: ${{ !cancelled() && contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.risk-gate && contains(fromJSON('["pull_request", "pull_request_review", "merge_group"]'), github.event_name) }}
     permissions:
       contents: read
       pull-requests: write
@@ -335,6 +342,7 @@ jobs:
       approvals-medium: ${{ inputs.approvals-medium }}
       approvals-high: ${{ inputs.approvals-high }}
       count-author: ${{ inputs.count-author }}
+      security-approval-on: ${{ inputs.security-approval-on }}
       extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
       language: ${{ inputs.language }}
 
