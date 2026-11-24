@@ -80,6 +80,10 @@ on:
         type: boolean
         default: false
         description: Count a human pull request author with write access as one approval (for solo maintainers)
+      warn-edited-migrations:
+        type: boolean
+        default: true
+        description: The risk gate marks a pull request that changes or removes a migration already on the base branch as high risk, with a warning on the file
       extra-high-risk-paths:
         type: string
         default: ""
@@ -160,6 +164,7 @@ jobs:
       approvals-high: ${{ inputs.approvals-high }}
       count-author: ${{ inputs.count-author }}
       extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
+      warn-edited-migrations: ${{ inputs.warn-edited-migrations }}
       language: ${{ inputs.language }}
 
   # With claude: Claude's own pull requests (claude/ branches) only exist when it implements issues. The calling job
