@@ -38,6 +38,15 @@ inputs:
   mentions:
     description: (publish) The comment says how to ask @claude for a fix (false where the claude layer is off)
     default: "true"
+  fix-security:
+    description: (publish) Claude fixes the findings of its own pull requests (fix-security), so the comment says so there
+    default: "false"
+  fix-on:
+    description: (publish) Lowest severity fix-security fixes (high, medium or low)
+    default: high
+  branch-prefix:
+    description: (publish) Prefix of the branches of Claude's own pull requests
+    default: claude/
   language:
     description: Language of the fixed texts (pt-BR or en; other languages get pt-BR)
     default: pt-BR
@@ -101,6 +110,10 @@ runs:
         FINDINGS: ${{ inputs.findings }}
         KEEP_FINDINGS: ${{ inputs.keep-findings }}
         MENTIONS: ${{ inputs.mentions }}
+        FIX_SECURITY: ${{ inputs.fix-security }}
+        FIX_ON: ${{ inputs.fix-on }}
+        BRANCH_PREFIX: ${{ inputs.branch-prefix }}
+        HEAD_REF: ${{ github.event.pull_request.head.ref }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         LANGUAGE: ${{ inputs.language }}
       run: bash "$GITHUB_ACTION_PATH/publish.sh"

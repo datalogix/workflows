@@ -47,6 +47,14 @@ on:
         type: boolean
         default: true
         description: Keep the findings in the comment, numbered, until a later review finds them resolved, and have Claude check the open ones again on every review; false rewrites the comment with each review
+      fix-security:
+        type: boolean
+        default: false
+        description: Claude fixes the findings of its own pull requests (claude-fix-security), so the comment says so there instead of asking @claude
+      fix-security-on:
+        type: string
+        default: high
+        description: Lowest severity claude-fix-security fixes (high, medium or low)
       claude-mentions:
         type: boolean
         default: true
@@ -164,4 +172,6 @@ jobs:
           findings: ${{ runner.temp }}/security-findings.json
           keep-findings: ${{ inputs.keep-findings }}
           mentions: ${{ inputs.claude-mentions }}
+          fix-security: ${{ inputs.fix-security }}
+          fix-on: ${{ inputs.fix-security-on }}
           language: ${{ inputs.language }}
