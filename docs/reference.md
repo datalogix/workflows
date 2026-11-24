@@ -20,6 +20,8 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `typecheck`                                                       | `true`                         | Run the typecheck script of `package.json` (`typecheck`, `types:check` or `type-check`); `false` skips only it |
 | `js-tests`                                                        | `true`                         | `stack: laravel` or `php`: run the `test` script of `package.json`; `false` skips only it (the PHP tests are `test-command`; with `stack: js` the JavaScript tests are `test-command` too) |
 | `e2e`                                                             | `true`                         | `stack: js`: run the `test:e2e` script after the build (see [JavaScript app tests](js/app-tests.md)) |
+| `audit`                                                           | `true`                         | Audit the dependencies (`composer audit`, and the Node audit on high and critical advisories) on scheduled and manual runs, and on pull requests that change their lockfile; `false` turns off every audit (see [Dependency audits](laravel/app-tests.md#dependency-audits)) |
+| `composer-audit` / `node-audit`                                   | `true`                         | `false` turns off only `composer audit` or only the Node audit; to ignore one advisory instead, see [Ignoring one advisory](laravel/app-tests.md#ignoring-one-advisory) |
 | `database`                                                        | `none`                         | `stack: php`, a Symfony app with Doctrine: `postgres`, `mysql` or `mariadb` starts that server for the tests and points `DATABASE_URL` at it; `none` uses the database of `.env.test` (see [Test database](php/app-tests.md#test-database)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
@@ -66,6 +68,7 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | `stack` | `laravel` | Stack of the package, which picks its tests: `laravel`, `php` (a [PHP package without Laravel](php/package.md)) or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite (`laravel` and `php`: across the matrix, Pint, PHPStan, Rector, the lint command and, once, the `package.json` scripts of `js`); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 | `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
+| `audit` / `node-audit` | `true` | `js`: audit the dependencies (high and critical advisories) on pull requests that change the lockfile, and on scheduled and manual runs; `false` turns it off |
 
 Secrets: `CODECOV_TOKEN` (optional), passed with `secrets: inherit`.
 
