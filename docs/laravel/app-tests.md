@@ -2,7 +2,7 @@
 
 The `tests` job of [`project`](../reference.md#project) calls `laravel-app-tests`, and its check `pipeline / tests / tests` is required by the [branch ruleset](../verification-layers.md#branch-ruleset).
 
-`project` passes `pint`, `phpstan`, `lint-command`, `test-command` and `min-coverage` to [`laravel-app-tests`](#inputs), but not `audit` or `timeout-minutes`: `composer audit` and the Node audit run on scheduled and manual runs and on pull requests that change their lockfile, and the tests job stops after 30 minutes.
+`project` passes `pint`, `phpstan`, `lint-command`, `test-command`, `min-coverage` and the [audits](#dependency-audits) to [`laravel-app-tests`](#inputs), but not `timeout-minutes`: the tests job stops after 30 minutes.
 
 ## Dependency audits
 
@@ -14,6 +14,15 @@ The `tests` job of [`project`](../reference.md#project) calls `laravel-app-tests
 | `yarn.lock` | `yarn audit --level high` (Yarn 1) or `yarn npm audit --recursive --severity high` (Yarn 2+) |
 
 The Node audit fails only on high and critical advisories, as npm publishes many low ones, and includes the dev dependencies: in a Laravel app, Vite and the frontend libraries are usually there and end up in the bundle. On pull requests each audit runs only when its lockfile changes, so a new advisory does not block unrelated pull requests; the weekly run catches advisories published later. Without a lockfile, the audit is skipped. An audit that cannot compare the lockfile with the base branch, or a Yarn 1 audit that did not finish (the registry unreachable), fails instead of passing silently.
+
+### Ignoring one advisory
+
+Prefer ignoring a single advisory to turning an audit off, so the rest of it keeps running:
+
+- **Composer**: list it in `config.audit.ignore` of `composer.json`, with the reason (e.g. `"audit": {"ignore": {"CVE-2026-1234": "Only reachable from the admin CLI"}}`); `composer audit` honors it.
+- **Node**: `npm audit` cannot ignore a single advisory. Force a fixed version of the dependency with `overrides` (npm, pnpm) or `resolutions` (Yarn) in `package.json`; only when there is no fixed version, set `node-audit: false` until there is one.
+
+`audit: false` turns off every audit; `composer-audit: false` or `node-audit: false` only that one.
 
 ## Lint and test suite
 
@@ -82,7 +91,8 @@ For example:
 | `rector`          | `true`             | Run Rector in a dry run when installed and `rector.php` exists                            |
 | `eslint` / `prettier` / `stylelint` | `true` | Run ESLint, Prettier (or `format:check`) and Stylelint (or `lint:css`) when the project installed them and no script runs them; see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) |
 | `lint-command`    | empty              | Extra lint command run after Pint, PHPStan and Rector, e.g. `composer lint:check`         |
-| `audit`           | `true`             | Run `composer audit` and the Node audit on scheduled and manual runs, and on PRs that change their lockfile |
+| `audit`           | `true`             | Run `composer audit` and the Node audit on scheduled and manual runs, and on PRs that change their lockfile; `false` turns off both |
+| `composer-audit` / `node-audit` | `true` | `false` turns off only `composer audit` or only the Node audit; see [Ignoring one advisory](#ignoring-one-advisory) |
 | `test-command`    | detected           | Test command: `composer test` when defined, otherwise `php artisan test`; `none` skips it |
 | `min-coverage`    | `0`                | Minimum coverage of the test suite, with `pcov`; the coverage is shown either way, and `0` never fails. See [Minimum coverage](../coverage.md) |
 | `js`              | `true`             | Run the `typecheck` (or `types:check`, `type-check`), `lint` (or `check`) and `test` scripts of `package.json`, and [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) when no script runs them |
@@ -90,4 +100,4 @@ For example:
 | `database`        | `none`             | A Symfony app's database server for the tests: `postgres`, `mysql` or `mariadb`; see [Test database](../php/app-tests.md#test-database) |
 | `timeout-minutes` | `30`               | Job timeout                                                                               |
 
-`project` passes every input but `audit` and `timeout-minutes`; call `laravel-app-tests` on its own for those.
+`project` passes every input but `timeout-minutes`; call `laravel-app-tests` on its own for it.
