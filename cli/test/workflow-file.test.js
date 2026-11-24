@@ -107,6 +107,7 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     securityReview: undefined,
     riskGate: undefined,
     language: 'pt-BR',
+    updateStacked: false,
     pint: undefined,
     phpstan: undefined,
     rector: undefined,

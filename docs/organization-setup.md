@@ -110,4 +110,4 @@ Optional. Without it, release pull requests are opened by GitHub Actions and run
 
    On GitHub Free, private repositories cannot read organization secrets: setup asks for the Client ID and the key file and stores both as repository secrets (or use `--repo datalogix/<repo>` instead of `--org ... --visibility all`).
 
-**Why:** GitHub runs no workflows for pull requests opened with a workflow's own token. A token of the App, created for each run, opens them as the App instead, so they run the checks the branch ruleset can then require.
+**Why:** GitHub runs no workflows for pull requests opened with a workflow's own token (nor for pushes made with it, such as the merges of [`update-stacked`](reference.md#update-stacked)). A token of the App, created for each run, opens them as the App instead, so they run the checks the branch ruleset can then require.
