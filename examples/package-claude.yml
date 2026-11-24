@@ -52,8 +52,9 @@ jobs:
     # Each layer is off unless set to true: claude (@claude, issues labeled claude or claude-plan, and with fix-ci,
     # on by default, fixes of Claude's failed tests), review, security-review (required check claude / security /
     # security) and risk-gate (required check claude / gate / gate). Other inputs: stack, fix-ci, model, plan-model,
-    # fix-ci-model, extra-instructions, language, security-fail-on, approvals-medium, approvals-high, count-author,
-    # extra-high-risk-paths
+    # fix-ci-model, extra-instructions, language, security-fail-on, security-keep-findings, security-approval-on,
+    # fix-security, fix-security-on, approvals-medium, approvals-high, count-author, extra-high-risk-paths,
+    # warn-edited-migrations, update-stacked
     with:
       tests-result: ${{ needs.pipeline.result }}
       claude: true
