@@ -1,0 +1,38 @@
+name: datalogix
+
+# Claude on this repository's own issues and pull requests (@claude, the claude and claude-plan labels), through the
+# released claude.yml, as a project gets it. Only the Claude layer: ci.yml runs this repository's checks
+on:
+  issues:
+    types: [assigned, labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+jobs:
+  claude:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    uses: datalogix/workflows/.github/workflows/claude.yml@v2
+    # CLAUDE_CODE_OAUTH_TOKEN
+    secrets: inherit
+    with:
+      stack: js
+      language: en
+      extra-instructions: >-
+        This repository is datalogix/workflows itself: follow its CLAUDE.md, which keeps the workflows, docs, examples
+        and CLI in sync. Its plugins (core, laravel, php, js) describe the projects that use these workflows, not this
+        repository; where they differ, CLAUDE.md wins. Before opening or updating a pull request, run npm test, npm run
+        lint, shellcheck -x on the changed scripts of .github/actions and actionlint as ci.yml does. ci does not exercise
+        laravel-package-tests, laravel-app-tests, package-claude, package-release, deploy or release-pr: say in the pull
+        request that they need a real project pointed at the branch. Never name the projects or packages that use these
+        workflows: this repository is public.
