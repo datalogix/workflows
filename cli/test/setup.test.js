@@ -688,6 +688,7 @@ describe('setup steps', () => {
       securityReview: false,
       riskGate: false,
       fixCi: false,
+      fixSecurity: false,
     });
 
     expect(await askSteps([stepOf('layers')], { flags: { layers: 'none' } })).toStrictEqual({
@@ -696,7 +697,22 @@ describe('setup steps', () => {
       securityReview: false,
       riskGate: false,
       fixCi: false,
+      fixSecurity: false,
     });
+  });
+
+  test('offers fix-security among the layers, off unless the workflow file turns it on, and writes it only when on', async () => {
+    const answers = { layers: ['security-review', 'fix-security'] };
+    stepOf('layers').then(answers);
+    expect(answers).toMatchObject({ securityReview: true, fixSecurity: true });
+    expect(stepOf('layers').validate('review,fix-security')).toBeUndefined();
+
+    const on = await renderProjectWorkflow({ securityReview: true, fixSecurity: true });
+    expect(parseInputs(on)).toMatchObject({ 'fix-security': 'true' });
+    expect(projectAnswers(parseInputs(on)).fixSecurity).toBe(true);
+    expect(parseInputs(await renderProjectWorkflow({ fixSecurity: false }, on))).not.toHaveProperty('fix-security');
+    // Not asked: kept
+    expect(parseInputs(await renderProjectWorkflow({}, on))).toMatchObject({ 'fix-security': 'true' });
   });
 
   test('asks whether to record deploys in GitHub only when the app deploys', () => {

@@ -43,6 +43,9 @@ const CLAUDE_LAYERS = ['claude', 'review', 'securityReview'];
 // The fix of failed tests on Claude's own pull requests: on by default in package-claude.yml, with claude, so only a
 // fix that is off is written (fix-ci: false)
 export const FIX_CI = 'fix-ci';
+// Claude fixing the security findings of its own pull requests: off in package-claude.yml, so only written when on,
+// with claude
+export const FIX_SECURITY = 'fix-security';
 
 /** Whether the answers turn on any Claude layer. */
 export const claudeOn = (a) => CLAUDE_LAYERS.some((answer) => a?.[answer] === true);
@@ -114,6 +117,7 @@ function claudeJobInputs(answers) {
     if (answers[answer] === true) inputs.push([input, 'true']);
   }
   if (answers.claude === true && answers.fixCi === false) inputs.push([FIX_CI, 'false']);
+  if (answers.claude === true && answers.fixSecurity === true) inputs.push([FIX_SECURITY, 'true']);
   if (answers.language?.trim() && answers.language.trim() !== DEFAULT_LANGUAGE)
     inputs.push(['language', answers.language.trim()]);
   // A solo maintainer cannot approve their own pull requests: the risk gate counts them as one approval
@@ -122,7 +126,15 @@ function claudeJobInputs(answers) {
 }
 
 // The inputs of the claude job setup manages; any other (model, approvals, ...) is kept
-const CLAUDE_MANAGED = ['tests-result', 'stack', ...Object.values(PACKAGE_LAYERS), FIX_CI, 'language', 'count-author'];
+const CLAUDE_MANAGED = [
+  'tests-result',
+  'stack',
+  ...Object.values(PACKAGE_LAYERS),
+  FIX_CI,
+  FIX_SECURITY,
+  'language',
+  'count-author',
+];
 
 /** The claude job of the answers, with the other inputs of the existing claude job. */
 async function claudeJob(answers, existing) {

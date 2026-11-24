@@ -598,3 +598,22 @@ test('check warns about fix-security, security-approval-on and update-stacked wh
     expect.stringContaining('update-stacked'),
   );
 });
+
+test('offers fix-security among the package layers, written only with claude, and warns without the security review', async () => {
+  const layers = setup.steps().find((step) => step.id === 'layers');
+  expect(layers.validate('claude,fix-security')).toBeUndefined();
+  const answers = { layers: layers.parse('claude,fix-security') };
+  await layers.then(answers);
+  expect(answers).toMatchObject({ claude: true, fixSecurity: true, securityReview: false });
+
+  const on = await renderPackageWorkflow('', 'main', { claude: true, securityReview: true, fixSecurity: true });
+  expect(parseInputs(on, 'claude')).toMatchObject({ 'fix-security': 'true' });
+  expect(answersOf(on)).toMatchObject({ fixSecurity: true });
+  // Without claude it has no effect, so it is not written
+  expect(
+    parseInputs(await renderPackageWorkflow('', 'main', { review: true, fixSecurity: true }), 'claude'),
+  ).not.toHaveProperty('fix-security');
+
+  const warnings = await setup.warnings(answers, { state: { ...PACKAGE_STATE, defaultBranch: 'main' } });
+  expect(warnings).toContain('fix-security is on, but without the security review Claude never fixes a finding');
+});

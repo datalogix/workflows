@@ -24,6 +24,7 @@ const MANAGED = [
   'security-review',
   'risk-gate',
   'fix-ci',
+  'fix-security',
   'deploy',
   'staging',
   'production',
@@ -47,6 +48,8 @@ const MANAGED = [
 
 // The Claude workflows and the risk gate a project turns off, by answer and input (the layers question)
 export const LAYERS = { review: 'review', securityReview: 'security-review', riskGate: 'risk-gate', fixCi: 'fix-ci' };
+// Claude fixing the security findings of its own pull requests: off in project.yml, so only written when on
+export const FIX_SECURITY = 'fix-security';
 // Defaults of the approvals inputs of project.yml
 const APPROVALS = { approvalsMedium: ['approvals-medium', '1'], approvalsHigh: ['approvals-high', '1'] };
 
@@ -104,6 +107,8 @@ export async function renderProjectWorkflow(answers, existing = '', branch = 'ma
     if (answers[answer] === undefined) keep(input);
     else if (answers[answer] === false) managed[input] = 'false';
   }
+  if (answers.fixSecurity === undefined) keep(FIX_SECURITY);
+  else if (answers.fixSecurity === true) managed[FIX_SECURITY] = 'true';
   if (answers.deploy && answers.deploy !== 'none') {
     managed.deploy = answers.deploy;
     if (answers.staging === false) managed.staging = 'false';

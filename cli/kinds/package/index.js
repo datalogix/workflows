@@ -37,6 +37,7 @@ import {
   CLAUDE_JOB,
   claudeOn,
   FIX_CI,
+  FIX_SECURITY,
   layersOn,
   PACKAGE_LAYERS,
   PACKAGE_REF,
@@ -115,10 +116,11 @@ function layerNeedItems(report, state) {
 // What the kind reads (read), before it is read
 const PACKAGE_STATE = { codecovToken: false, ...CLAUDE_STATE, ...RELEASE_STATE };
 
-// --layers claude,fix-ci,review,security-review,risk-gate, or none
+// --layers claude,fix-ci,fix-security,review,security-review,risk-gate, or none
 const LAYER_CHOICES = [
   PACKAGE_LAYERS.claude,
   FIX_CI,
+  FIX_SECURITY,
   PACKAGE_LAYERS.review,
   PACKAGE_LAYERS.securityReview,
   PACKAGE_LAYERS.riskGate,
@@ -144,6 +146,7 @@ const layersStep = {
         message: question(header, 'Claude on issues and pull requests', [
           '@claude: Claude answers @claude, implements issues labeled claude and plans those labeled claude-plan',
           'Fix CI: with @claude, Claude fixes the failed tests of its own pull requests',
+          'Fix security: with @claude and the security review, Claude fixes the findings from high up of its own pull requests, with a regression test',
           'Code review: Claude reviews the changes once per pull request and comments',
           'Security review: Claude looks for vulnerabilities on every push; a finding from high up fails the required check (pull requests from forks are not reviewed)',
           'Risk gate: labels each pull request by risk (dependencies, what the package installs in the app, its build and CI are high) and requires a human approval from medium up; no Claude',
@@ -152,6 +155,7 @@ const layersStep = {
         options: [
           { value: 'claude', label: '@claude', hint: 'issues and comments' },
           { value: FIX_CI, label: 'Fix CI', hint: "with @claude, on Claude's pull requests" },
+          { value: FIX_SECURITY, label: 'Fix security', hint: 'with @claude and the security review; off by default' },
           { value: 'review', label: 'Code review', hint: 'once per pull request' },
           { value: 'security-review', label: 'Security review', hint: 'on every push; a required check' },
           { value: 'risk-gate', label: 'Risk gate', hint: 'approvals by risk; a required check' },
@@ -162,6 +166,7 @@ const layersStep = {
             .filter(([answer]) => ctx.state.current?.[answer] === true)
             .map(([, input]) => input),
           ...(ctx.state.current?.fixCi === false ? [] : [FIX_CI]),
+          ...(ctx.state.current?.fixSecurity === true ? [FIX_SECURITY] : []),
         ],
         required: false,
       }),
@@ -169,6 +174,7 @@ const layersStep = {
   then: (answers) => {
     for (const [answer, input] of Object.entries(PACKAGE_LAYERS)) answers[answer] = answers.layers.includes(input);
     answers.fixCi = answers.layers.includes(FIX_CI);
+    answers.fixSecurity = answers.layers.includes(FIX_SECURITY);
   },
 };
 
@@ -267,11 +273,19 @@ function setupTasks(answers, { github, root, state }) {
 /** Warnings shown before applying: what the template replaces in the existing workflow file. */
 async function setupWarnings(answers, ctx) {
   const { workflow, defaultBranch } = ctx.state;
-  return workflowWarnings(
+  const warnings = await workflowWarnings(
     ctx.state,
     await packageTemplate(defaultBranch, layersOn({ ...ctx.state.current, ...answers })),
     await renderPackageWorkflow(workflow ?? '', defaultBranch, answers),
   );
+  // The security inputs the answers leave without effect, as check reports them
+  const a = { ...ctx.state.current, ...answers };
+  securityInputItems({ warn: (title) => warnings.push(title) }, a, {
+    claude: a.claude === true,
+    securityReview: a.securityReview === true,
+    riskGate: a.riskGate === true,
+  });
+  return warnings;
 }
 
 /** What is left to do by hand after the tasks ran: commit, then protect. */
