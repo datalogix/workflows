@@ -541,3 +541,71 @@ test('the warning about an edited migration follows the language of the project'
   });
   expect(result.stdout).toContain('Esta migration já está no branch base');
 });
+
+// The security review comment, with the findings it keeps (keep-findings)
+const securityComment = (findings) => ({
+  match: 'issues/7/comments',
+  stdout: [
+    {
+      user: { login: 'github-actions[bot]' },
+      body: `review\n<!-- claude-security-review-findings: ${Buffer.from(JSON.stringify(findings)).toString('base64')} -->\n<!-- claude-security-review -->`,
+    },
+  ],
+});
+
+test('open security findings at security-approval-on need an approval by someone other than the author', async () => {
+  const files = [change('app/Models/User.php')];
+  const findings = [
+    { id: 1, severity: 'medium', status: 'open' },
+    { id: 2, severity: 'high', status: 'resolved' },
+  ];
+  const env = { COUNT_AUTHOR: 'true', SECURITY_APPROVAL_ON: 'medium' };
+  const run = (options) =>
+    runScript('risk-gate/risk-gate.sh', {
+      env: { ...SETTINGS, ...env, ...options.env },
+      gh: [
+        options.comment,
+        { match: 'collaborators/.*/permission', stdout: { permission: 'write' } },
+        { match: 'pulls/7/files', stdout: files },
+        { match: 'pulls/7/reviews', stdout: options.reviews ?? [] },
+        { match: 'git/trees/', stdout: { truncated: false, tree: [] } },
+        { match: 'pulls/7$', stdout: pull() },
+      ].filter(Boolean),
+    });
+
+  // The author alone no longer passes
+  const alone = await run({ comment: securityComment(findings) });
+  expect(alone.code).toBe(1);
+  expect(alone.summary).toContain('1 open security finding(s) at `medium` or above');
+  expect(alone.summary).toContain('Human approvals of the current changes: 0 of 1');
+  // Someone else's approval does
+  expect((await run({ comment: securityComment(findings), reviews: [review('ana', 'APPROVED')] })).code).toBe(0);
+  // Below the level, or resolved, or with the input off, the author counts as before
+  expect((await run({ comment: securityComment(findings), env: { SECURITY_APPROVAL_ON: 'high' } })).code).toBe(0);
+  expect((await run({ comment: securityComment([{ ...findings[0], status: 'resolved' }]) })).code).toBe(0);
+  expect((await run({ env: { SECURITY_APPROVAL_ON: 'none' } })).code).toBe(0);
+  // Without a review comment, there is nothing to count
+  expect((await run({ comment: { match: 'issues/7/comments', stdout: [] } })).code).toBe(0);
+});
+
+test('a low-risk pull request with open security findings still needs an approval', async () => {
+  const result = await runScript('risk-gate/risk-gate.sh', {
+    env: { ...SETTINGS, SECURITY_APPROVAL_ON: 'low' },
+    gh: [
+      securityComment([{ id: 1, severity: 'low', status: 'open' }]),
+      { match: 'pulls/7/files', stdout: [{ filename: 'tests/Feature/UserTest.php', additions: 4, deletions: 0 }] },
+      { match: 'pulls/7/reviews', stdout: [] },
+      { match: 'pulls/7$', stdout: pull() },
+    ],
+  });
+  expect(unmatchedReads(result)).toStrictEqual([]);
+  expect(result.code).toBe(1);
+  expect(result.summary).toMatch(/### Risk: low/);
+  expect(result.summary).toContain('0 of 1');
+});
+
+test('rejects an invalid security-approval-on', async () => {
+  const result = await runScript('risk-gate/risk-gate.sh', { env: { ...SETTINGS, SECURITY_APPROVAL_ON: 'critical' } });
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain('Invalid security-approval-on value: critical');
+});

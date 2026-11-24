@@ -30,6 +30,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `security-keep-findings`                                          | `true`                         | Keep the security findings in the review comment, numbered, until a later review finds them resolved (see [`claude-security-review`](#claude-security-review)) |
 | `approvals-medium` / `approvals-high`                             | `1` / `1`                      | Human approvals for medium and high risk pull requests                   |
 | `count-author`                                                    | `false`                        | Count a human author with write access as one approval (solo maintainers) |
+| `security-approval-on`                                            | `none`                         | Lowest severity of an open security finding (`none`, `high`, `medium` or `low`) that makes the risk gate require an approval by someone other than the author, even with `count-author`; the security check itself does not fail. Needs `security-keep-findings` |
 | `extra-high-risk-paths`                                           | empty                          | More patterns (one per line) that make a pull request high risk, added to the risk gate's defaults (e.g. `app/Services/Payment/*`) |
 | `warn-edited-migrations`                                          | `true`                         | The risk gate marks a pull request that changes, renames or removes a migration already on the base branch as high risk, with a warning on the file: it does not run again on databases that already ran it (see [`risk-gate`](#risk-gate)) |
 | `deploy`                                                          | `none`                         | Deploy the default branch with `forge`, `cloud`, [`vercel`](deploy.md#vercel) or [`netlify`](deploy.md#netlify) (the ones setup offers for `stack: js`; with `production-branch`, the production branch goes to production) |
@@ -96,6 +97,7 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | `language` | `pt-BR` | Language of what Claude writes for the team |
 | `security-fail-on` | `high` | Lowest security finding severity that fails the check (`high`, `medium`, `low` or `none`) |
 | `security-keep-findings` | `true` | As for apps, with `security-review`; the comment mentions `@claude` only with `claude` on |
+| `security-approval-on` | `none` | As for apps, with `risk-gate` and `security-review` |
 
 The Claude jobs that write or review code get a rule in front of `extra-instructions`: keep the package's public API compatible. `check` reports a layer that is on when the workflow file lacks its events, or the `claude` job its permissions.
 
@@ -211,6 +213,7 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 | `high-risk-lines`                                       | `600`                                                                                                                                      | Changed lines (outside ignored and low-risk paths) that make it high risk  |
 | `approvals-low` / `approvals-medium` / `approvals-high` | `0` / `1` / `1`                                                                                                                            | Human approvals required of the current changes                            |
 | `count-author`                                          | `false`                                                                                                                                    | Count a human author with write access as one approval (solo maintainers)  |
+| `security-approval-on`                                  | `none`                                                                                                                                     | Lowest severity of an open finding of the security review comment (`none`, `high`, `medium` or `low`) that requires an approval by someone other than the author, even with `count-author`, at any risk; the findings are those the comment keeps (`keep-findings` of `claude-security-review`) |
 | `label-prefix`                                          | `risk:`                                                                                                                                    | Prefix of the risk labels                                                  |
 | `language`                                              | `pt-BR`                                                                                                                                    | Language of the label descriptions: `en` for a value starting with `en`, otherwise `pt-BR` |
 

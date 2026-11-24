@@ -63,6 +63,10 @@ on:
         type: boolean
         default: false
         description: Count a human PR author with write access as one approval (for solo maintainers, who cannot approve their own PRs)
+      security-approval-on:
+        type: string
+        default: none
+        description: Lowest severity of an open security finding that requires an approval by someone other than the author, even with count-author (none, high, medium or low); read from the security review comment, so it needs keep-findings there
       label-prefix:
         type: string
         default: "risk:"
@@ -231,5 +235,6 @@ jobs:
           approvals-medium: ${{ inputs.approvals-medium }}
           approvals-high: ${{ inputs.approvals-high }}
           count-author: ${{ inputs.count-author }}
+          security-approval-on: ${{ inputs.security-approval-on }}
           label-prefix: ${{ inputs.label-prefix }}
           language: ${{ inputs.language }}

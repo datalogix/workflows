@@ -35,6 +35,9 @@ inputs:
   count-author:
     description: Count a human author with write access as one approval
     default: "false"
+  security-approval-on:
+    description: Lowest severity of an open security finding (kept in the security review comment) that requires an approval by someone other than the author (none, high, medium or low)
+    default: none
   label-prefix:
     description: Prefix of the risk labels
     default: "risk:"
@@ -64,6 +67,7 @@ runs:
         APPROVALS_MEDIUM: ${{ inputs.approvals-medium }}
         APPROVALS_HIGH: ${{ inputs.approvals-high }}
         COUNT_AUTHOR: ${{ inputs.count-author }}
+        SECURITY_APPROVAL_ON: ${{ inputs.security-approval-on }}
         PREFIX: ${{ inputs.label-prefix }}
         LANGUAGE: ${{ inputs.language }}
       run: bash "$GITHUB_ACTION_PATH/risk-gate.sh"
