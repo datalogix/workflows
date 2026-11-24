@@ -1,6 +1,6 @@
 ---
 description: Review the security of a pull request's changes and write the findings to a JSON file, without changing any code
-argument-hint: <PR number> <findings file>
+argument-hint: <PR number> <findings file> [earlier findings file]
 ---
 
 Review the security of the changes in PR #$1 and write the findings to `$2`. **Do not change any project file and do not comment on the PR**: the workflow publishes the result.
@@ -10,6 +10,7 @@ Review the security of the changes in PR #$1 and write the findings to `$2`. **D
 3. Explore the code around each change (callers, pages, server routes, API handlers, middleware, server actions, data access) to understand how the changed code is reached, with what data, and whether it runs on the server or in the browser.
 4. Report only vulnerabilities **introduced or made reachable by this PR**, with a concrete way to exploit them. Ignore pre-existing issues in untouched code, theoretical issues, code style, test files, denial of service and missing rate limiting (unless on authentication endpoints).
 5. Only report findings you are at least 80% confident about. When in doubt, leave it out: false positives erode trust in the review.
+6. If `$3` is given and lists findings (a JSON array of earlier findings of this PR that are still open, each with a numeric `id`), check each one against the current code: report it again, with the same `id` and its current `file` and `line`, when it is still there; list its `id` in `resolved` when the code no longer has it. Never report a resolved one as new, nor an earlier one without its `id`.
 
 ## What to look for in Next, Nuxt, SvelteKit, Astro, React Router and other JavaScript code
 
@@ -30,8 +31,10 @@ Write `$2` with exactly this JSON structure (an empty `findings` array when ther
 ```json
 {
   "summary": "Uma frase sobre o que foi analisado e o resultado.",
+  "resolved": [1],
   "findings": [
     {
+      "id": 2,
       "severity": "high",
       "category": "authorization",
       "file": "app/api/invoices/[id]/route.ts",
@@ -47,5 +50,7 @@ Write `$2` with exactly this JSON structure (an empty `findings` array when ther
 - `severity`: `high` (exploitable now, data exposure or privilege escalation), `medium` (exploitable under specific conditions) or `low` (hardening).
 - `category`: `authorization`, `mass-assignment`, `injection`, `xss`, `validation`, `authentication`, `secrets`, `data-exposure` or `dependencies`.
 - `line`: the line in the new version of the file, or `null` when it does not apply.
+- `id`: only for an earlier finding of `$3` that is still there; leave it out for a new one (the workflow numbers it).
+- `resolved`: the `id`s of the earlier findings of `$3` that the code no longer has; an empty array (or no `resolved`) without `$3`.
 
 Before ending, read `$2` back and make sure it is valid JSON with this structure.

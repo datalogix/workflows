@@ -60,6 +60,10 @@ on:
         type: string
         default: high
         description: Lowest security finding severity that fails the check (high, medium, low or none)
+      security-keep-findings:
+        type: boolean
+        default: true
+        description: Keep the security findings in the review comment, numbered, until a later review finds them resolved; false rewrites the comment with each review
       approvals-medium:
         type: number
         default: 1
@@ -132,6 +136,8 @@ jobs:
       stack: ${{ inputs.stack == 'js' && 'js' || inputs.stack == 'php' && 'php' || 'laravel' }}
       model: ${{ inputs.model }}
       fail-on: ${{ inputs.security-fail-on }}
+      keep-findings: ${{ inputs.security-keep-findings }}
+      claude-mentions: ${{ inputs.claude }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 
