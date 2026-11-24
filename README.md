@@ -4,8 +4,8 @@ Claude-powered CI/CD for Datalogix Laravel and JavaScript (Next, Nuxt, SvelteKit
 
 What each project gets:
 
-- **Claude on issues and pull requests**: it plans and implements issues, answers `@claude` and fixes failed checks (tests, Pint, PHPStan, `composer audit`, the Node audit) on its own pull requests.
-- **Checks on every pull request**: tests, a Claude code review (once per pull request), a security review and a risk gate that asks for your approval when the change is risky.
+- **Claude on issues and pull requests**: it plans and implements issues, answers `@claude` and fixes failed checks (tests, Pint, PHPStan, `composer audit`, the Node audit) on its own pull requests, and, when you turn it on, the security findings of its own pull requests, with a regression test.
+- **Checks on every pull request**: tests, a Claude code review (once per pull request; ask `@claude` for another), a security review that keeps its findings, numbered, until they are resolved, and a risk gate that asks for your approval when the change is risky (such as editing a migration already on the base branch), and, when you turn it on, also while a security finding is open. Optionally, a push to a pull request is merged into the pull requests stacked on it.
 - **Safe deploys**: every merge goes to staging, then production, each watched after the deploy and rolled back automatically if it goes down.
 - **Production errors as issues**: problems detected by Nightwatch, Sentry or Inspector become GitHub issues with Claude's diagnosis, and you decide to fix or roll back with a label.
 
