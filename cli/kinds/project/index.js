@@ -33,7 +33,14 @@ import {
   webhookUrl,
 } from './relay.js';
 import { deployedProductionBranch, hasReleaseApp, labelsFor, NO_ENVIRONMENT, textIn } from './state.js';
-import { LAYERS, PROJECT_REF, projectAnswers, projectTemplate, renderProjectWorkflow } from './workflow.js';
+import {
+  FIX_SECURITY,
+  LAYERS,
+  PROJECT_REF,
+  projectAnswers,
+  projectTemplate,
+  renderProjectWorkflow,
+} from './workflow.js';
 
 // What project.yml needs from a project, whatever its stack: the workflow file, labels, the Claude token, environments
 // with their deploy hook and health URL, the production branch and its release pull requests, the monitoring relay,
@@ -93,12 +100,13 @@ const relayHint = (registered) =>
     : registered
       ? '  empty to keep the current one'
       : '  empty to set it later; until then, problems do not become issues';
-// --layers review,security-review,risk-gate,fix-ci, or none: the inputs of LAYERS
+// --layers review,security-review,risk-gate,fix-ci,fix-security, or none: the inputs of LAYERS and fix-security
+const LAYER_CHOICES = [...Object.values(LAYERS), FIX_SECURITY];
 const layerChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
 const validLayers = (value) =>
-  layerChoices(value ?? '').every((choice) => Object.values(LAYERS).includes(choice))
+  layerChoices(value ?? '').every((choice) => LAYER_CHOICES.includes(choice))
     ? undefined
-    : `use ${Object.values(LAYERS).join(', ')} separated by commas, or none`;
+    : `use ${LAYER_CHOICES.join(', ')} separated by commas, or none`;
 const validApprovals = (value) => (/^\d+$/.test(value?.trim() ?? '') ? undefined : 'Use a whole number, e.g. 1');
 const validUrl = (value) => (/^https:\/\/\S+$/.test(value?.trim() ?? '') ? undefined : 'Paste the full https:// URL');
 
@@ -625,6 +633,7 @@ function setupSteps(stack) {
               'Security review: Claude looks for vulnerabilities on every push; a finding from high up fails the required check',
               'Risk gate: labels each pull request low, medium or high risk by its files and size, and requires human approvals by level',
               "Fix CI: when the tests fail on one of Claude's pull requests, Claude tries to fix them (2 attempts)",
+              "Fix security: when the security review finds a problem from high up on one of Claude's pull requests, Claude fixes it with a regression test (2 attempts); needs the security review",
               "Each Claude workflow uses the Claude token's usage limits, shared by every project",
             ]),
             options: [
@@ -632,15 +641,21 @@ function setupSteps(stack) {
               { value: 'security-review', label: 'Security review', hint: 'on every push; a required check' },
               { value: 'risk-gate', label: 'Risk gate', hint: 'human approvals by risk; a required check' },
               { value: 'fix-ci', label: 'Fix CI', hint: "on Claude's pull requests" },
+              { value: FIX_SECURITY, label: 'Fix security', hint: "on Claude's pull requests; off by default" },
             ],
-            initialValues: Object.entries(LAYERS)
-              .filter(([answer]) => ctx.state.current?.[answer] !== false)
-              .map(([, input]) => input),
+            // Fix security is off unless the workflow file turns it on
+            initialValues: [
+              ...Object.entries(LAYERS)
+                .filter(([answer]) => ctx.state.current?.[answer] !== false)
+                .map(([, input]) => input),
+              ...(ctx.state.current?.fixSecurity === true ? [FIX_SECURITY] : []),
+            ],
             required: false,
           }),
         ),
       then: (answers) => {
         for (const [answer, input] of Object.entries(LAYERS)) answers[answer] = answers.layers.includes(input);
+        answers.fixSecurity = answers.layers.includes(FIX_SECURITY);
       },
     },
     languageStep(),
@@ -1153,6 +1168,13 @@ async function setupWarnings(stack, answers, ctx) {
   if (dropsProductionBranch(answers, ctx.state)) {
     warnings.push('production-branch is removed: setup offers it only with a deploy and staging');
   }
+  // The security inputs the answers leave without effect, as check reports them
+  const a = { ...ctx.state.current, ...answers };
+  securityInputItems({ warn: (title) => warnings.push(title) }, a, {
+    claude: true,
+    securityReview: a.securityReview !== false,
+    riskGate: a.riskGate !== false,
+  });
   return warnings;
 }
 
