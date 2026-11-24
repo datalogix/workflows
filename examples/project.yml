@@ -42,6 +42,10 @@ jobs:
     #   count-author: true
     #   github-deployments: false   # no record in the repository's Deployments
     #   security-fail-on: medium
+    #   security-approval-on: medium   # an open finding needs an approval by someone other than the author
+    #   fix-security: true   # Claude fixes the security findings of its own pull requests
+    #   update-stacked: true   # merge a pushed pull request into those based on it (release GitHub App)
+    #   node-audit: false   # turn off only the Node audit; better, ignore the one advisory
     #   min-coverage: 80   # the coverage is shown either way; 0 (the default) never fails
     #   extra-instructions: This project uses Livewire; prefer Livewire components over controllers.
     #   language: en   # what is written for the team; pt-BR by default
