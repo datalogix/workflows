@@ -48,5 +48,6 @@ Locally, Claude follows the same rules but does not push or open pull requests o
 | `claude-security-review`              | `opus`                                        |
 | `incident`                            | `opus`                                        |
 | `claude-fix-ci`                       | `sonnet`                                      |
+| `claude-fix-security`                 | `opus` (`model`)                              |
 
 Models are aliases, so they follow new releases automatically. Every repository shares the usage limits of the account that owns `CLAUDE_CODE_OAUTH_TOKEN`, including that account's own Claude Code usage. If the limit gets tight, reduce in this order: `model: sonnet` (replies, implementation, reviews and incident analysis), then `plan-model: opus`, then fewer incident types (`incident-types: '["exception"]'`).

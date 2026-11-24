@@ -29,6 +29,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
 | `security-fail-on`                                                | `high`                         | Lowest security finding severity that fails the check                    |
 | `security-keep-findings`                                          | `true`                         | Keep the security findings in the review comment, numbered, until a later review finds them resolved (see [`claude-security-review`](#claude-security-review)) |
+| `fix-security` / `fix-security-on`                                | `false` / `high`               | Claude fixes the open security findings at `fix-security-on` or above of its own pull requests, with a regression test, up to 2 fix commits (see [`claude-fix-security`](#claude-fix-security)) |
 | `approvals-medium` / `approvals-high`                             | `1` / `1`                      | Human approvals for medium and high risk pull requests                   |
 | `count-author`                                                    | `false`                        | Count a human author with write access as one approval (solo maintainers) |
 | `security-approval-on`                                            | `none`                         | Lowest severity of an open security finding (`none`, `high`, `medium` or `low`) that makes the risk gate require an approval by someone other than the author, even with `count-author`; the security check itself does not fail. Needs `security-keep-findings` |
@@ -97,6 +98,7 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes) |
 | `update-stacked` | `false` | As for apps (see [`update-stacked`](#update-stacked)) |
 | `language` | `pt-BR` | Language of what Claude writes for the team |
+| `fix-security` / `fix-security-on` | `false` / `high` | As for apps, with `claude` and `security-review` |
 | `security-fail-on` | `high` | Lowest security finding severity that fails the check (`high`, `medium`, `low` or `none`) |
 | `security-keep-findings` | `true` | As for apps, with `security-review`; the comment mentions `@claude` only with `claude` on |
 | `security-approval-on` | `none` | As for apps, with `risk-gate` and `security-review` |
@@ -236,6 +238,22 @@ Patterns use shell matching where `*` also matches `/`, so `app/Policies/*` cove
 | `plugin-marketplaces` / `plugins`    | same as `claude` | Extra Claude Code plugins                                        |
 
 Runs inside `project` after failed tests. Called from a workflow of its own on `workflow_run` instead (of the workflow that runs the tests), it reads the failed run from that event.
+
+Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
+
+## `claude-fix-security`
+
+Called by `project` and `package-claude` with `fix-security: true`, after the security review of every push to a pull request. On Claude's own pull requests (`claude/` branches) it reads the open findings the review comment keeps (`keep-findings`) and, when one is at `fix-on` or above, runs the stack's `fix-security` command: Claude fixes each finding with a regression test (or explains why it is a false positive), commits with the `[security-fix]` tag and pushes, and the next security review checks the findings again. After `max-attempts` fix commits it stops and comments once. A pull request someone opened by hand is never changed: ask `@claude fix the security problems` there.
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `fix-on` | `high` | Lowest severity of an open finding that is fixed: `high`, `medium` or `low` |
+| `max-attempts` | `2` | Most `[security-fix]` commits per pull request |
+| `branch-prefix` | `claude/` | Only pull requests from branches with this prefix |
+| `model` | `opus` | Model for the fixes |
+| `max-turns` / `timeout-minutes` | `60` / `45` | Limits |
+| `allowed-tools` / `disallowed-tools` | as `claude-fix-ci` | Tools Claude may and may not use |
+| `php-version` / `node-version` / `plugin-marketplaces` / `plugins` / `extra-instructions` / `language` | as `claude-fix-ci` | |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
