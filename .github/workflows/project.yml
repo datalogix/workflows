@@ -357,6 +357,8 @@ jobs:
       model: ${{ inputs.model }}
       fail-on: ${{ inputs.security-fail-on }}
       keep-findings: ${{ inputs.security-keep-findings }}
+      fix-security: ${{ inputs.fix-security }}
+      fix-security-on: ${{ inputs.fix-security-on }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
 

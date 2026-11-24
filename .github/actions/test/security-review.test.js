@@ -673,3 +673,47 @@ describe('keep findings', () => {
     }
   });
 });
+
+describe('fix-security in the comment', () => {
+  const findings = {
+    summary: 'Two problems.',
+    findings: [
+      { ...FINDING, severity: 'high', title: 'SQL injection' },
+      { ...FINDING, severity: 'low', title: 'Verbose errors' },
+    ],
+  };
+  const env = {
+    FIX_SECURITY: 'true',
+    FIX_ON: 'high',
+    HEAD_REF: 'claude/12-orders',
+    LANGUAGE: 'en',
+    FAIL_ON: 'none',
+    LEVELS: '[]',
+  };
+
+  test('on a pull request of Claude, says it fixes the findings at fix-on itself, and @claude for the others', async () => {
+    const body = posted(await publish({ env, findings }));
+    expect(body).toContain('Claude fixes the findings at `high` or above itself, with a regression test');
+    // The low finding (number 2) still needs @claude
+    expect(body).toContain('`@claude fix finding 2`');
+  });
+
+  test('says only that it fixes them when every open finding is at fix-on', async () => {
+    const body = posted(await publish({ env: { ...env, FIX_ON: 'low' }, findings }));
+    expect(body).toContain('Claude fixes the findings at `low` or above itself');
+    expect(body).not.toContain('@claude');
+  });
+
+  test('keeps the @claude hint on other pull requests, or with fix-security off', async () => {
+    for (const changed of [{ HEAD_REF: 'feat/orders' }, { FIX_SECURITY: 'false' }]) {
+      const body = posted(await publish({ env: { ...env, ...changed }, findings }));
+      expect(body).not.toContain('Claude fixes the findings');
+      expect(body).toContain('`@claude fix finding 1`');
+    }
+  });
+
+  test('writes the Portuguese text for a Portuguese team', async () => {
+    const body = posted(await publish({ env: { ...env, LANGUAGE: 'pt-BR' }, findings }));
+    expect(body).toContain('O Claude corrige sozinho os achados de nível `high` ou acima');
+  });
+});

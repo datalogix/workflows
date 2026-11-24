@@ -132,6 +132,16 @@ if [ "$blocking" -eq 0 ] && [ -n "${DIGEST:-}" ]; then
 fi
 
 # Text written by Claude cannot hide a comment in the body, such as a state line read by check.sh
+# The severities Claude fixes itself (fix-security), only on its own pull requests: the others need @claude
+fix_levels='[]'
+if [ "${FIX_SECURITY:-}" = true ] && [ -n "${HEAD_REF:-}" ] && [[ "$HEAD_REF" == "${BRANCH_PREFIX:-claude/}"* ]]; then
+  case "${FIX_ON:-high}" in
+    high) fix_levels='["high"]' ;;
+    medium) fix_levels='["high", "medium"]' ;;
+    low) fix_levels='["high", "medium", "low"]' ;;
+  esac
+fi
+
 body=$(jq -r --arg title "$title" --arg view "$view" --arg marker "$marker" --arg state "$state" --arg kept "$kept" \
   --arg none "$(t "No security problems found in the changes of this PR." "Nenhum problema de segurança encontrado nas mudanças deste PR.")" \
   --arg recommendation "$(t Recommendation Recomendação)" \
@@ -143,6 +153,9 @@ body=$(jq -r --arg title "$title" --arg view "$view" --arg marker "$marker" --ar
     "Para corrigi-los, comente \`@claude corrija os problemas de segurança\`, ou um deles com \`@claude corrija o achado N\`.")" \
   --arg falsePositive "$(t "If one is a false positive, record it in \`.github/security-review.md\`." \
     "Se algum for um falso positivo, registre-o em \`.github/security-review.md\`.")" \
+  --arg autofix "$(t "Claude fixes the findings at \`${FIX_ON:-high}\` or above itself, with a regression test, on the next run (up to 2 attempts)." \
+    "O Claude corrige sozinho os achados de nível \`${FIX_ON:-high}\` ou acima, com um teste de regressão, na próxima execução (até 2 tentativas).")" \
+  --argjson fixLevels "$fix_levels" \
   --arg mentions "${MENTIONS:-true}" --arg repository "$GITHUB_REPOSITORY" --arg server "${GITHUB_SERVER_URL:-https://github.com}" \
   --argjson blocking "$blocking" '
   def icon: {"high": "🔴", "medium": "🟠", "low": "🟡"}[.] // "⚪";
@@ -169,7 +182,13 @@ body=$(jq -r --arg title "$title" --arg view "$view" --arg marker "$marker" --ar
     "",
     (if $blocking == 0 then empty else $blocked end),
     (if ($open | length) == 0 then empty
-     else ((if $mentions == "true" then $fixAll + " " else "" end) + $falsePositive | sub("N`"; "\($open[0].id)`")) end),
+     else
+       # With fix-security, on a pull request of Claude: the findings it fixes itself; @claude for the others
+       ([$open[] | select(.severity as $s | $fixLevels | index($s) | not)]) as $manual
+       | ((if ($open | length) > ($manual | length) then $autofix + " " else "" end)
+         + (if $mentions == "true" and ($manual | length) > 0 then ($fixAll | sub("N`"; "\($manual[0].id)`")) + " " else "" end)
+         + $falsePositive)
+     end),
     "",
     $view,
     "",

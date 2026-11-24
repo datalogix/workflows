@@ -161,6 +161,8 @@ jobs:
       model: ${{ inputs.model }}
       fail-on: ${{ inputs.security-fail-on }}
       keep-findings: ${{ inputs.security-keep-findings }}
+      fix-security: ${{ inputs.claude && inputs.fix-security }}
+      fix-security-on: ${{ inputs.fix-security-on }}
       claude-mentions: ${{ inputs.claude }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
