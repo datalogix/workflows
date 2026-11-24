@@ -45,6 +45,7 @@ async function check({ comments = [review(FINDINGS)], subjects = ['feat: x'], en
       LANGUAGE: 'en',
       ...env,
     },
+    // A string is given as is: two JSON arrays stand for two pages of --paginate
     gh: [{ match: 'issues/7/comments', stdout: comments }],
     setup: async (dir) => {
       const repo = join(dir, 'repo');
@@ -110,4 +111,13 @@ test('rejects an invalid fix-on or max-attempts', async () => {
   expect(fixOn.code).toBe(1);
   expect(fixOn.stdout).toContain('Invalid fix-security-on value: critical');
   expect((await check({ env: { MAX: '1.5' } })).code).toBe(1);
+});
+
+test('finds the limit comment on a later page of comments', async () => {
+  const subjects = ['feat: x', 'fix: a [security-fix]', 'fix: b [security-fix]'];
+  const filler = Array.from({ length: 100 }, (_, i) => ({ user: { login: 'dev' }, body: `comment ${i}` }));
+  const pages = `${JSON.stringify([review(FINDINGS), ...filler.slice(1)])}\n${JSON.stringify([{ user: { login: 'github-actions[bot]' }, body: LIMIT }])}`;
+  const told = await check({ subjects, comments: pages });
+  expect(told.outputs.fix).toBe('false');
+  expect(callsTo(told, 'gh').some((call) => call.startsWith('pr comment'))).toBe(false);
 });

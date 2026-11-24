@@ -45,9 +45,10 @@ attempts=$(git log --oneline "origin/$BASE..HEAD" --grep='\[security-fix\]' | wc
 echo "Open findings at $FIX_ON or above: $count; previous attempts: $attempts of $MAX"
 if [ "$attempts" -ge "$MAX" ]; then
   limit="<!-- claude-fix-security:limit -->"
+  # One count per page of comments: summed, so a comment on a later page counts too
   warned=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-    --jq "[.[] | select(.body | contains(\"$limit\"))] | length")
-  if [ "${warned%%$'\n'*}" = 0 ]; then
+    --jq "[.[] | select(.body | contains(\"$limit\"))] | length" | awk '{ total += $1 } END { print total + 0 }')
+  if [ "$warned" = 0 ]; then
     gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$(printf '%s\n\n%s' \
       "$(t "The security findings are still open after $attempts automatic fix attempts. I stopped here; they need a human review." \
         "Os achados de segurança continuam abertos após $attempts tentativas automáticas de correção. Parei por aqui; é preciso revisão humana.")" \
