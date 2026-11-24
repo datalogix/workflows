@@ -426,17 +426,47 @@ jobs:
         run: eval "$LINT_COMMAND"
 
       # Against the base branch of the pull request, which the checkout fetched with the history. The tool goes to
-      # Composer's global folder, so it neither changes nor conflicts with the package's dependencies
+      # Composer's global folder, so it neither changes nor conflicts with the package's dependencies. A break the pull
+      # request declares, as package-release reads it (! before the colon of the title or of a commit, or a BREAKING
+      # CHANGE footer), passes with the breaks as warnings; one it does not declare fails, so the release is a major
       - name: Public API compatibility
         if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.api-check && github.event_name == 'pull_request' }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}
+          TITLE: ${{ github.event.pull_request.title }}
           COMPOSER_PROCESS_TIMEOUT: 0
         run: |
+          bang='^[A-Za-z]+(\([^)]*\))?!:[[:space:]]'
+          footer=$'(^|\n)BREAKING[ -]CHANGE:'
+          declared=false
+          if [[ "$TITLE" =~ $bang ]]; then
+            declared=true
+          else
+            while IFS= read -r -d $'\x1e' record; do
+              record=${record#$'\n'}
+              if [[ "${record%%$'\x1f'*}" =~ $bang ]] || [[ "${record#*$'\x1f'}" =~ $footer ]]; then
+                declared=true
+                break
+              fi
+            done < <(git log --no-merges --format='%s%x1f%b%x1e' "origin/$BASE..HEAD")
+          fi
+
           composer global require roave/backward-compatibility-check --no-interaction --quiet
-          "$(composer global config bin-dir --absolute --quiet)/roave-backward-compatibility-check" \
-            --from="origin/$BASE" --format=github-actions
+          status=0
+          report=$("$(composer global config bin-dir --absolute --quiet)/roave-backward-compatibility-check" \
+            --from="origin/$BASE" --format=github-actions 2>&1) || status=$?
+          # Only breaks it reported pass as declared: a failure of the tool itself still fails
+          if [ "$status" -ne 0 ] && [ "$declared" = true ] && grep -q '^::error' <<< "$report"; then
+            printf '%s\n' "${report//::error/::warning}"
+            echo "::notice::This pull request declares a breaking change, so the breaks of the public API above do not fail the check"
+            exit 0
+          fi
+          printf '%s\n' "$report"
+          if [ "$status" -ne 0 ] && grep -q '^::error' <<< "$report"; then
+            echo "::error::This pull request breaks the public API without declaring it. If the break is meant to be (a major version), mark it as a breaking change: ! before the colon of the title (e.g. feat!: ...) or a BREAKING CHANGE: footer in a commit, then push or re-run this job. Otherwise, keep the API compatible (deprecate and add instead of removing or changing)."
+          fi
+          exit "$status"
 
   # The package.json scripts do not depend on the PHP matrix, so they run once, without PHP
   js:

@@ -191,9 +191,10 @@ function apiCheckStep(stack) {
             js ? 'Check what the library publishes?' : 'Check the public API on pull requests?',
             js
               ? 'publint and @arethetypeswrong/cli after the build: exports, files and the types of every entry point'
-              : 'roave/backward-compatibility-check against the base branch: a removed method or a new required argument fails the tests',
+              : 'roave/backward-compatibility-check against the base branch: a removed method or a new required argument fails the tests, unless the pull request declares a breaking change (feat!: or a BREAKING CHANGE: footer)',
           ),
-          initialValue: ctx.state.current?.apiCheck ?? false,
+          // The file's answer; a new PHP package starts with it on, since a break it declares passes
+          initialValue: ctx.state.current?.apiCheck ?? !js,
         }),
       ),
   };

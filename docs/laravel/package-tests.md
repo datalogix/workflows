@@ -32,7 +32,9 @@ A new push to a pull request cancels the previous run; runs on `main` always fin
 
 With `api-check: true` (setup asks; `--api-check`), the lint job also runs, on pull requests, [`roave/backward-compatibility-check`](https://github.com/Roave/BackwardCompatibilityCheck) against the base branch: a removed public method, class or constant, a new required argument or a narrower type fails the check, with each break annotated on its line. The tool is installed in Composer's global folder, so it neither changes nor conflicts with the package's dependencies. It checks the PHP code only, not config keys or behavior: Claude's review covers those (see [Claude and the risk gate](package.md#claude-and-the-risk-gate-optional)).
 
-A break that is meant to be (a major version) still fails it: merge it with the check overridden by an admin, or turn `api-check` off for that release.
+A break that is meant to be (a major version) passes when the pull request declares it, as [releases](../releases.md) read it: `!` before the colon of the title or of a commit (`feat!: …`, `feat(auth)!: …`) or a `BREAKING CHANGE:` footer in a commit. The breaks then show as warnings, and the release is a major. A break the pull request does not declare fails, with a message asking to declare it or to keep the API compatible; after fixing only the title, push again or re-run the job, since editing the title does not run the tests. A failure of the tool itself fails the check either way.
+
+Setup suggests the check on for a new Laravel or PHP package, and keeps the answer of an existing one.
 
 ## Customizing the matrix
 
