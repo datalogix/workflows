@@ -46,7 +46,11 @@ on:
       audit:
         type: boolean
         default: true
-        description: Audit the dependencies (high and critical advisories) on pull requests that change the lockfile, and on scheduled and manual runs
+        description: Audit the dependencies (high and critical advisories) on pull requests that change the lockfile, and on scheduled and manual runs; false turns off every audit
+      node-audit:
+        type: boolean
+        default: true
+        description: Run the Node audit (with audit on); false turns off only this audit
       timeout-minutes:
         type: number
         default: 30
@@ -223,7 +227,7 @@ jobs:
       # advisories published after the dependencies were installed. Fails on high and critical advisories only, as
       # npm reports many low ones
       - name: Audit
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && steps.setup.outputs.lockfile != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.audit && inputs.node-audit && steps.setup.outputs.lockfile != '' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         shell: bash
         env:
           BASE: ${{ github.base_ref }}

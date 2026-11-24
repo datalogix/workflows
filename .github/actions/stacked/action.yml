@@ -1,0 +1,29 @@
+name: Update stacked pull requests
+description: Merges the branch of a pull request into the open pull requests based on it (a regular merge, never a force push), and comments on one that conflicts
+
+inputs:
+  branch:
+    description: Branch of the pull request that was pushed to
+    required: true
+  pull-request:
+    description: Number of that pull request
+    required: true
+  language:
+    description: Language of the comments (pt-BR or en; other languages get pt-BR)
+    default: pt-BR
+  token:
+    description: Token that merges and comments; a GitHub App's, so the merges run the checks of the pull requests above
+    required: true
+
+runs:
+  using: composite
+
+  steps:
+    - name: Update the pull requests based on this one
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        BRANCH: ${{ inputs.branch }}
+        PR: ${{ inputs.pull-request }}
+        LANGUAGE: ${{ inputs.language }}
+      run: bash "$GITHUB_ACTION_PATH/update.sh"

@@ -17,6 +17,16 @@ whole_number high-risk-lines "$HIGH_LINES" 1
 whole_number approvals-low "$APPROVALS_LOW" 0
 whole_number approvals-medium "$APPROVALS_MEDIUM" 0
 whole_number approvals-high "$APPROVALS_HIGH" 0
+case "${SECURITY_APPROVAL_ON:-none}" in
+  none) security_levels='[]' ;;
+  high) security_levels='["high"]' ;;
+  medium) security_levels='["high", "medium"]' ;;
+  low) security_levels='["high", "medium", "low"]' ;;
+  *)
+    echo "::error::Invalid security-approval-on value: $SECURITY_APPROVAL_ON (use none, high, medium or low)"
+    exit 1
+    ;;
+esac
 
 matches() {
   local file=$1 patterns=$2 pattern
@@ -92,7 +102,14 @@ if [ "$changed_files" -gt 3000 ]; then
   risk=high
   reasons+=("$changed_files changed files (only the first 3000 can be classified)")
 fi
-while IFS=$'\t' read -r file changes previous; do
+while IFS=$'\t' read -r file changes status previous; do
+  # A migration already on the base branch has run on existing databases: changing it does not run it again, so they
+  # end up different from a new one. A rename or removal changes the old path
+  if [ "$status" != added ] && [ -n "${MIGRATION_PATHS:-}" ] && matches "${previous:-$file}" "$MIGRATION_PATHS"; then
+    risk=high
+    reasons+=("\`${previous:-$file}\` is a migration already on the base branch, and this pull request $status it")
+    echo "::warning file=${previous:-$file}::$(t "This migration is already on the base branch: changing it does not run it again on databases that already ran it. Add a new migration instead." "Esta migration já está no branch base: alterá-la não a roda de novo nos bancos que já a rodaram. Crie uma nova migration.")"
+  fi
   # A rename also removes the old path: moving a migration to tests/ is as risky as changing it
   if matches "$file" "$HIGH_PATHS" || { [ -n "$previous" ] && matches "$previous" "$HIGH_PATHS"; }; then
     risk=high
@@ -107,7 +124,7 @@ while IFS=$'\t' read -r file changes previous; do
     continue
   fi
   lines=$((lines + changes))
-done < <(jq -r '.[] | [.filename, (.additions + .deletions), (.previous_filename // "")] | @tsv' <<< "$files")
+done < <(jq -r '.[] | [.filename, (.additions + .deletions), (.status // "added"), (.previous_filename // "")] | @tsv' <<< "$files")
 
 if [ "$lines" -ge "$HIGH_LINES" ]; then
   risk=high
@@ -162,6 +179,27 @@ author=$(jq -r '.user.login' <<< "$pr")
 if [ "$COUNT_AUTHOR" = true ] && jq -e '.user.type != "Bot"' <<< "$pr" >/dev/null &&
   has_write "$author"; then
   approvers+=("$author (author)")
+fi
+
+# Open security findings at security-approval-on or above need someone who is not the author to look at them, even with
+# count-author: read from the security review comment, which keeps them (keep-findings) until a review resolves them.
+# The comment, like the review's state line, can be written by anyone who can push a workflow
+security=0
+if [ "$security_levels" != '[]' ]; then
+  stored=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments?per_page=100" \
+    --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-security-review -->"))) | .body
+      | [capture("<!-- claude-security-review-findings: (?<data>[A-Za-z0-9+/=]+) -->").data][0] // ""')
+  stored=${stored%%$'\n'*}
+  security=$(jq -n --arg data "$stored" --argjson levels "$security_levels" '
+    (try ($data | @base64d | fromjson) catch []) | if type == "array" then . else [] end
+    | [.[] | select(type == "object" and .status == "open" and (.severity as $s | $levels | index($s)))] | length')
+  if [ "$security" -gt 0 ]; then
+    reasons+=("$security open security finding(s) at \`$SECURITY_APPROVAL_ON\` or above: an approval by someone other than the author is required")
+    [ "$required" -ge 1 ] || required=1
+    # The author, when counted, is the last approver
+    last=$((${#approvers[@]} - 1))
+    if [ "$last" -ge 0 ] && [[ "${approvers[$last]}" == *" (author)" ]]; then unset "approvers[$last]"; fi
+  fi
 fi
 
 approved=${#approvers[@]}

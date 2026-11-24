@@ -1014,3 +1014,16 @@ test('probes every health URL and looks up the relay together, reporting them in
   expect(staging).toBeGreaterThan(production);
   expect(items.indexOf('Registered in the monitoring relay')).toBeGreaterThan(staging);
 });
+
+test('update-stacked needs the release GitHub App', async () => {
+  const stacked = (content) => content.replace('    with:\n', '    with:\n      update-stacked: true\n');
+  const app = await run(await stateFor({ solo: true, incidents: false }, { releaseApp: true }, stacked));
+  expect(titles(app, 'ok')).toContain('Stacked pull requests updated by the release GitHub App');
+  const none = await run(await stateFor({ solo: true, incidents: false }, { releaseApp: false }, stacked));
+  expect(titles(none, 'error')).toContain(
+    'update-stacked is on, but RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY are missing, so stacked pull requests are not updated',
+  );
+  // Off: nothing about it
+  const off = await run(await stateFor({ solo: true, incidents: false }, { releaseApp: false }));
+  expect(off.map((item) => item.title).filter((title) => title.includes('tacked'))).toStrictEqual([]);
+});

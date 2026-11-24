@@ -492,3 +492,120 @@ test('a pending review does not withdraw an approval', async () => {
     expect(result.summary).toMatch(/Human approvals of the current changes: 1 of 1 \(ana\)$/m);
   }
 });
+
+test('a migration already on the base branch that the pull request changes is high risk, with a warning', async () => {
+  const env = { HIGH_PATHS: 'composer.json\n', MIGRATION_PATHS: 'database/migrations/*\n', LANGUAGE: 'en' };
+  const migration = 'database/migrations/2026_10_01_create_orders.php';
+
+  const edited = await gate({ files: [change(migration, '@@ -1 +1 @@\n-a\n+b')], env });
+  expect(edited.code).toBe(1);
+  expect(edited.summary).toMatch(/### Risk: high/);
+  expect(edited.summary).toContain(
+    `\`${migration}\` is a migration already on the base branch, and this pull request modified it`,
+  );
+  expect(edited.stdout).toContain(`::warning file=${migration}::This migration is already on the base branch`);
+
+  // Removed, or renamed away: the old path is the one on the base branch
+  const removed = await gate({ files: [{ ...change(migration), status: 'removed' }], env });
+  expect(removed.summary).toContain(
+    `\`${migration}\` is a migration already on the base branch, and this pull request removed it`,
+  );
+  const renamed = await gate({
+    files: [
+      {
+        ...change('database/migrations/2026_11_01_create_orders.php'),
+        status: 'renamed',
+        previous_filename: migration,
+      },
+    ],
+    env,
+  });
+  expect(renamed.summary).toContain(
+    `\`${migration}\` is a migration already on the base branch, and this pull request renamed it`,
+  );
+
+  // A new migration is not an edited one (here, with no high-risk path for it, it is medium)
+  const added = await gate({ files: [{ ...change(migration), status: 'added' }], env });
+  expect(added.summary).toMatch(/### Risk: medium/);
+  expect(added.stdout).not.toContain('::warning');
+
+  // Without migration paths (warn-edited-migrations: false, or a stack without migrations), nothing is checked
+  const off = await gate({ files: [change(migration)], env: { ...env, MIGRATION_PATHS: '' } });
+  expect(off.summary).toMatch(/### Risk: medium/);
+});
+
+test('the warning about an edited migration follows the language of the project', async () => {
+  const result = await gate({
+    files: [change('database/migrations/2026_10_01_create_orders.php')],
+    env: { MIGRATION_PATHS: 'database/migrations/*\n', LANGUAGE: 'pt-BR' },
+  });
+  expect(result.stdout).toContain('Esta migration já está no branch base');
+});
+
+// The security review comment, with the findings it keeps (keep-findings)
+const securityComment = (findings) => ({
+  match: 'issues/7/comments',
+  stdout: [
+    {
+      user: { login: 'github-actions[bot]' },
+      body: `review\n<!-- claude-security-review-findings: ${Buffer.from(JSON.stringify(findings)).toString('base64')} -->\n<!-- claude-security-review -->`,
+    },
+  ],
+});
+
+test('open security findings at security-approval-on need an approval by someone other than the author', async () => {
+  const files = [change('app/Models/User.php')];
+  const findings = [
+    { id: 1, severity: 'medium', status: 'open' },
+    { id: 2, severity: 'high', status: 'resolved' },
+  ];
+  const env = { COUNT_AUTHOR: 'true', SECURITY_APPROVAL_ON: 'medium' };
+  const run = (options) =>
+    runScript('risk-gate/risk-gate.sh', {
+      env: { ...SETTINGS, ...env, ...options.env },
+      gh: [
+        options.comment,
+        { match: 'collaborators/.*/permission', stdout: { permission: 'write' } },
+        { match: 'pulls/7/files', stdout: files },
+        { match: 'pulls/7/reviews', stdout: options.reviews ?? [] },
+        { match: 'git/trees/', stdout: { truncated: false, tree: [] } },
+        { match: 'pulls/7$', stdout: pull() },
+      ].filter(Boolean),
+    });
+
+  // The author alone no longer passes
+  const alone = await run({ comment: securityComment(findings) });
+  expect(alone.code).toBe(1);
+  expect(alone.summary).toContain('1 open security finding(s) at `medium` or above');
+  expect(alone.summary).toContain('Human approvals of the current changes: 0 of 1');
+  // Someone else's approval does
+  expect((await run({ comment: securityComment(findings), reviews: [review('ana', 'APPROVED')] })).code).toBe(0);
+  // Below the level, or resolved, or with the input off, the author counts as before
+  expect((await run({ comment: securityComment(findings), env: { SECURITY_APPROVAL_ON: 'high' } })).code).toBe(0);
+  expect((await run({ comment: securityComment([{ ...findings[0], status: 'resolved' }]) })).code).toBe(0);
+  expect((await run({ env: { SECURITY_APPROVAL_ON: 'none' } })).code).toBe(0);
+  // Without a review comment, there is nothing to count
+  expect((await run({ comment: { match: 'issues/7/comments', stdout: [] } })).code).toBe(0);
+});
+
+test('a low-risk pull request with open security findings still needs an approval', async () => {
+  const result = await runScript('risk-gate/risk-gate.sh', {
+    env: { ...SETTINGS, SECURITY_APPROVAL_ON: 'low' },
+    gh: [
+      securityComment([{ id: 1, severity: 'low', status: 'open' }]),
+      { match: 'pulls/7/files', stdout: [{ filename: 'tests/Feature/UserTest.php', additions: 4, deletions: 0 }] },
+      { match: 'pulls/7/reviews', stdout: [] },
+      { match: 'pulls/7$', stdout: pull() },
+    ],
+  });
+  expect(unmatchedReads(result)).toStrictEqual([]);
+  expect(result.code).toBe(1);
+  expect(result.summary).toMatch(/### Risk: low/);
+  expect(result.summary).toContain('0 of 1');
+});
+
+test('rejects an invalid security-approval-on', async () => {
+  const result = await runScript('risk-gate/risk-gate.sh', { env: { ...SETTINGS, SECURITY_APPROVAL_ON: 'critical' } });
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain('Invalid security-approval-on value: critical');
+});

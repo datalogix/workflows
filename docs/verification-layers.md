@@ -33,6 +33,8 @@ The required checks stop mistakes, outside contributors and untested changes, no
 
 GitHub does not let authors approve their own pull requests. Pull requests opened by Claude are authored by `claude[bot]`, so you approve them normally. For pull requests you open yourself, `count-author: true` makes you count as the reviewer of your own code (you need write access), which is what you are when no one else reviews.
 
+With `count-author: true`, open security findings below `security-fail-on` would pass with only your own approval. `security-approval-on: medium` (or `low`, `high`) makes the risk gate require an approval by someone else while such a finding is open, without failing the security check; a solo maintainer has no one else, so leave it at `none` (the default) and use `security-fail-on` instead.
+
 ## Project rules for the security review
 
 The security review reads `.github/security-review.md` from the project, when it exists, before reviewing each pull request. Use it for what only that project knows:

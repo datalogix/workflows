@@ -8,7 +8,7 @@ A single job, on the Node version of `.nvmrc` or `.node-version` (the current LT
 2. `test` (`test-command` runs another command; `none` skips it). The test script `npm init` writes is ignored. The job summary shows its coverage, read from the Clover report it writes, and with `min-coverage` set it must cover at least that percent of the code: see [Minimum coverage](../coverage.md). Without a `test` script or a report, the run only notes it, unless `min-coverage` is set.
 3. `build`: Next, Nuxt, SvelteKit, Astro, React Router and Remix report rendering and route errors only when they build.
 4. `test:e2e`, after the build and only when it did not fail, with `CI=true`. When `package.json` requires Playwright, its browsers are installed first (`playwright install --with-deps`, which adds a few minutes); other runners (Cypress) install their own binary with the dependencies. The script starts the app itself, for example with Playwright's `webServer`. `e2e: false` turns it off.
-5. The audit (`pnpm audit --audit-level high`, `npm audit --audit-level=high` or `yarn audit`/`yarn npm audit`), only on pull requests that change the lockfile and on scheduled and manual runs.
+5. The audit (`pnpm audit --audit-level high`, `npm audit --audit-level=high` or `yarn audit`/`yarn npm audit`), only on pull requests that change the lockfile and on scheduled and manual runs. It fails on high and critical advisories; to ignore one, see [Ignoring one advisory](../laravel/app-tests.md#ignoring-one-advisory).
 
 A script that does not exist is skipped.
 
@@ -25,6 +25,7 @@ Passed to `project` with `stack: js`:
 | `typecheck` | `true` | Run the typecheck script (`typecheck`, `types:check` or `type-check`); `false` skips only it |
 | `lint-command` | empty | Extra lint command after the `typecheck` and `lint` scripts, e.g. `composer install --no-interaction && composer lint` for PHP tooling |
 | `e2e` | `true` | Run the `test:e2e` script after the build |
+| `audit` / `node-audit` | `true` | `false` turns off the audit |
 | `tests` | `true` | `false` turns the layer off, and its required check with it: run `protect` again |
 
 The Laravel inputs (`php-version`, `pint`, `phpstan`, `js`) are ignored.

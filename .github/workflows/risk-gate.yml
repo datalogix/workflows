@@ -39,6 +39,10 @@ on:
           yarn.lock
           public/build/*
         description: Patterns of generated files; they make a PR at least medium risk but are not counted in the changed lines
+      warn-edited-migrations:
+        type: boolean
+        default: true
+        description: A pull request that changes or removes a migration already on the base branch is high risk and gets a warning on the file (migrations of the stack, see the job's env; for packages, Laravel only)
       high-risk-lines:
         type: number
         default: 600
@@ -59,6 +63,10 @@ on:
         type: boolean
         default: false
         description: Count a human PR author with write access as one approval (for solo maintainers, who cannot approve their own PRs)
+      security-approval-on:
+        type: string
+        default: none
+        description: Lowest severity of an open security finding that requires an approval by someone other than the author, even with count-author (none, high, medium or low); read from the security review comment, so it needs keep-findings there
       label-prefix:
         type: string
         default: "risk:"
@@ -90,6 +98,18 @@ jobs:
     # The default high-risk paths of each stack: authorization, sessions, routes that face the outside, database changes,
     # dependencies and the workflows
     env:
+      # Migrations that run once per database, so changing one already on the base branch leaves them different
+      LARAVEL_MIGRATION_PATHS: |
+        database/migrations/*
+      PHP_MIGRATION_PATHS: |
+        migrations/*
+        db/migrations/*
+        database/migrations/*
+      # Not drizzle/meta/*, which every new migration changes, nor prisma/schema.prisma
+      JS_MIGRATION_PATHS: |
+        prisma/migrations/*
+        drizzle/*.sql
+        migrations/*
       LARAVEL_HIGH_RISK_PATHS: |
         database/migrations/*
         app/Policies/*
@@ -208,10 +228,13 @@ jobs:
           extra-high-risk-paths: ${{ inputs.extra-high-risk-paths }}
           low-risk-paths: ${{ inputs.low-risk-paths }}
           ignored-paths: ${{ inputs.ignored-paths }}
+          # Packages: only Laravel ones publish migrations to the apps
+          migration-paths: ${{ inputs.warn-edited-migrations && !(inputs.kind == 'package' && inputs.stack != 'laravel') && (inputs.stack == 'js' && env.JS_MIGRATION_PATHS || inputs.stack == 'php' && env.PHP_MIGRATION_PATHS || env.LARAVEL_MIGRATION_PATHS) || '' }}
           high-risk-lines: ${{ inputs.high-risk-lines }}
           approvals-low: ${{ inputs.approvals-low }}
           approvals-medium: ${{ inputs.approvals-medium }}
           approvals-high: ${{ inputs.approvals-high }}
           count-author: ${{ inputs.count-author }}
+          security-approval-on: ${{ inputs.security-approval-on }}
           label-prefix: ${{ inputs.label-prefix }}
           language: ${{ inputs.language }}

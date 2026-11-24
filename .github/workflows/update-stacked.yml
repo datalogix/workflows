@@ -1,0 +1,63 @@
+name: update-stacked
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        type: string
+        default: pt-BR
+        description: Language of the comments (pt-BR or en; other languages get pt-BR)
+    secrets:
+      # The release GitHub App: merges pushed with the workflow token run no workflows, so the checks of the pull
+      # requests above would stay on their old commit
+      RELEASE_APP_CLIENT_ID:
+        required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
+
+jobs:
+  # A push to a pull request of this repository merges its branch into the open pull requests based on it
+  stacked:
+    if: |
+      github.event_name == 'pull_request' && github.event.action == 'synchronize' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    # Everything goes through the App's token
+    permissions:
+      contents: read
+
+    env:
+      APP: ${{ secrets.RELEASE_APP_CLIENT_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+
+    # A newer push to the same pull request replaces this run: it merges the newer commits too
+    concurrency:
+      group: update-stacked-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Require the release GitHub App
+        if: env.APP != 'true'
+        run: |
+          echo "::error::update-stacked needs the release GitHub App (RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY): merges pushed with the workflow token would not run the checks of the pull requests above"
+          exit 1
+
+      - name: Create the GitHub App token
+        id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Update the pull requests based on this one
+        uses: datalogix/workflows/.github/actions/stacked@v2
+        with:
+          branch: ${{ github.event.pull_request.head.ref }}
+          pull-request: ${{ github.event.pull_request.number }}
+          language: ${{ inputs.language }}
+          token: ${{ steps.token.outputs.token }}

@@ -107,6 +107,7 @@ test('keeps inputs it does not manage and reads answers back', async () => {
     securityReview: undefined,
     riskGate: undefined,
     language: 'pt-BR',
+    updateStacked: false,
     pint: undefined,
     phpstan: undefined,
     rector: undefined,
@@ -375,6 +376,8 @@ test('reads only what a package workflow file can say', () => {
     review: false,
     securityReview: false,
     riskGate: false,
+    // On by default with claude: unknown unless the file says
+    fixCi: undefined,
     language: 'pt-BR',
     apiCheck: false,
     js: undefined,

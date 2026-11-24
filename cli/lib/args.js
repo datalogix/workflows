@@ -127,7 +127,8 @@ Options (each one skips its question in setup)
   --approvals-medium 1        Human approvals a medium-risk pull request needs (team projects)
   --approvals-high 1          Human approvals a high-risk pull request needs (team projects)
   --layers review,security-review,risk-gate,fix-ci  Claude workflows and risk gate on pull requests (none turns all off;
-                              packages: claude,review,security-review, all off by default)
+                              packages: claude,fix-ci,review,security-review,risk-gate, all off by
+                              default but fix-ci, which runs with claude)
   --code-owners "@user"       Who must approve changes to .github/ (users or @org/teams)
   --language pt-BR            Language of what is written for the team (fixed texts: pt-BR or en)
   --lint pint,phpstan,rector,eslint,prettier,stylelint,command  Lint checks, separated by commas (none turns

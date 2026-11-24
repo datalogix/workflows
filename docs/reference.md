@@ -20,7 +20,10 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `typecheck`                                                       | `true`                         | Run the typecheck script of `package.json` (`typecheck`, `types:check` or `type-check`); `false` skips only it |
 | `js-tests`                                                        | `true`                         | `stack: laravel` or `php`: run the `test` script of `package.json`; `false` skips only it (the PHP tests are `test-command`; with `stack: js` the JavaScript tests are `test-command` too) |
 | `e2e`                                                             | `true`                         | `stack: js`: run the `test:e2e` script after the build (see [JavaScript app tests](js/app-tests.md)) |
+| `audit`                                                           | `true`                         | Audit the dependencies (`composer audit`, and the Node audit on high and critical advisories) on scheduled and manual runs, and on pull requests that change their lockfile; `false` turns off every audit (see [Dependency audits](laravel/app-tests.md#dependency-audits)) |
+| `composer-audit` / `node-audit`                                   | `true`                         | `false` turns off only `composer audit` or only the Node audit; to ignore one advisory instead, see [Ignoring one advisory](laravel/app-tests.md#ignoring-one-advisory) |
 | `database`                                                        | `none`                         | `stack: php`, a Symfony app with Doctrine: `postgres`, `mysql` or `mariadb` starts that server for the tests and points `DATABASE_URL` at it; `none` uses the database of `.env.test` (see [Test database](php/app-tests.md#test-database)) |
+| `update-stacked`                                                  | `false`                        | On a push to a pull request, merge its branch into the open pull requests based on it, and comment on one that conflicts; needs the release GitHub App (see [`update-stacked`](#update-stacked)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
@@ -29,7 +32,9 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `fix-security` / `fix-security-on`                                | `false` / `high`               | Claude fixes the open security findings at `fix-security-on` or above of its own pull requests, with a regression test, up to 2 fix commits (see [`claude-fix-security`](#claude-fix-security)) |
 | `approvals-medium` / `approvals-high`                             | `1` / `1`                      | Human approvals for medium and high risk pull requests                   |
 | `count-author`                                                    | `false`                        | Count a human author with write access as one approval (solo maintainers) |
+| `security-approval-on`                                            | `none`                         | Lowest severity of an open security finding (`none`, `high`, `medium` or `low`) that makes the risk gate require an approval by someone other than the author, even with `count-author`; the security check itself does not fail. Needs `security-keep-findings` |
 | `extra-high-risk-paths`                                           | empty                          | More patterns (one per line) that make a pull request high risk, added to the risk gate's defaults (e.g. `app/Services/Payment/*`) |
+| `warn-edited-migrations`                                          | `true`                         | The risk gate marks a pull request that changes, renames or removes a migration already on the base branch as high risk, with a warning on the file: it does not run again on databases that already ran it (see [`risk-gate`](#risk-gate)) |
 | `deploy`                                                          | `none`                         | Deploy the default branch with `forge`, `cloud`, [`vercel`](deploy.md#vercel) or [`netlify`](deploy.md#netlify) (the ones setup offers for `stack: js`; with `production-branch`, the production branch goes to production) |
 | `staging`                                                         | `true`                         | Deploy and watch `staging` before `production`                           |
 | `production`                                                      | `auto`                         | `auto` after staging (with `production-branch`, on each push to the production branch), or `manual` (only on Run workflow) |
@@ -67,7 +72,8 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | ------- | ------- | ------------------------------------------------------------------------------------------ |
 | `stack` | `laravel` | Stack of the package, which picks its tests: `laravel`, `php` (a [PHP package without Laravel](php/package.md)) or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite (`laravel` and `php`: across the matrix, Pint, PHPStan, Rector, the lint command and, once, the `package.json` scripts of `js`); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
-| `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
+| `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`), unless the pull request declares a breaking change (`feat!:` or a `BREAKING CHANGE:` footer); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
+| `audit` / `node-audit` | `true` | `js`: audit the dependencies (high and critical advisories) on pull requests that change the lockfile, and on scheduled and manual runs; `false` turns it off |
 
 Secrets: `CODECOV_TOKEN` (optional), passed with `secrets: inherit`.
 
@@ -82,17 +88,20 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | --- | --- | --- |
 | `stack` | `laravel` | Stack of the package: the environment prepared for Claude, its plugin and the default high-risk paths |
 | `tests-result` | empty | `needs.pipeline.result`: `failure` on a pull request lets Fix CI run on Claude's own pull requests |
-| `claude` | `false` | [`claude`](#claude) on issues and pull requests (`@claude`, the `claude` and `claude-plan` labels), and [`claude-fix-ci`](#claude-fix-ci) on Claude's own pull requests when the tests fail |
+| `claude` | `false` | [`claude`](#claude) on issues and pull requests (`@claude`, the `claude` and `claude-plan` labels), and with `fix-ci` [`claude-fix-ci`](#claude-fix-ci) on Claude's own pull requests when the tests fail |
+| `fix-ci` | `true` | With `claude`: Claude fixes the failed tests of its own pull requests; `false` turns off only that, keeping the rest of `claude` |
 | `review` | `false` | [`claude-review`](#claude-review) once per pull request |
 | `security-review` | `false` | [`claude-security-review`](#claude-security-review) on every push, with the required check `claude / security / security`; run `protect` again after changing it |
 | `risk-gate` | `false` | [`risk-gate`](#risk-gate) with the patterns of a package of the stack, and the required check `claude / gate / gate`; run `protect` again after changing it |
-| `approvals-medium` / `approvals-high` / `count-author` / `extra-high-risk-paths` | `1` / `1` / `false` / empty | As for apps, with `risk-gate` |
+| `approvals-medium` / `approvals-high` / `count-author` / `extra-high-risk-paths` / `warn-edited-migrations` | `1` / `1` / `false` / empty / `true` | As for apps, with `risk-gate` (`warn-edited-migrations`: Laravel packages only) |
 | `model` / `plan-model` / `fix-ci-model` | `opus` / `best` / `sonnet` | Models of the Claude layers, as for apps |
 | `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes) |
+| `update-stacked` | `false` | As for apps (see [`update-stacked`](#update-stacked)) |
 | `language` | `pt-BR` | Language of what Claude writes for the team |
 | `fix-security` / `fix-security-on` | `false` / `high` | As for apps, with `claude` and `security-review` |
 | `security-fail-on` | `high` | Lowest security finding severity that fails the check (`high`, `medium`, `low` or `none`) |
 | `security-keep-findings` | `true` | As for apps, with `security-review`; the comment mentions `@claude` only with `claude` on |
+| `security-approval-on` | `none` | As for apps, with `risk-gate` and `security-review` |
 
 The Claude jobs that write or review code get a rule in front of `extra-instructions`: keep the package's public API compatible. `check` reports a layer that is on when the workflow file lacks its events, or the `claude` job its permissions.
 
@@ -202,11 +211,13 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 | `kind`                                                  | `project`                                                                                                                                  | `package` (what `package-claude` passes) picks the package patterns of the stack: `composer.json`, `package.json`, `bin/*`, `.github/*`, and Laravel's `src/*ServiceProvider.php`, `config/*`, `database/migrations/*`, `routes/*`, PHP's `src/*Bundle.php`, `config/*`, or JavaScript's `.npmignore`, `vite.config.*`, `tsup.config.*`, `tsdown.config.*`, `rollup.config.*`, `tsconfig*.json` |
 | `high-risk-paths`                                       | Laravel: migrations, policies, middleware, `bootstrap/app.php`, auth-related config, `routes/api.php`, `composer.json`, `package.json`, `.github/*`. `js`: `middleware.*`, `proxy.*`, `server/*`, `app/api/*`, `pages/api/*` (also under `src/`), `middleware/*`, `app/middleware/*`, auth files and folders, `prisma/*`, `drizzle/*`, `migrations/*`, `nuxt.config.*`, `next.config.*`, SvelteKit's `svelte.config.*`, `src/hooks.server.*`, `src/lib/server/*` and `src/routes/api/*`, Astro's `astro.config.*` and `src/actions/*` (its endpoints are in `src/pages/api/*`, its middleware in `src/middleware.*`), React Router's and Remix's `react-router.config.*`, `remix.config.*`, `app/routes.ts`, `app/routes/api.*`, `app/routes/api/*`, `app/entry.server.*` and `app/sessions.server.*`, `package.json`, `.github/*`. `php`: `migrations/*`, `db/migrations/*`, `database/migrations/*`, Symfony's `security`, `framework`, `doctrine` and `nelmio_cors` config, `config/routes*`, `config/services.*`, `src/Security/*`, `public/index.php`, `public/.htaccess`, `.env`, `.env.prod`, `*auth*.php`, `*login*.php`, `composer.json`, `package.json`, `.github/*` | Patterns (one per line) that make a pull request high risk                 |
 | `extra-high-risk-paths`                                 | empty | More patterns, added to `high-risk-paths`: a project's own sensitive paths without repeating (or dropping) the defaults |
+| `warn-edited-migrations`                                | `true` | A pull request that changes, renames or removes a migration already on the base branch is high risk, with a warning annotation on the file. Migrations: Laravel `database/migrations/*`; `php` `migrations/*`, `db/migrations/*`, `database/migrations/*`; `js` `prisma/migrations/*`, `drizzle/*.sql`, `migrations/*`; packages, Laravel only. A new migration is not affected |
 | `low-risk-paths`                                        | tests, Markdown, `docs/*`, `lang/*.json`, editor and git config                                                                                 | A pull request touching only these is low risk; everything else is medium (`lang/*.php` too: it is PHP the app runs) |
 | `ignored-paths`                                         | lock files, `public/build/*`                                                                                                               | Make it at least medium risk, but not counted in the changed lines         |
 | `high-risk-lines`                                       | `600`                                                                                                                                      | Changed lines (outside ignored and low-risk paths) that make it high risk  |
 | `approvals-low` / `approvals-medium` / `approvals-high` | `0` / `1` / `1`                                                                                                                            | Human approvals required of the current changes                            |
 | `count-author`                                          | `false`                                                                                                                                    | Count a human author with write access as one approval (solo maintainers)  |
+| `security-approval-on`                                  | `none`                                                                                                                                     | Lowest severity of an open finding of the security review comment (`none`, `high`, `medium` or `low`) that requires an approval by someone other than the author, even with `count-author`, at any risk; the findings are those the comment keeps (`keep-findings` of `claude-security-review`) |
 | `label-prefix`                                          | `risk:`                                                                                                                                    | Prefix of the risk labels                                                  |
 | `language`                                              | `pt-BR`                                                                                                                                    | Language of the label descriptions: `en` for a value starting with `en`, otherwise `pt-BR` |
 
@@ -279,6 +290,20 @@ Called by `project` on pushes when `production-branch` and `deploy` are set. On 
 | `language`          | `pt-BR`  | Language of the pull request texts: `en` for a value starting with `en`, otherwise `pt-BR` |
 
 Secrets: `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY` (optional), of the GitHub App in [Organization setup, step 6](organization-setup.md#6-create-the-release-github-app). Without them the pull requests are opened with the workflow token and run no checks; the repository must have **Allow GitHub Actions to create and approve pull requests** on (setup turns it on; see [Production branch](deploy.md#production-branch)).
+
+## `update-stacked`
+
+Called by `project` and `package-claude` with `update-stacked: true`, on every push to a pull request of the repository (`synchronize`). It merges the pull request's branch into each open pull request based on it, with GitHub's merges API: a regular merge commit on their branch, never a force push. That merge is a push to the pull request above, so its checks run and, in turn, the pull requests based on it are updated. A pull request from a fork is skipped.
+
+When a merge conflicts, the pull request above gets a comment saying to merge by hand (`git merge origin/<branch>`); the comment is updated, not repeated, and says so once a later merge works. Any other failure fails the job.
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `language` | `pt-BR` | Language of the comments (`pt-BR` or `en`) |
+
+Secrets: `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY`, the [release GitHub App](organization-setup.md#6-create-the-release-github-app), required: a merge pushed with the workflow token would run no checks on the pull request above, so the job fails without them, and `check` reports it. The App has no `workflows` permission, so a change to `.github/workflows/` in the pull request below cannot be merged this way (the job fails; merge it by hand).
+
+Only pushes are followed: when the pull request below is merged, GitHub retargets the one above to its base branch, and after a squash merge the commits it already had come again as a single commit, which may conflict; merge the base branch into it by hand then.
 
 ## `incident`
 

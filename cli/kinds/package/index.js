@@ -34,6 +34,7 @@ import {
 import {
   CLAUDE_JOB,
   claudeOn,
+  FIX_CI,
   layersOn,
   PACKAGE_LAYERS,
   PACKAGE_REF,
@@ -112,12 +113,19 @@ function layerNeedItems(report, state) {
 // What the kind reads (read), before it is read
 const PACKAGE_STATE = { codecovToken: false, ...CLAUDE_STATE, ...RELEASE_STATE };
 
-// --layers claude,review,security-review, or none
+// --layers claude,fix-ci,review,security-review,risk-gate, or none
+const LAYER_CHOICES = [
+  PACKAGE_LAYERS.claude,
+  FIX_CI,
+  PACKAGE_LAYERS.review,
+  PACKAGE_LAYERS.securityReview,
+  PACKAGE_LAYERS.riskGate,
+];
 const layerChoices = (value) => (value.trim() === 'none' ? [] : value.split(',').map((choice) => choice.trim()));
 const validLayers = (value) =>
-  layerChoices(value ?? '').every((choice) => Object.values(PACKAGE_LAYERS).includes(choice))
+  layerChoices(value ?? '').every((choice) => LAYER_CHOICES.includes(choice))
     ? undefined
-    : `use ${Object.values(PACKAGE_LAYERS).join(', ')} separated by commas, or none`;
+    : `use ${LAYER_CHOICES.join(', ')} separated by commas, or none`;
 
 /** The labels the Claude layers of a package start or skip with: claude and claude-plan, no-review. */
 const labelsOf = (a) => [...(a.claude ? [CLAUDE_LABEL, PLAN_LABEL] : []), ...(a.review ? [NO_REVIEW_LABEL] : [])];
@@ -132,26 +140,33 @@ const layersStep = {
     orExit(
       await clack.multiselect({
         message: question(header, 'Claude on issues and pull requests', [
-          '@claude: Claude answers @claude, implements issues labeled claude, plans those labeled claude-plan, and fixes the tests of its own pull requests',
+          '@claude: Claude answers @claude, implements issues labeled claude and plans those labeled claude-plan',
+          'Fix CI: with @claude, Claude fixes the failed tests of its own pull requests',
           'Code review: Claude reviews the changes once per pull request and comments',
           'Security review: Claude looks for vulnerabilities on every push; a finding from high up fails the required check (pull requests from forks are not reviewed)',
           'Risk gate: labels each pull request by risk (dependencies, what the package installs in the app, its build and CI are high) and requires a human approval from medium up; no Claude',
           "Each Claude workflow uses the Claude token's usage limits, shared by every project",
         ]),
         options: [
-          { value: 'claude', label: '@claude', hint: 'issues and comments, and fixes of its failed tests' },
+          { value: 'claude', label: '@claude', hint: 'issues and comments' },
+          { value: FIX_CI, label: 'Fix CI', hint: "with @claude, on Claude's pull requests" },
           { value: 'review', label: 'Code review', hint: 'once per pull request' },
           { value: 'security-review', label: 'Security review', hint: 'on every push; a required check' },
           { value: 'risk-gate', label: 'Risk gate', hint: 'approvals by risk; a required check' },
         ],
-        initialValues: Object.entries(PACKAGE_LAYERS)
-          .filter(([answer]) => ctx.state.current?.[answer] === true)
-          .map(([, input]) => input),
+        // Fix CI is on unless the workflow file turns it off, as in package-claude.yml
+        initialValues: [
+          ...Object.entries(PACKAGE_LAYERS)
+            .filter(([answer]) => ctx.state.current?.[answer] === true)
+            .map(([, input]) => input),
+          ...(ctx.state.current?.fixCi === false ? [] : [FIX_CI]),
+        ],
         required: false,
       }),
     ),
   then: (answers) => {
     for (const [answer, input] of Object.entries(PACKAGE_LAYERS)) answers[answer] = answers.layers.includes(input);
+    answers.fixCi = answers.layers.includes(FIX_CI);
   },
 };
 
@@ -176,9 +191,10 @@ function apiCheckStep(stack) {
             js ? 'Check what the library publishes?' : 'Check the public API on pull requests?',
             js
               ? 'publint and @arethetypeswrong/cli after the build: exports, files and the types of every entry point'
-              : 'roave/backward-compatibility-check against the base branch: a removed method or a new required argument fails the tests',
+              : 'roave/backward-compatibility-check against the base branch: a removed method or a new required argument fails the tests, unless the pull request declares a breaking change (feat!: or a BREAKING CHANGE: footer)',
           ),
-          initialValue: ctx.state.current?.apiCheck ?? false,
+          // The file's answer; a new PHP package starts with it on, since a break it declares passes
+          initialValue: ctx.state.current?.apiCheck ?? !js,
         }),
       ),
   };
