@@ -10,6 +10,7 @@ import {
   languageStep,
   NO_REVIEW_LABEL,
   PLAN_LABEL,
+  promptInputItems,
   readClaude,
   readLabels,
   securityInputItems,
@@ -343,6 +344,7 @@ async function evaluate(stack, checks, state) {
   if (claudeOn(state.current)) {
     labelItems(report, state, labelsOf(state.current));
     claudeItems(report, state);
+    promptInputItems(report, state.current);
   }
   layerNeedItems(report, state);
   stackedItems(report, state);
