@@ -191,6 +191,10 @@ on:
         type: string
         default: ""
         description: Commit, tag or branch of anthropics/claude-code for the code-review plugin of the review; empty uses the latest
+      review-max-turns:
+        type: number
+        default: 80
+        description: Maximum turns of Claude's review; a review that reaches it fails and says so on the pull request
       language:
         type: string
         default: pt-BR
@@ -337,7 +341,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      issues: read
+      issues: write
       id-token: write
     uses: datalogix/workflows/.github/workflows/claude-review.yml@v2
     secrets: inherit
@@ -347,6 +351,7 @@ jobs:
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
       code-review-ref: ${{ inputs.code-review-ref }}
+      max-turns: ${{ inputs.review-max-turns }}
 
   security:
     if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.security-review && (github.event_name == 'pull_request' || github.event_name == 'merge_group')

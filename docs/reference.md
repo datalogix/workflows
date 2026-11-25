@@ -27,6 +27,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes: `check` reports one); prefer `CLAUDE.md` |
 | `code-review-ref`                                                 | empty                          | Commit, tag or branch of `anthropics/claude-code` that the review installs the `code-review` plugin from; empty uses the latest (see [`claude-review`](#claude-review)) |
+| `review-max-turns`                                                | `80`                           | Maximum turns of Claude's review; a review that reaches it fails and says so on the pull request (see [`claude-review`](#claude-review)) |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes: `check` reports one): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
 | `security-fail-on`                                                | `high`                         | Lowest security finding severity that fails the check                    |
 | `security-keep-findings`                                          | `true`                         | Keep the security findings in the review comment, numbered, until a later review finds them resolved (see [`claude-security-review`](#claude-security-review)) |
@@ -100,6 +101,7 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | `model` / `plan-model` / `fix-ci-model` | `opus` / `best` / `sonnet` | Models of the Claude layers, as for apps |
 | `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes: `check` reports one) |
 | `code-review-ref` | empty | As for apps: the version of the `code-review` plugin, the latest when empty |
+| `review-max-turns` | `80` | As for apps: the maximum turns of Claude's review |
 | `update-stacked` | `false` | As for apps (see [`update-stacked`](#update-stacked)) |
 | `language` | `pt-BR` | Language of what Claude writes for the team |
 | `fix-security` / `fix-security-on` | `false` / `high` | As for apps, with `claude` and `security-review` |
@@ -179,7 +181,9 @@ Reviews a pull request. `project` calls it once, when the pull request is opened
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
 | `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins, besides `code-review` and those of `claude`       |
 | `code-review-ref`                 | empty                                  | Commit, tag or branch of `anthropics/claude-code` to install the `code-review` plugin from; empty uses the latest on every run |
-| `max-turns` / `timeout-minutes`   | `40` / `30`                            | Limits                                                 |
+| `max-turns` / `timeout-minutes`   | `80` / `30`                            | Limits of Claude's review step (`project` and `package-claude` pass `review-max-turns` as `max-turns`) |
+
+A review that fails (it reaches `max-turns` or `timeout-minutes`, or the action errors) gets a comment on the pull request saying it did not finish, with a link to the run, from a `warn` job that needs `issues: write`; a review cancelled by a newer run does not.
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 
