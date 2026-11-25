@@ -73,6 +73,7 @@ A package that still supports Laravel 11 adds it back with `laravel: '["^11.0", 
 | `rector`          | `true`                                                                 | Run Rector in a dry run once when `composer.json` requires `rector/rector` and `rector.php` exists |
 | `eslint` / `prettier` / `stylelint` | `true` | Run ESLint, Prettier (or `format:check`) and Stylelint (or `lint:css`) in the `js` job when the package installed them and no script runs them; see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) |
 | `lint-command`    | empty                                                                  | Extra lint command, run once after Pint, PHPStan and Rector             |
+| `api-check` / `api-check-version` | `false` / empty | Check the public API on pull requests (see [Public API](#public-api)); the Composer version constraint of `roave/backward-compatibility-check`, the latest when empty |
 | `js`              | `true`                                                                 | Run the `typecheck` (or `types:check`, `type-check`), `lint` (or `check`) and `test` scripts of `package.json`, and [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) when no script runs them, once, in the `js` job; see [What it does](#what-it-does) |
 | `typecheck` / `js-tests` | `true` | `false` skips the typecheck script (`typecheck`, `types:check` or `type-check`) or the `test` script of `package.json` in the `js` job, keeping the rest of the JavaScript checks |
 
