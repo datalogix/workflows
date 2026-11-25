@@ -218,6 +218,29 @@ export function claudeAppNextSteps(answers, state) {
 }
 
 /**
+ * The inputs that go into Claude's system prompt between double quotes (claude_args): a double quote in
+ * extra-instructions or language cuts the arguments, so every Claude job fails; a language that is not a plain name
+ * or code (what setup accepts) is only warned about. A language set by an expression (${{ vars.X }}) is not known here.
+ */
+export function promptInputItems({ warn, error }, a) {
+  for (const [input, value] of [
+    ['extra-instructions', a?.extraInstructions],
+    ['language', a?.language],
+  ]) {
+    if (value?.includes('"'))
+      error(
+        `${input} has a double quote, which cuts the arguments of every Claude job`,
+        input === 'language'
+          ? 'use a language name or code, e.g. pt-BR or en'
+          : 'use single quotes, or move it to CLAUDE.md',
+      );
+  }
+  const language = a?.language;
+  if (language && !language.includes('"') && !language.includes('${{') && validLanguage(language))
+    warn(`language is ${language}, not a language name or code`, 'use one, e.g. pt-BR or en');
+}
+
+/**
  * Warnings for the security inputs that have no effect as set: fix-security and security-approval-on read the open
  * findings the security review comment keeps, so they need the security review with keep-findings (and fix-security,
  * in a package, the claude layer; security-approval-on, the risk gate). `on` gives whether each layer runs.

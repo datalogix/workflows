@@ -67,9 +67,12 @@ on:
         type: string
         default: Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*
         description: Tools Claude may use, comma-separated
+      # The flags match anywhere after the command (git push origin -f, gh api ... -f body=x): force pushes, a
+      # + refspec and deleting branches, and gh api's writes (other methods, fields, input); gh api reads stay allowed,
+      # since the fix-ci command reads the jobs and logs of a run with them
       disallowed-tools:
         type: string
-        default: Bash(git push --force:*),Bash(git push -f:*),Bash(git push --delete:*),Bash(gh pr merge:*),Bash(gh pr review:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
+        default: Bash(git push* +*),Bash(git push* -f*),Bash(git push* --force*),Bash(git push* --delete*),Bash(git push* -d*),Bash(git push* --mirror*),Bash(git push* --prune*),Bash(gh api* -X*),Bash(gh api* --method*),Bash(gh api* -f*),Bash(gh api* -F*),Bash(gh api* --field*),Bash(gh api* --raw-field*),Bash(gh api* --input*),Bash(gh pr merge:*),Bash(gh pr review:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
         description: Tools Claude may not use, comma-separated; takes precedence over allowed-tools
       plugin-marketplaces:
         type: string

@@ -618,6 +618,18 @@ test('offers fix-security among the package layers, written only with claude, an
   expect(warnings).toContain('fix-security is on, but without the security review Claude never fixes a finding');
 });
 
+test('check rejects an extra-instructions with a double quote in a package with Claude on', async () => {
+  const errors = async (claudeInputs) =>
+    (await laravelPackage.evaluate({ ...PACKAGE_STATE, current: packageAnswers({}, claudeInputs) }))
+      .filter((item) => item.level === 'error')
+      .map((item) => item.title);
+  const title = 'extra-instructions has a double quote, which cuts the arguments of every Claude job';
+
+  expect(await errors({ claude: 'true', 'extra-instructions': 'Prefer "Pest"' })).toContain(title);
+  // With every Claude layer off, no Claude job runs
+  expect(await errors({ 'extra-instructions': 'Prefer "Pest"' })).not.toContain(title);
+});
+
 test('check rejects a security-approval-on a package workflow does not accept', async () => {
   const items = await laravelPackage.evaluate({
     ...PACKAGE_STATE,
