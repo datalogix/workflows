@@ -2,7 +2,7 @@
 
 ## Conventions
 
-Apps run the Claude workflows by default; packages only those they turn on ([Claude and the risk gate (optional)](laravel/package.md#claude-and-the-risk-gate-optional)). Claude follows the rules of two plugins, loaded by every Claude workflow: `core` ([`plugins/core`](../plugins/core)), common to every project, and the plugin of the project's stack (`laravel`, [`plugins/laravel`](../plugins/laravel)), with its practices, tools and commands:
+Apps run the Claude workflows by default; packages only those they turn on ([Claude and the risk gate (optional)](laravel/package.md#claude-and-the-risk-gate-optional)). Claude follows the rules of two plugins, loaded by every Claude workflow: `core` ([`plugins/core`](../plugins/core)), common to every project, with the `plan`, `fix-ci`, `fix-security` and `incident` commands, and the plugin of the project's stack (`laravel`, [`plugins/laravel`](../plugins/laravel)), with its practices, tools, its `security-review` command and the details of the `core` commands for the stack (its `commands` skill):
 
 - Everything Claude writes for the team (commits, pull requests, comments) is in the project's `language` input, Brazilian Portuguese (`pt-BR`) by default; commits and pull request titles use Conventional Commits with English types, e.g. `feat: adiciona autenticação via OAuth`, unless the project's `CLAUDE.md` has a `- Commits: no type prefix` line, which drops the type (`Adiciona autenticação via OAuth`). The fixed texts of the workflows (deploy, incident and release issues and pull requests, security review summary, labels) exist in `pt-BR` and `en` only: any value starting with `en` gets English, any other language gets Portuguese.
 - Implements only what is needed and reuses the existing architecture.
@@ -22,7 +22,7 @@ To use the same conventions in your local Claude Code:
 /plugin install laravel@datalogix
 ```
 
-Locally, Claude follows the same rules but does not push or open pull requests on its own: pushing the branch, opening the pull request and commenting on the issue live in [`plugins/core/skills/ci/SKILL.md`](../plugins/core/skills/ci/SKILL.md), which only the `claude` workflow loads. The stack's `fix-ci` command does commit and push, because it is meant for the `claude-fix-ci` workflow and for `@claude` asked to fix the CI of a pull request; run it locally only if that is what you want.
+Locally, Claude follows the same rules but does not push or open pull requests on its own: pushing the branch, opening the pull request and commenting on the issue live in [`plugins/core/skills/ci/SKILL.md`](../plugins/core/skills/ci/SKILL.md), which only the `claude` workflow loads. The `core:fix-ci` command does commit and push, because it is meant for the `claude-fix-ci` workflow and for `@claude` asked to fix the CI of a pull request; run it locally only if that is what you want.
 
 ## Environment
 

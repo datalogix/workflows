@@ -5,13 +5,15 @@ argument-hint: <issue number>
 
 Analyze issue #$ARGUMENTS and post an implementation plan on it. **Do not change any file.**
 
+First load the commands skill of the project's stack, the plugin whose conventions skill you follow (`laravel:commands`, `php:commands` or `js:commands`), and use its `plan` section where the steps below point to it.
+
 1. Read the issue and its comments with `gh issue view $ARGUMENTS --comments`.
-2. Explore the code to understand where the change fits: controllers, routes, services, entities and repositories (Symfony), templates, configuration, tests and the patterns already in use.
+2. Explore the code to understand where the change fits: the places the `plan` section lists, the tests and the patterns already in use.
 3. Post the plan with `gh issue comment $ARGUMENTS --body-file -`, written in the team language (see the core:conventions skill), with these sections:
    - **Entendimento**: what the issue asks for, in a few lines.
    - **Arquivos afetados**: files to create or change, one line about each.
    - **Abordagem**: step-by-step implementation, reusing what already exists.
-   - **Riscos**: side effects, migrations, compatibility.
+   - **Riscos**: side effects, migrations, compatibility, and the risks the `plan` section adds.
    - **Dúvidas**: ambiguous points that need a decision before implementing (say so if there are none).
    - **Tamanho**: P, M or G.
 

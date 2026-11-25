@@ -1,6 +1,6 @@
 {
   "name": "core",
-  "description": "Datalogix conventions for every project: language, commits, scope, validation limits, review rounds, pull request description and how CI publishes an implemented issue",
+  "description": "Datalogix conventions for every project: language, commits, scope, validation limits, review rounds, pull request description and how CI publishes an implemented issue; and the plan, fix-ci, fix-security and incident commands, with the details of the stack's plugin",
   "author": {
     "name": "Datalogix"
   }
