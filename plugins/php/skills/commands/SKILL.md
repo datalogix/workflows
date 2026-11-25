@@ -1,9 +1,9 @@
 ---
 name: commands
-description: The PHP (Symfony and plain PHP) details of the core plan, fix-ci, fix-security and incident commands. Load it only when one of those commands asks for it.
+description: The PHP (Symfony and plain PHP) details of the ci plugin's plan, fix-ci, fix-security and incident commands. Load it only when one of those commands asks for it.
 ---
 
-# PHP details of the core commands
+# PHP details of the ci plugin's commands
 
 ## plan
 

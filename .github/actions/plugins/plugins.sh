@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Writes the plugins to install: core and the stack's, on which the prompts of the workflows depend whatever the project
+# Writes the plugins to install: core, ci and the stack's, on which the prompts of the workflows depend whatever the project
 # asks for, then the project's own, one per line and without repeating one
 set -euo pipefail
 
@@ -11,7 +11,7 @@ esac
 
 {
   echo 'plugins<<DATALOGIX_PLUGINS'
-  printf '%s\n' core@datalogix "$stack@datalogix" "${PLUGINS:-}" |
+  printf '%s\n' core@datalogix ci@datalogix "$stack@datalogix" "${PLUGINS:-}" |
     sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' |
     awk 'NF && !seen[$0]++'
   echo DATALOGIX_PLUGINS

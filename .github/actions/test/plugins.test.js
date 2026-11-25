@@ -17,22 +17,23 @@ const list = async (env) => {
 };
 
 test('always installs core and the plugin of the stack', async () => {
-  expect(await list({ STACK: 'laravel' })).toStrictEqual(['core@datalogix', 'laravel@datalogix']);
-  expect(await list({ STACK: 'js' })).toStrictEqual(['core@datalogix', 'js@datalogix']);
-  expect(await list({ STACK: 'JS' })).toStrictEqual(['core@datalogix', 'js@datalogix']);
-  expect(await list({ STACK: 'php' })).toStrictEqual(['core@datalogix', 'php@datalogix']);
-  expect(await list({ STACK: 'PHP' })).toStrictEqual(['core@datalogix', 'php@datalogix']);
-  expect(await list({ STACK: 'nuxt' })).toStrictEqual(['core@datalogix', 'laravel@datalogix']);
-  expect(await list({})).toStrictEqual(['core@datalogix', 'laravel@datalogix']);
+  expect(await list({ STACK: 'laravel' })).toStrictEqual(['core@datalogix', 'ci@datalogix', 'laravel@datalogix']);
+  expect(await list({ STACK: 'js' })).toStrictEqual(['core@datalogix', 'ci@datalogix', 'js@datalogix']);
+  expect(await list({ STACK: 'JS' })).toStrictEqual(['core@datalogix', 'ci@datalogix', 'js@datalogix']);
+  expect(await list({ STACK: 'php' })).toStrictEqual(['core@datalogix', 'ci@datalogix', 'php@datalogix']);
+  expect(await list({ STACK: 'PHP' })).toStrictEqual(['core@datalogix', 'ci@datalogix', 'php@datalogix']);
+  expect(await list({ STACK: 'nuxt' })).toStrictEqual(['core@datalogix', 'ci@datalogix', 'laravel@datalogix']);
+  expect(await list({})).toStrictEqual(['core@datalogix', 'ci@datalogix', 'laravel@datalogix']);
 });
 
 test('adds the plugins of the project without repeating one', async () => {
   expect(await list({ STACK: 'js', PLUGINS: 'laravel@datalogix\n' })).toStrictEqual([
     'core@datalogix',
+    'ci@datalogix',
     'js@datalogix',
     'laravel@datalogix',
   ]);
   expect(
     await list({ STACK: 'laravel', PLUGINS: '  laravel@datalogix\n\ncore@datalogix\nextra@market  \n' }),
-  ).toStrictEqual(['core@datalogix', 'laravel@datalogix', 'extra@market']);
+  ).toStrictEqual(['core@datalogix', 'ci@datalogix', 'laravel@datalogix', 'extra@market']);
 });

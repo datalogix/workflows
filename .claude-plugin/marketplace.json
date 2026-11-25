@@ -10,7 +10,12 @@
     {
       "name": "core",
       "source": "./plugins/core",
-      "description": "Datalogix conventions for every project and the plan, fix-ci, fix-security and incident commands, installed with the plugin of its stack"
+      "description": "Datalogix conventions for every project, installed with the plugin of its stack"
+    },
+    {
+      "name": "ci",
+      "source": "./plugins/ci",
+      "description": "The commands of the Datalogix Claude workflows (plan, fix-ci, fix-security, incident), installed only by them"
     },
     {
       "name": "laravel",

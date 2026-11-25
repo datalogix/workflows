@@ -1,9 +1,9 @@
 ---
 name: commands
-description: The JavaScript details of the core plan, fix-ci, fix-security and incident commands. Load it only when one of those commands asks for it.
+description: The JavaScript details of the ci plugin's plan, fix-ci, fix-security and incident commands. Load it only when one of those commands asks for it.
 ---
 
-# JavaScript details of the core commands
+# JavaScript details of the ci plugin's commands
 
 ## plan
 
