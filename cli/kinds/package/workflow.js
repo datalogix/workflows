@@ -77,6 +77,7 @@ export function packageAnswers(inputs, claudeInputs = {}) {
     fixSecurityOn: scalar(claudeInputs['fix-security-on']) || 'high',
     updateStacked: scalar(claudeInputs['update-stacked'])?.toLowerCase() === 'true',
     language: scalar(claudeInputs.language) || DEFAULT_LANGUAGE,
+    extraInstructions: scalar(claudeInputs['extra-instructions']),
     apiCheck: scalar(inputs['api-check'])?.toLowerCase() === 'true',
     js: flagOf(inputs.js),
     typecheck: flagOf(inputs.typecheck),

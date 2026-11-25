@@ -1075,3 +1075,37 @@ test('rejects a security-approval-on or fix-security-on the workflows do not acc
     expect.stringContaining('which the workflows reject'),
   );
 });
+
+test('rejects an extra-instructions or language that cuts the arguments of the Claude jobs', async () => {
+  const items = async (inputs, level) =>
+    titles(
+      await run(
+        await stateFor({ solo: true, incidents: false }, {}, (content) =>
+          content.replace('    with:\n', `    with:\n${inputs.map((input) => `      ${input}\n`).join('')}`),
+        ),
+      ),
+      level,
+    );
+  const errors = (inputs) => items(inputs, 'error');
+  const cuts = expect.stringContaining('cuts the arguments');
+
+  expect(await errors(['extra-instructions: Prefer "Pest"'])).toContain(
+    'extra-instructions has a double quote, which cuts the arguments of every Claude job',
+  );
+  expect(await errors(['extra-instructions: \'Say "hi"\''])).toContainEqual(
+    expect.stringContaining('extra-instructions has a double quote'),
+  );
+  expect(await errors(['extra-instructions: |', '  Use Livewire.', '  Name it "x".'])).toContainEqual(
+    expect.stringContaining('extra-instructions has a double quote'),
+  );
+  expect(await errors(['language: pt"BR'])).toContain(
+    'language has a double quote, which cuts the arguments of every Claude job',
+  );
+  expect(await errors(["extra-instructions: Prefer 'Pest'", 'language: en-US'])).not.toContainEqual(cuts);
+  // Not a name or code, but without a double quote: only a warning
+  expect(await items(['language: pt(BR)'], 'warn')).toContain('language is pt(BR), not a language name or code');
+  expect(await items(['language: pt(BR)'], 'error')).not.toContainEqual(cuts);
+  const expression = ['language: ${{ vars.LANGUAGE }}'];
+  expect(await errors(expression)).not.toContainEqual(cuts);
+  expect(await items(expression, 'warn')).not.toContainEqual(expect.stringContaining('language is'));
+});
