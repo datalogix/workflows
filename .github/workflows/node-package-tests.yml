@@ -26,6 +26,14 @@ on:
         type: boolean
         default: false
         description: Check what the library publishes after the build (publint, and the types of every entry point with @arethetypeswrong/cli)
+      publint-version:
+        type: string
+        default: ""
+        description: npm version of publint for api-check (e.g. 0.3); empty runs the latest
+      attw-version:
+        type: string
+        default: ""
+        description: npm version of @arethetypeswrong/cli for api-check (e.g. 0.18); empty runs the latest
       typecheck:
         type: boolean
         default: true
@@ -231,10 +239,13 @@ jobs:
       - name: Published package
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && inputs.api-check }}
         shell: bash
+        env:
+          PUBLINT_VERSION: ${{ inputs.publint-version }}
+          ATTW_VERSION: ${{ inputs.attw-version }}
         run: |
           status=0
-          npx --yes publint || status=1
-          npx --yes @arethetypeswrong/cli --pack . || status=1
+          npx --yes "publint${PUBLINT_VERSION:+@$PUBLINT_VERSION}" || status=1
+          npx --yes "@arethetypeswrong/cli${ATTW_VERSION:+@$ATTW_VERSION}" --pack . || status=1
           exit "$status"
 
       # After the build, so tools that read what is published (npx publint, npx attw --pack .) find it

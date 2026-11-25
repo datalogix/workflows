@@ -187,6 +187,10 @@ on:
         type: string
         default: ""
         description: Extra instructions for this project, given to every Claude workflow (no double quotes)
+      code-review-ref:
+        type: string
+        default: ""
+        description: Commit, tag or branch of anthropics/claude-code for the code-review plugin of the review; empty uses the latest
       language:
         type: string
         default: pt-BR
@@ -342,6 +346,7 @@ jobs:
       model: ${{ inputs.model }}
       extra-instructions: ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
+      code-review-ref: ${{ inputs.code-review-ref }}
 
   security:
     if: contains(fromJSON('["laravel", "php", "js"]'), inputs.stack) && inputs.security-review && (github.event_name == 'pull_request' || github.event_name == 'merge_group')

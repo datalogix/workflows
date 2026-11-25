@@ -87,6 +87,18 @@ on:
         type: boolean
         default: false
         description: "Check the public API: on pull requests, fail on changes that break it (laravel and php, with roave/backward-compatibility-check against the base branch); for js, check what the library publishes (publint and @arethetypeswrong/cli)"
+      api-check-version:
+        type: string
+        default: ""
+        description: "laravel and php, with api-check: Composer version constraint of roave/backward-compatibility-check (e.g. ^8.0); empty installs the latest"
+      publint-version:
+        type: string
+        default: ""
+        description: "js, with api-check: npm version of publint (e.g. 0.3); empty runs the latest"
+      attw-version:
+        type: string
+        default: ""
+        description: "js, with api-check: npm version of @arethetypeswrong/cli (e.g. 0.18); empty runs the latest"
       eslint:
         type: boolean
         default: true
@@ -173,6 +185,7 @@ jobs:
       stylelint: ${{ inputs.stylelint }}
       lint-command: ${{ inputs.lint-command }}
       api-check: ${{ inputs.api-check }}
+      api-check-version: ${{ inputs.api-check-version }}
       js: ${{ inputs.js }}
       typecheck: ${{ inputs.typecheck }}
       js-tests: ${{ inputs.js-tests }}
@@ -195,6 +208,8 @@ jobs:
       stylelint: ${{ inputs.stylelint }}
       lint-command: ${{ inputs.lint-command }}
       api-check: ${{ inputs.api-check }}
+      publint-version: ${{ inputs.publint-version }}
+      attw-version: ${{ inputs.attw-version }}
       audit: ${{ inputs.audit }}
       node-audit: ${{ inputs.node-audit }}
       timeout-minutes: ${{ inputs.timeout-minutes }}

@@ -26,6 +26,7 @@ The workflow projects call ([`examples/project.yml`](../examples/project.yml)). 
 | `update-stacked`                                                  | `false`                        | On a push to a pull request, merge its branch into the open pull requests based on it, and comment on one that conflicts; needs the release GitHub App (see [`update-stacked`](#update-stacked)) |
 | `model` / `plan-model` / `fix-ci-model`                           | `opus` / `best` / `sonnet`     | Models for replies, implementation, reviews and incident analysis / plans / CI fixes |
 | `extra-instructions`                                              | empty                          | Extra instructions given to every Claude workflow (no double quotes); prefer `CLAUDE.md` |
+| `code-review-ref`                                                 | empty                          | Commit, tag or branch of `anthropics/claude-code` that the review installs the `code-review` plugin from; empty uses the latest (see [`claude-review`](#claude-review)) |
 | `language`                                                        | `pt-BR`                        | Language of what is written for the team (issues, pull requests, comments, commits; no double quotes): Claude writes in any language; the fixed texts of issues, comments, pull requests and labels exist in `pt-BR` and `en` (any value starting with `en`), other languages get `pt-BR` |
 | `security-fail-on`                                                | `high`                         | Lowest security finding severity that fails the check                    |
 | `security-keep-findings`                                          | `true`                         | Keep the security findings in the review comment, numbered, until a later review finds them resolved (see [`claude-security-review`](#claude-security-review)) |
@@ -73,6 +74,8 @@ The workflow packages call ([`examples/package.yml`](../examples/package.yml), s
 | `stack` | `laravel` | Stack of the package, which picks its tests: `laravel`, `php` (a [PHP package without Laravel](php/package.md)) or `js` (another one fails the run) |
 | `tests` | `true`  | Run the test suite (`laravel` and `php`: across the matrix, Pint, PHPStan, Rector, the lint command and, once, the `package.json` scripts of `js`); it has the required check `pipeline / tests / all-checks`, so run `protect` again after changing it |
 | `api-check` | `false` | `laravel` and `php`: on pull requests, fail on changes that break the public API compared with the base branch (`roave/backward-compatibility-check`), unless the pull request declares a breaking change (`feat!:` or a `BREAKING CHANGE:` footer); `js`: check what the library publishes (`publint`, `@arethetypeswrong/cli`). See [Public API](laravel/package-tests.md#public-api) |
+| `api-check-version` | empty | `laravel` and `php`, with `api-check`: Composer version constraint of `roave/backward-compatibility-check` (e.g. `^8.0`); empty installs the latest |
+| `publint-version` / `attw-version` | empty | `js`, with `api-check`: npm versions of `publint` and `@arethetypeswrong/cli` (e.g. `0.3`); empty runs the latest |
 | `audit` / `node-audit` | `true` | `js`: audit the dependencies (high and critical advisories) on pull requests that change the lockfile, and on scheduled and manual runs; `false` turns it off |
 
 Secrets: `CODECOV_TOKEN` (optional), passed with `secrets: inherit`.
@@ -96,6 +99,7 @@ The Claude layers and the risk gate of a package ([Claude and the risk gate (opt
 | `approvals-medium` / `approvals-high` / `count-author` / `extra-high-risk-paths` / `warn-edited-migrations` | `1` / `1` / `false` / empty / `true` | As for apps, with `risk-gate` (`warn-edited-migrations`: Laravel packages only) |
 | `model` / `plan-model` / `fix-ci-model` | `opus` / `best` / `sonnet` | Models of the Claude layers, as for apps |
 | `extra-instructions` | empty | Extra instructions given to every Claude workflow (no double quotes) |
+| `code-review-ref` | empty | As for apps: the version of the `code-review` plugin, the latest when empty |
 | `update-stacked` | `false` | As for apps (see [`update-stacked`](#update-stacked)) |
 | `language` | `pt-BR` | Language of what Claude writes for the team |
 | `fix-security` / `fix-security-on` | `false` / `high` | As for apps, with `claude` and `security-review` |
@@ -174,7 +178,8 @@ Reviews a pull request. `project` calls it once, when the pull request is opened
 | `extra-instructions`              | empty                                  | Extra instructions for this project (no double quotes) |
 | `language`                        | `pt-BR`                                | Language of what Claude writes for the team (e.g. `pt-BR`, `en`; no double quotes) |
 | `plugin-marketplaces` / `plugins` | same as `claude`                       | Extra Claude Code plugins, besides `code-review` and those of `claude`       |
-| `timeout-minutes`                 | `30`                                   | Job timeout                                            |
+| `code-review-ref`                 | empty                                  | Commit, tag or branch of `anthropics/claude-code` to install the `code-review` plugin from; empty uses the latest on every run |
+| `max-turns` / `timeout-minutes`   | `40` / `30`                            | Limits                                                 |
 
 Secret: `CLAUDE_CODE_OAUTH_TOKEN` (required).
 

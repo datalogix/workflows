@@ -60,6 +60,10 @@ on:
         type: string
         default: ""
         description: Extra instructions for this package, given to every Claude workflow (no double quotes)
+      code-review-ref:
+        type: string
+        default: ""
+        description: Commit, tag or branch of anthropics/claude-code for the code-review plugin of the review; empty uses the latest
       language:
         type: string
         default: pt-BR
@@ -145,6 +149,7 @@ jobs:
       model: ${{ inputs.model }}
       extra-instructions: This repository is a published package, whose public API (public classes, methods, functions, config keys and exports) is used by apps you cannot see. Report, or in your own changes avoid, any change that breaks it (removed or renamed, a changed signature, return type or default behavior) unless the issue or pull request asks for a major version; prefer deprecating and adding. ${{ inputs.extra-instructions }}
       language: ${{ inputs.language }}
+      code-review-ref: ${{ inputs.code-review-ref }}
 
   # Pull requests from forks are skipped inside claude-security-review: the check passes without a review
   security:
