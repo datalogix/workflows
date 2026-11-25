@@ -7,6 +7,7 @@ import {
   labelItems,
   labelsTask,
   languageStep,
+  promptInputItems,
   readClaude,
   readLabels,
   securityInputItems,
@@ -1405,6 +1406,7 @@ async function evaluate(
   }
 
   stackedItems(report, state);
+  promptInputItems(report, state.current);
   // The security review and the risk gate are on unless the file turns them off; the claude layer always is
   securityInputItems(report, state.current, {
     claude: true,

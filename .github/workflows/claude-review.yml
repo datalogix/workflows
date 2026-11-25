@@ -42,7 +42,7 @@ on:
       plugins:
         type: string
         default: ""
-        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed, and code-review
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix, ci@datalogix and the stack's, always installed, and code-review
       extra-instructions:
         type: string
         default: ""

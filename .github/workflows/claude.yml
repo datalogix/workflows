@@ -67,9 +67,12 @@ on:
         type: string
         default: Read,Write,Edit,MultiEdit,Grep,Glob,Bash(*),mcp__laravel-boost__*
         description: Tools Claude may use, comma-separated
+      # The flags match anywhere after the command (git push origin -f, gh api ... -f body=x): force pushes, a
+      # + refspec and deleting branches, and gh api's writes (other methods, fields, input); gh api reads stay allowed,
+      # since the fix-ci command reads the jobs and logs of a run with them
       disallowed-tools:
         type: string
-        default: Bash(git push --force:*),Bash(git push -f:*),Bash(git push --delete:*),Bash(gh pr merge:*),Bash(gh pr review:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
+        default: Bash(git push* +*),Bash(git push* -f*),Bash(git push* --force*),Bash(git push* --delete*),Bash(git push* -d*),Bash(git push* --mirror*),Bash(git push* --prune*),Bash(gh api* -X*),Bash(gh api* --method*),Bash(gh api* -f*),Bash(gh api* -F*),Bash(gh api* --field*),Bash(gh api* --raw-field*),Bash(gh api* --input*),Bash(gh pr merge:*),Bash(gh pr review:*),Bash(gh release:*),Bash(gh repo:*),Bash(gh secret:*)
         description: Tools Claude may not use, comma-separated; takes precedence over allowed-tools
       plugin-marketplaces:
         type: string
@@ -78,7 +81,7 @@ on:
       plugins:
         type: string
         default: ""
-        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix, ci@datalogix and the stack's, always installed
       extra-instructions:
         type: string
         default: ""
@@ -214,7 +217,7 @@ jobs:
             ${{ steps.setup.outputs.mcp-config != '' && format('--mcp-config {0}', steps.setup.outputs.mcp-config) || '' }}
             --allowed-tools "${{ inputs.allowed-tools }}"
             --disallowed-tools "${{ inputs.disallowed-tools }}"
-            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Explore the code yourself, synchronously, and only end your turn when the task is complete. Before starting, load the core:conventions, core:ci and ${{ inputs.stack }}:conventions skills and follow all of their rules. When a comment on a pull request asks you to fix its failing CI or tests, run the ${{ inputs.stack }}:fix-ci command with the id of the latest failed workflow run of the head commit of the pull request (gh run list --commit <sha> --status failure --limit 1) and the pull request number, and follow it. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
+            --append-system-prompt "This is a single, non-interactive session: do not delegate work to background sub-agents and then wait for them, because the session cannot be resumed. Explore the code yourself, synchronously, and only end your turn when the task is complete. Before starting, load the core:conventions, core:ci and ${{ inputs.stack }}:conventions skills and follow all of their rules. When a comment on a pull request asks you to fix its failing CI or tests, run the ci:fix-ci command with the id of the latest failed workflow run of the head commit of the pull request (gh run list --commit <sha> --status failure --limit 1) and the pull request number, and follow it. Team language: ${{ inputs.language }}. ${{ inputs.extra-instructions }}"
 
   plan:
     if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == inputs.plan-label
@@ -268,7 +271,7 @@ jobs:
             ${{ inputs.plugin-marketplaces }}
           plugins: ${{ steps.plugins.outputs.plugins }}
 
-          prompt: /${{ inputs.stack }}:plan ${{ github.event.issue.number }}
+          prompt: /ci:plan ${{ github.event.issue.number }}
 
           claude_args: |
             --max-turns ${{ inputs.plan-max-turns }}

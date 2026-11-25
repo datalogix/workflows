@@ -1,0 +1,7 @@
+{
+  "name": "ci",
+  "description": "The plan, fix-ci, fix-security and incident commands of the Datalogix Claude workflows, with the details of the stack's plugin; installed only by the workflows, since fix-ci and fix-security push and plan and incident comment on their own",
+  "author": {
+    "name": "Datalogix"
+  }
+}

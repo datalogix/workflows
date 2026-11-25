@@ -13,6 +13,11 @@
       "description": "Datalogix conventions for every project, installed with the plugin of its stack"
     },
     {
+      "name": "ci",
+      "source": "./plugins/ci",
+      "description": "The commands of the Datalogix Claude workflows (plan, fix-ci, fix-security, incident), installed only by them"
+    },
+    {
       "name": "laravel",
       "source": "./plugins/laravel",
       "description": "Datalogix conventions and commands for Laravel projects"

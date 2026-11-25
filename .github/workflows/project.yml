@@ -13,7 +13,7 @@ on:
       stack:
         type: string
         default: laravel
-        description: Stack of the project (laravel, php for a Symfony or plain PHP app, or js), which picks its tests, the environment prepared for Claude, the Claude plugins (core@datalogix with laravel@datalogix, php@datalogix or js@datalogix) and the default high-risk paths
+        description: Stack of the project (laravel, php for a Symfony or plain PHP app, or js), which picks its tests, the environment prepared for Claude, the Claude plugins (core@datalogix and ci@datalogix with laravel@datalogix, php@datalogix or js@datalogix) and the default high-risk paths
       # Layers
       tests:
         type: boolean

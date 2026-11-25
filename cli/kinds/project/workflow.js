@@ -79,6 +79,7 @@ export function projectAnswers(inputs) {
     e2e: flagOf(inputs.e2e),
     database: scalar(inputs.database)?.toLowerCase() || 'none',
     language: scalar(inputs.language) || DEFAULT_LANGUAGE,
+    extraInstructions: scalar(inputs['extra-instructions']),
     updateStacked: scalar(inputs['update-stacked'])?.toLowerCase() === 'true',
     keepFindings: flagOf(inputs['security-keep-findings']),
     fixSecurity: scalar(inputs['fix-security'])?.toLowerCase() === 'true',
