@@ -109,6 +109,10 @@ on:
         type: boolean
         default: true
         description: Run Rector in dry-run mode when it is installed and rector.php exists
+      views:
+        type: boolean
+        default: true
+        description: Compile the Blade views (php artisan view:cache) and check the compiled PHP with php -l, in Laravel apps
       eslint:
         type: boolean
         default: true
@@ -295,6 +299,7 @@ jobs:
       pint: ${{ inputs.pint }}
       phpstan: ${{ inputs.phpstan }}
       rector: ${{ inputs.rector }}
+      views: ${{ inputs.views }}
       eslint: ${{ inputs.eslint }}
       prettier: ${{ inputs.prettier }}
       stylelint: ${{ inputs.stylelint }}

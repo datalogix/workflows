@@ -33,6 +33,7 @@ Every deploy can be rolled back by redeploying the previous commit, which does n
 
 - Run Laravel Pint, if available, only on the files you changed (`vendor/bin/pint <files>`). When `package.json` declares `prettier-plugin-blade` and `vendor/bin/pint --help` lists `--blade`, add `--blade` and include the Blade views you changed, as CI does.
 - Run PHPStan, if available, only on the files you changed, not the whole codebase.
+- When you changed a Blade view, compile the views and check the compiled PHP, as CI does (`views` input): `php artisan view:cache`, then `find storage/framework/views -name '*.php' -exec php -l {} \; | grep -v '^No syntax errors'`, which prints nothing when every view is valid (use the `view.compiled` folder when the project changed it). `view:cache` alone does not catch a view that compiles to invalid PHP; a compiled file ends with `/**PATH <view> ENDPATH**/`, which names its view.
 - Use the project's scripts to learn how it runs its tools: read `scripts` in `composer.json` (`test`) and `package.json` (`typecheck`, `lint`, `test`; the starter kits name them `types:check` and `check`) and use the same runner and options, filtered to your change (e.g. `php artisan test --filter=<Test>`, `npm run test -- <file>`). Fall back to `php artisan test`, `vendor/bin/pest` or `vendor/bin/phpunit` when there is no script.
 
 ## Pre-PR verification
@@ -41,6 +42,7 @@ The checks to run on what you changed (see `core:conventions`; never lower a PHP
 
 1. Laravel Pint on the changed PHP files (and Blade views, with `--blade`, when CI checks them; see Validation).
 2. PHPStan on the changed PHP files.
-3. The tests related to the change (PHP, and JavaScript/TypeScript through the `test` script of `package.json` when you changed frontend code).
-4. The typecheck (`typecheck`, `types:check` or `type-check`) and lint (`lint` or `check`) scripts of `package.json`, when they are defined and you changed frontend code. Never run Prettier on Blade views: Pint checks them.
-5. `composer audit --locked` if you changed `composer.lock`, and the audit of the Node lockfile you changed (`npm audit --audit-level=high`, `pnpm audit --audit-level high`, `yarn audit --level high` or `yarn npm audit --recursive --severity high`).
+3. The compiled Blade views checked with `php -l`, when you changed a view (see Validation).
+4. The tests related to the change (PHP, and JavaScript/TypeScript through the `test` script of `package.json` when you changed frontend code).
+5. The typecheck (`typecheck`, `types:check` or `type-check`) and lint (`lint` or `check`) scripts of `package.json`, when they are defined and you changed frontend code. Never run Prettier on Blade views: Pint checks them.
+6. `composer audit --locked` if you changed `composer.lock`, and the audit of the Node lockfile you changed (`npm audit --audit-level=high`, `pnpm audit --audit-level high`, `yarn audit --level high` or `yarn npm audit --recursive --severity high`).

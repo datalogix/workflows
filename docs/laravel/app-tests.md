@@ -31,6 +31,8 @@ Setup reads `composer.json` and asks two questions, starting from what is instal
 - **Lint checks**: Laravel Pint (on pull requests, only the files they change, and in the merge queue those of the queued group; every file on pushes, scheduled and manual runs), PHPStan, Rector (in a dry run, when `rector.php` exists), ESLint, Prettier and Stylelint (those the [JS style check](../lint.md#eslint-prettier-and-stylelint) would run), and another command. The installed tools come checked; unchecking one writes `pint: false`, `phpstan: false`, `rector: false`, `eslint: false`, `prettier: false` or `stylelint: false`, and unchecking everything turns lint off. Another command (`lint-command`) runs after them, on every event; setup suggests the `composer.json` scripts that only check (e.g. `composer lint:check && composer types:check`), leaving out what Pint, PHPStan and Rector already cover.
 - **Test suite**: the suggested command, another command (`test-command`) or off (`test-command: none`). The suggestion is `composer test` when that script only runs tests, and `php artisan test` when it also runs Pint or PHPStan (as in the Laravel starter kits), so lint does not run twice, nor Pint on every file. Without Pest, PHPUnit or a `test` script, the question starts at off.
 
+Laravel apps also compile their Blade views and check the compiled PHP with `php -l` (`views: false` turns it off), which catches a view that compiles to invalid PHP before a page renders it.
+
 Each check runs even when an earlier one failed (a Pint failure still runs PHPStan, the suite and the rest), so one run reports every failure; none runs when the project could not be prepared.
 
 The job summary shows the coverage of the suite, read from the Clover report `phpunit.xml` writes (with `pcov`), and with `min-coverage` set the suite must cover at least that percent of the code: see [Minimum coverage](../coverage.md) for the `phpunit.xml` to use.
@@ -90,6 +92,7 @@ For example:
 | `phpstan`         | `true`             | Run PHPStan when installed                                                                |
 | `rector`          | `true`             | Run Rector in a dry run when installed and `rector.php` exists                            |
 | `eslint` / `prettier` / `stylelint` | `true` | Run ESLint, Prettier (or `format:check`) and Stylelint (or `lint:css`) when the project installed them and no script runs them; see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) |
+| `views`           | `true`             | Compile the Blade views (`php artisan view:cache`) and check the compiled PHP with `php -l`; the error points at the view |
 | `lint-command`    | empty              | Extra lint command run after Pint, PHPStan and Rector, e.g. `composer lint:check`         |
 | `audit`           | `true`             | Run `composer audit` and the Node audit on scheduled and manual runs, and on PRs that change their lockfile; `false` turns off both |
 | `composer-audit` / `node-audit` | `true` | `false` turns off only `composer audit` or only the Node audit; see [Ignoring one advisory](#ignoring-one-advisory) |
