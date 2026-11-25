@@ -22,7 +22,7 @@ Passed to `package` with `stack: js`:
 | `min-coverage` | `100` | Minimum coverage of the tests; `0` turns the check off. See [Minimum coverage](../coverage.md) |
 | `eslint` / `prettier` / `stylelint` | `true` | Run ESLint, Prettier (or `format:check`) and Stylelint (or `lint:css`) when the project installed them and no script runs them; see [ESLint, Prettier and Stylelint](../lint.md#eslint-prettier-and-stylelint) |
 | `typecheck` | `true` | Run the typecheck script (`typecheck`, `types:check` or `type-check`); `false` skips only it |
-| `lint-command` | empty | Extra lint command after the `build` script, e.g. `npx publint && npx attw --pack .`, or `composer install --no-interaction && composer lint` for PHP tooling |
+| `lint-command` | empty | Extra lint command after the `build` script, e.g. `composer install --no-interaction && composer lint` for PHP tooling; to check the published package, turn on `api-check` instead |
 | `api-check` / `publint-version` / `attw-version` | `false` / empty / empty | Check what the library publishes (see [Published package](#published-package)); the npm versions of `publint` and `@arethetypeswrong/cli`, the latest when empty |
 | `audit` / `node-audit` | `true` | Audit the dependencies (high and critical advisories) on pull requests that change the lockfile and on scheduled and manual runs; `false` turns it off. See [Ignoring one advisory](../laravel/app-tests.md#ignoring-one-advisory) |
 | `timeout-minutes` | `30` | Timeout of each job |

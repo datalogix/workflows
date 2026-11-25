@@ -193,12 +193,12 @@ And, in `.github/workflows/datalogix.yml`:
 ```yaml
     with:
       stack: js
-      lint-command: npx publint && npx attw --pack .
+      api-check: true
 ```
 
-- `lint-command` runs after the build, so `publint` (what `package.json` publishes: `exports`, `main`, `types`) and `attw` (whether the types resolve in ESM and CommonJS) find `dist/`.
+- `api-check` runs `publint` (what `package.json` publishes: `exports`, `main`, `types`) and `attw` (whether the types resolve in ESM and CommonJS) after the build, so they find `dist/` (see [Published package](js/package-tests.md#published-package)).
 - `eslint.config.js` with `typescript-eslint`, ignoring `dist/` and `coverage/`; `.prettierignore` with `dist`, `coverage` and the lockfile.
-- A JavaScript library without TypeScript drops `typecheck` and `attw`.
+- A JavaScript library without TypeScript drops `typecheck`, and, since `api-check` always runs `attw`, checks the package with `lint-command: npx publint` instead.
 
 ## Blade views
 
