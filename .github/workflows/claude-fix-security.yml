@@ -57,7 +57,7 @@ on:
       plugins:
         type: string
         default: ""
-        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix, ci@datalogix and the stack's, always installed
       extra-instructions:
         type: string
         default: ""
@@ -147,7 +147,7 @@ jobs:
             ${{ inputs.plugin-marketplaces }}
           plugins: ${{ steps.plugins.outputs.plugins }}
 
-          prompt: /${{ inputs.stack }}:fix-security ${{ env.PR_NUMBER }} ${{ runner.temp }}/security-fix.json
+          prompt: /ci:fix-security ${{ env.PR_NUMBER }} ${{ runner.temp }}/security-fix.json
 
           claude_args: |
             --max-turns ${{ inputs.max-turns }}

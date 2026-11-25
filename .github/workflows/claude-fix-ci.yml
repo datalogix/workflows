@@ -53,7 +53,7 @@ on:
       plugins:
         type: string
         default: ""
-        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix, ci@datalogix and the stack's, always installed
       extra-instructions:
         type: string
         default: ""
@@ -186,7 +186,7 @@ jobs:
           additional_permissions: |
             actions: read
 
-          prompt: /${{ inputs.stack }}:fix-ci ${{ env.RUN_ID }} ${{ env.PR_NUMBER }}
+          prompt: /ci:fix-ci ${{ env.RUN_ID }} ${{ env.PR_NUMBER }}
 
           claude_args: |
             --max-turns ${{ inputs.max-turns }}

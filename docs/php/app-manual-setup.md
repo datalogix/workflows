@@ -5,7 +5,7 @@ What [the setup command](app.md#step-1-run-setup) does for a PHP app without Lar
 What a PHP app gets is what a Laravel app gets (see [Verification layers](../verification-layers.md)), with these differences:
 
 - The tests run [`laravel-app-tests`](app-tests.md), which prepares the app by its files: Composer, Node and the frontend build, and for Symfony with Doctrine the test database of `.env.test`. No Laravel `.env`, `artisan` or Boost.
-- Claude installs the `php` plugin (`php@datalogix`: conventions for Symfony and plain PHP, and the `fix-ci`, `plan`, `security-review` and `incident` commands) and runs with `APP_ENV=test`.
+- Claude installs the `php` plugin (`php@datalogix`: conventions for Symfony and plain PHP, the `security-review` command and the PHP details of the `ci` plugin's commands `fix-ci`, `plan`, `fix-security` and `incident`) and runs with `APP_ENV=test`.
 - The risk gate uses [PHP's high-risk paths](../reference.md#risk-gate) (Doctrine migrations, the security firewall, routes, `.env`).
 - Deploys go to Forge, as described in [Deploy](../deploy.md) (Laravel Cloud runs only Laravel; Vercel and Netlify run no PHP).
 - Problems become issues with [Sentry](../production-errors.md#sentry) or [Inspector](../production-errors.md#inspector); Nightwatch is Laravel only.

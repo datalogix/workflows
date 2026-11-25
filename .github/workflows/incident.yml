@@ -38,7 +38,7 @@ on:
       plugins:
         type: string
         default: ""
-        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix and the stack's, always installed
+        description: Extra Claude Code plugins, one per line (name@marketplace), besides core@datalogix, ci@datalogix and the stack's, always installed
       extra-instructions:
         type: string
         default: ""
@@ -106,7 +106,7 @@ jobs:
             ${{ inputs.plugin-marketplaces }}
           plugins: ${{ steps.plugins.outputs.plugins }}
 
-          prompt: /${{ inputs.stack }}:incident ${{ steps.sync.outputs.number }} ${{ steps.sync.outputs.live || '-' }} ${{ steps.sync.outputs.previous || '-' }}
+          prompt: /ci:incident ${{ steps.sync.outputs.number }} ${{ steps.sync.outputs.live || '-' }} ${{ steps.sync.outputs.previous || '-' }}
 
           # Read-only: Claude reads the code and the history and comments on the issue. The issue holds text from
           # production errors, which anyone can cause: reads stay in the workspace (not /proc or the runner's files)
